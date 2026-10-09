@@ -102,6 +102,9 @@ var reduceChannels reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		//   nil       -> network failure, keep cached render
 		//   []        -> channel is genuinely empty, replace with empty
 		//   non-empty -> authoritative replace
+		if m.ChannelID == a.channelFetchInFlight {
+			a.channelFetchInFlight = ""
+		}
 		var kind string
 		switch {
 		case m.Messages == nil:
@@ -474,6 +477,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		a.statusbar.SetSyncing(true)
 		debuglog.Cache("ChannelSelectedMsg: channel=%s tier=2_verify", m.ID)
 		tier = "2_verify"
+		a.channelFetchInFlight = m.ID
 		return fetchCmd(), true
 
 	default:
@@ -484,6 +488,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 		a.statusbar.SetSyncing(false)
 		debuglog.Cache("ChannelSelectedMsg: channel=%s tier=3_spinner", m.ID)
 		tier = "3_spinner"
+		a.channelFetchInFlight = m.ID
 		return tea.Batch(spinnerTickCmd(), fetchCmd()), true
 	}
 }
