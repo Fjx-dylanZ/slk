@@ -1326,12 +1326,12 @@ func run() error {
 
 		app.SetInteractionService(core.NewInteractionService(core.InteractionServiceFuncs{
 			PressAttachmentAction: func(channelID ids.ChannelID, messageTS ids.MessageTS,
-				attachmentID int, callbackID string, action blocks.LegacyAction, ephemeral bool) error {
+				attachmentID int, callbackID, serviceID string, action blocks.LegacyAction, ephemeral bool) error {
 				wctx := router.Active()
 				if wctx == nil {
 					return errors.New("no active workspace")
 				}
-				return pressAttachmentAction(ctx, wctx.Client, channelID, messageTS, attachmentID, callbackID, action, ephemeral)
+				return pressAttachmentAction(ctx, wctx.Client, channelID, messageTS, attachmentID, callbackID, serviceID, action, ephemeral)
 			},
 		}))
 

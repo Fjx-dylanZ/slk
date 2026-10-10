@@ -231,6 +231,6 @@ func (a *App) setProfileFetcherForTest(fn func(ctx context.Context, teamID, user
 	a.SetProfileService(core.NewProfileService(core.ProfileServiceFuncs{Profile: fn}))
 }
 
-func (a *App) setInteractionPressForTest(fn func(ids.ChannelID, ids.MessageTS, int, string, blocks.LegacyAction, bool) error) {
+func (a *App) setInteractionPressForTest(fn func(ids.ChannelID, ids.MessageTS, int, string, string, blocks.LegacyAction, bool) error) {
 	a.SetInteractionService(core.NewInteractionService(core.InteractionServiceFuncs{PressAttachmentAction: fn}))
 }

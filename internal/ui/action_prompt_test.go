@@ -18,7 +18,7 @@ const ephTS = "5.000000"
 // mentionEphemeral is Slackbot's "not in channel" notice as Part A parses it.
 func mentionEphemeral(ts string) messages.MessageItem {
 	return messages.MessageItem{
-		TS: ts, UserID: "USLACKBOT", UserName: "Slackbot", Ephemeral: true,
+		TS: ts, UserID: "USLACKBOT", UserName: "Slackbot", Ephemeral: true, BotID: "B01",
 		Text: "You mentioned <@U0EXAMPLE01>, but they're not in this channel.",
 		LegacyAttachments: []blocks.LegacyAttachment{{
 			ID: 1, CallbackID: "cb", Text: "You may want to invite them.",
@@ -36,6 +36,7 @@ type pressCall struct {
 	channel, ts string
 	attID       int
 	callbackID  string
+	serviceID   string
 	action      blocks.LegacyAction
 	ephemeral   bool
 }
@@ -46,8 +47,8 @@ func actionApp(t *testing.T, err error, msgs ...messages.MessageItem) (*App, *[]
 	t.Helper()
 	a := newTestApp(t, withSize(120, 40), withActiveChannel("C1"), withMessages(msgs...))
 	calls := &[]pressCall{}
-	a.setInteractionPressForTest(func(ch ids.ChannelID, ts ids.MessageTS, attID int, cb string, act blocks.LegacyAction, eph bool) error {
-		*calls = append(*calls, pressCall{string(ch), string(ts), attID, cb, act, eph})
+	a.setInteractionPressForTest(func(ch ids.ChannelID, ts ids.MessageTS, attID int, cb, svcID string, act blocks.LegacyAction, eph bool) error {
+		*calls = append(*calls, pressCall{string(ch), string(ts), attID, cb, svcID, act, eph})
 		return err
 	})
 	return a, calls
@@ -116,7 +117,7 @@ func TestActionPromptPressSendsTheAction(t *testing.T) {
 		t.Fatalf("presses = %d, want 1", len(*calls))
 	}
 	c := (*calls)[0]
-	if c.channel != "C1" || c.ts != ephTS || c.attID != 1 || c.callbackID != "cb" ||
+	if c.channel != "C1" || c.ts != ephTS || c.attID != 1 || c.callbackID != "cb" || c.serviceID != "B01" ||
 		c.action.ID != "2" || c.action.Name != "ignore" || !c.ephemeral {
 		t.Errorf("press = %+v", c)
 	}
@@ -153,6 +154,8 @@ func TestActionPromptConfirmStep(t *testing.T) {
 	pressKey(t, a, keyPress('2')) // Add
 	if len(*calls) != 1 || (*calls)[0].action.Name != "invite" {
 		t.Errorf("presses = %+v, want one invite", *calls)
+	} else if (*calls)[0].serviceID != "B01" {
+		t.Errorf("serviceID after confirm = %q, want B01", (*calls)[0].serviceID)
 	}
 }
 

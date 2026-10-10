@@ -16,12 +16,13 @@ type attachmentActioner interface {
 
 // pressAttachmentAction presses a legacy attachment button through client.
 func pressAttachmentAction(ctx context.Context, client attachmentActioner, channelID ids.ChannelID,
-	messageTS ids.MessageTS, attachmentID int, callbackID string, action blocks.LegacyAction, ephemeral bool) error {
+	messageTS ids.MessageTS, attachmentID int, callbackID, serviceID string, action blocks.LegacyAction, ephemeral bool) error {
 	return client.AttachmentAction(ctx, slackclient.AttachmentActionRequest{
 		ChannelID:    string(channelID),
 		MessageTS:    string(messageTS),
 		AttachmentID: attachmentID,
 		CallbackID:   callbackID,
+		ServiceID:    serviceID,
 		Ephemeral:    ephemeral,
 		Action:       action,
 	})

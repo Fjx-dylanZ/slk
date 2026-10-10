@@ -80,7 +80,7 @@ func (r reactionAdapter) RecordFrecent(emoji string) {
 // A nil func makes its method return errors.ErrUnsupported.
 type InteractionServiceFuncs struct {
 	PressAttachmentAction func(channelID ids.ChannelID, messageTS ids.MessageTS,
-		attachmentID int, callbackID string, action blocks.LegacyAction, ephemeral bool) error
+		attachmentID int, callbackID, serviceID string, action blocks.LegacyAction, ephemeral bool) error
 }
 
 // NewInteractionService builds an InteractionService from fns. Used by
@@ -92,11 +92,11 @@ func NewInteractionService(fns InteractionServiceFuncs) InteractionService {
 type interactionAdapter struct{ fns InteractionServiceFuncs }
 
 func (i interactionAdapter) PressAttachmentAction(channelID ids.ChannelID, messageTS ids.MessageTS,
-	attachmentID int, callbackID string, action blocks.LegacyAction, ephemeral bool) error {
+	attachmentID int, callbackID, serviceID string, action blocks.LegacyAction, ephemeral bool) error {
 	if i.fns.PressAttachmentAction == nil {
 		return errors.ErrUnsupported
 	}
-	return i.fns.PressAttachmentAction(channelID, messageTS, attachmentID, callbackID, action, ephemeral)
+	return i.fns.PressAttachmentAction(channelID, messageTS, attachmentID, callbackID, serviceID, action, ephemeral)
 }
 
 // ThreadServiceFuncs is the closure bundle accepted by

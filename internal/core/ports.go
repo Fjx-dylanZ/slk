@@ -50,9 +50,10 @@ type ReactionService interface {
 // Build one with NewInteractionService.
 type InteractionService interface {
 	// PressAttachmentAction presses a legacy attachment button, echoing
-	// action back as received (chat.attachmentAction).
+	// action back as received (chat.attachmentAction). serviceID is the
+	// posting app's bot ID.
 	PressAttachmentAction(channelID ids.ChannelID, messageTS ids.MessageTS,
-		attachmentID int, callbackID string, action blocks.LegacyAction, ephemeral bool) error
+		attachmentID int, callbackID, serviceID string, action blocks.LegacyAction, ephemeral bool) error
 }
 
 // ThreadService is the App's interface to Slack's thread surfaces:

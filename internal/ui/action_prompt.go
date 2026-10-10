@@ -87,9 +87,9 @@ func (a *App) actionChoice(ref actionPromptRef, msg messages.MessageItem) confir
 			url := ba.Action.URL
 			b.Action = func() tea.Msg { return OpenLinkMsg{URL: url} }
 		case ba.Action.Confirm != nil:
-			b.Then = a.actionConfirmChoice(ref, ba, choice)
+			b.Then = a.actionConfirmChoice(ref, ba, msg.BotID, choice)
 		default:
-			b.Action = a.pressAction(ref, ba)
+			b.Action = a.pressAction(ref, ba, msg.BotID)
 		}
 		choice.Buttons = append(choice.Buttons, b)
 	}
@@ -98,7 +98,7 @@ func (a *App) actionChoice(ref actionPromptRef, msg messages.MessageItem) confir
 
 // actionConfirmChoice is Slack's confirmation step for ba. Its dismiss
 // button returns to back; its OK button presses.
-func (a *App) actionConfirmChoice(ref actionPromptRef, ba messages.ButtonAction, back *confirmprompt.Choice) *confirmprompt.Choice {
+func (a *App) actionConfirmChoice(ref actionPromptRef, ba messages.ButtonAction, serviceID string, back *confirmprompt.Choice) *confirmprompt.Choice {
 	c := ba.Action.Confirm
 	title, dismiss, ok := c.Title, c.DismissText, c.OKText
 	if title == "" {
@@ -116,7 +116,7 @@ func (a *App) actionConfirmChoice(ref actionPromptRef, ba messages.ButtonAction,
 		Default: -1,
 		Buttons: []confirmprompt.Button{
 			{Label: dismiss, Keys: key.NewBinding(key.WithKeys("1")), Then: back},
-			{Label: ok, Keys: key.NewBinding(key.WithKeys("2")), Action: a.pressAction(ref, ba)},
+			{Label: ok, Keys: key.NewBinding(key.WithKeys("2")), Action: a.pressAction(ref, ba, serviceID)},
 		},
 	}
 }
@@ -141,12 +141,12 @@ func (a *App) actionBody(msg messages.MessageItem) string {
 
 // pressAction is a button's action: press it through the interaction
 // service, off the UI goroutine, and report the result.
-func (a *App) pressAction(ref actionPromptRef, ba messages.ButtonAction) func() tea.Msg {
+func (a *App) pressAction(ref actionPromptRef, ba messages.ButtonAction, serviceID string) func() tea.Msg {
 	svc := a.interactions
 	att, act := ba.Attachment, ba.Action
 	return func() tea.Msg {
 		err := svc.PressAttachmentAction(ids.ChannelID(ref.channelID), ids.MessageTS(ref.ts),
-			att.ID, att.CallbackID, act, true)
+			att.ID, att.CallbackID, serviceID, act, true)
 		return actionPressedMsg{label: act.Text, err: err}
 	}
 }
