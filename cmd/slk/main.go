@@ -1331,6 +1331,8 @@ func run() error {
 				if wctx == nil {
 					return errors.New("no active workspace")
 				}
+				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				defer cancel()
 				return pressAttachmentAction(ctx, wctx.Client, channelID, messageTS, attachmentID, callbackID, serviceID, action, ephemeral)
 			},
 		}))
