@@ -439,6 +439,7 @@ type App struct {
 	// internal/ui/services.go. Defaulted to a no-op adapter in NewApp
 	// so call sites can dispatch without nil-checks.
 	reactions     core.ReactionService
+	interactions  core.InteractionService
 	currentUserID string
 
 	// editing tracks in-progress message edit state. See
@@ -816,6 +817,7 @@ func NewApp() *App {
 		preview:               newImagePreviewController(),
 		layout:                newPanelLayout(),
 		reactions:             noopReactionService,
+		interactions:          noopInteractionService,
 		threads:               noopThreadService,
 		activity:              noopActivityService,
 		messageSvc:            noopMessageService,
@@ -3238,6 +3240,16 @@ func (a *App) SetReactionService(r core.ReactionService) {
 		r = noopReactionService
 	}
 	a.reactions = r
+}
+
+// SetInteractionService wires the service the action dialog presses
+// buttons through. A nil s restores the no-op, whose presses fail with
+// errors.ErrUnsupported and so surface as a toast.
+func (a *App) SetInteractionService(s core.InteractionService) {
+	if s == nil {
+		s = noopInteractionService
+	}
+	a.interactions = s
 }
 
 // SetProfileService wires the App's ProfileService collaborator, used
