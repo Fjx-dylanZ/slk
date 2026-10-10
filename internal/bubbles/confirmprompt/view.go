@@ -93,12 +93,20 @@ func (m Model) renderButtons(placed []buttonrow.Placed) string {
 }
 
 // wrapLines word-wraps s to width, keeping paragraph breaks and turning tabs
-// into spaces. With max > 0 it keeps max lines, ending the last with "…".
+// into spaces; no line is wider than width. With max > 0 it keeps max lines, ending the last with "…".
 func wrapLines(s string, width, max int) []string {
 	s = strings.ReplaceAll(s, "\t", " ")
 	var out []string
 	for _, para := range strings.Split(s, "\n") {
-		out = append(out, strings.Split(xansi.Wrap(para, width, ""), "\n")...)
+		for _, line := range strings.Split(xansi.Wrap(para, width, ""), "\n") {
+			// Wrap can leave a line one column too wide (a leading space
+			// before a long token); the box would re-wrap it.
+			if xansi.StringWidth(line) > width {
+				out = append(out, strings.Split(xansi.Hardwrap(line, width, true), "\n")...)
+				continue
+			}
+			out = append(out, line)
+		}
 	}
 	if max > 0 && len(out) > max {
 		out = out[:max]

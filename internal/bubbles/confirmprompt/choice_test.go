@@ -257,3 +257,60 @@ func TestViewWrapsLongTitle(t *testing.T) {
 		t.Errorf("with a wrapped title, ButtonAt on the button = %d,%v; want 0,true", got, ok)
 	}
 }
+
+func okChoice(body string) Choice {
+	return Choice{Title: "T", Body: body, Buttons: []Button{{Label: "OK", Keys: numKey("1")}}, Default: -1}
+}
+
+// A leading space makes xansi.Wrap emit a line one column too wide, which
+// the box would re-wrap; the button must still be where ButtonAt says.
+func TestButtonAtWithOverlongBodyLine(t *testing.T) {
+	t.Parallel()
+	m := New(WithWidth(80))
+	m.OpenChoice(okChoice(" " + strings.Repeat("d", 50)))
+	x, y := cellOf(t, m, "[1] OK")
+	if got, ok := m.ButtonAt(x, y); !ok || got != 0 {
+		t.Errorf("ButtonAt on the button = %d,%v; want 0,true:\n%s", got, ok, m.View())
+	}
+}
+
+func TestWrapLinesNeverExceedsWidth(t *testing.T) {
+	t.Parallel()
+	const width = 36
+	for _, in := range []string{
+		"",
+		"short",
+		" " + strings.Repeat("d", 36),
+		" " + strings.Repeat("d", 120),
+		strings.Repeat("d", 120),
+		"a b " + strings.Repeat("é", 80) + " tail",
+		"one\n " + strings.Repeat("d", 50) + "\ntwo",
+	} {
+		for _, max := range []int{0, 3} {
+			for i, line := range wrapLines(in, width, max) {
+				if w := ansi.StringWidth(line); w > width {
+					t.Errorf("wrapLines(%q, %d, %d)[%d] width = %d, want <= %d: %q", in, width, max, i, w, width, line)
+				}
+			}
+		}
+	}
+}
+
+func TestBodyRowsStayCappedWithOverlongLines(t *testing.T) {
+	t.Parallel()
+	m := New(WithWidth(80))
+	m.OpenChoice(okChoice(" " + strings.Repeat("d", 50) + "\n" + strings.Repeat("wxyz ", 100)))
+	rows := 0
+	for _, l := range plainLines(m.View()) {
+		if strings.ContainsAny(l, "dw") {
+			rows++
+		}
+	}
+	if rows != maxBodyLines {
+		t.Errorf("body rows = %d, want %d:\n%s", rows, maxBodyLines, m.View())
+	}
+	x, y := cellOf(t, m, "[1] OK")
+	if got, ok := m.ButtonAt(x, y); !ok || got != 0 {
+		t.Errorf("ButtonAt on the button = %d,%v; want 0,true", got, ok)
+	}
+}
