@@ -65,6 +65,14 @@ func (a *App) openActionPrompt(ref actionPromptRef) bool {
 		a.compose.Blur()
 		a.threadCompose.Blur()
 	}
+	kept := a.actionQueue[:0]
+	for _, r := range a.actionQueue {
+		if r.key() != ref.key() {
+			kept = append(kept, r)
+		}
+	}
+	a.actionQueue = kept
+	delete(a.promptToasted, ref.key())
 	a.prepareConfirmPrompt()
 	a.confirmPrompt.OpenChoice(a.actionChoice(ref, msg))
 	a.shownPrompt = &ref
@@ -176,7 +184,6 @@ func (a *App) tryOpenActionPrompt() tea.Cmd {
 			return a.toastActionWaiting(ref)
 		}
 		a.actionQueue = a.actionQueue[1:]
-		delete(a.promptToasted, ref.key())
 		if a.openActionPrompt(ref) {
 			return nil
 		}
@@ -225,4 +232,56 @@ func (a *App) dropActionPrompt(channelID, ts string) tea.Cmd {
 		return a.afterConfirmPrompt(nil)
 	}
 	return nil
+}
+
+func toastCmd(text string) tea.Cmd { return func() tea.Msg { return ToastMsg{Text: text} } }
+
+// selectedMessageInFocus returns the selected message in the focused pane
+// and the ref that finds it again.
+func (a *App) selectedMessageInFocus() (messages.MessageItem, actionPromptRef, bool) {
+	switch a.focusedPanel {
+	case PanelMessages:
+		msg, ok := a.messagepane.SelectedMessage()
+		return msg, actionPromptRef{channelID: a.activeChannelID, ts: msg.TS}, ok
+	case PanelThread:
+		if r := a.threadPanel.SelectedReply(); r != nil {
+			return *r, actionPromptRef{channelID: a.threadPanel.ChannelID(), ts: r.TS, threadTS: a.threadPanel.ThreadTS()}, true
+		}
+	}
+	return messages.MessageItem{}, actionPromptRef{}, false
+}
+
+// respondToSelected is b: open the selected ephemeral's dialog now (the user
+// asked, so the interruption rule does not apply).
+func (a *App) respondToSelected() tea.Cmd {
+	msg, ref, ok := a.selectedMessageInFocus()
+	if !ok || !msg.Ephemeral || !messages.HasButtonActions(msg) || !a.openActionPrompt(ref) {
+		return toastCmd("No buttons on this message")
+	}
+	return nil
+}
+
+// isMessageOpKey reports keys that send the selected message's ts to Slack.
+func (a *App) isMessageOpKey(msg tea.KeyMsg) bool {
+	k := a.keys
+	for _, b := range []key.Binding{k.Enter, k.Reaction, k.ReactionNav, k.ListReactions,
+		k.CopyPermalink, k.ForwardMessage, k.MarkUnread, k.SaveThread} {
+		if key.Matches(msg, b) {
+			return true
+		}
+	}
+	return false
+}
+
+// ephemeralSelectionGuard blocks a message op on a selected ephemeral:
+// Slack does not know its ts, so the op would fail or act on a ghost.
+func (a *App) ephemeralSelectionGuard() (tea.Cmd, bool) {
+	msg, _, ok := a.selectedMessageInFocus()
+	if !ok || !msg.Ephemeral {
+		return nil, false
+	}
+	if messages.HasButtonActions(msg) {
+		return toastCmd("Only visible to you — press b to respond"), true
+	}
+	return toastCmd("Only visible to you"), true
 }
