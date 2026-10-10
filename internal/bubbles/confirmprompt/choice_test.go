@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type pressedMsg struct{ n int }
@@ -200,5 +201,59 @@ func TestPresetHighlightsConfirm(t *testing.T) {
 	t.Parallel()
 	if got := opened(t, nil).Highlighted(); got != 0 {
 		t.Errorf("yes/no preset: Highlighted = %d, want 0 (Confirm)", got)
+	}
+}
+
+// cellOf finds text in the rendered box and returns its box-local cell.
+func cellOf(t *testing.T, m Model, text string) (x, y int) {
+	t.Helper()
+	for row, line := range strings.Split(ansi.Strip(m.View()), "\n") {
+		if i := strings.Index(line, text); i >= 0 {
+			return ansi.StringWidth(line[:i]), row
+		}
+	}
+	t.Fatalf("%q not in view:\n%s", text, m.View())
+	return 0, 0
+}
+
+func TestButtonAt(t *testing.T) {
+	t.Parallel()
+	m := New(WithWidth(40)) // narrow: the third button wraps to a second row
+	m.OpenChoice(slackChoice())
+	for i, text := range []string{"[1] Add Them", "[2] Dismiss", "[3] Don't Show Again"} {
+		x, y := cellOf(t, m, text)
+		for _, dx := range []int{0, len(text) - 1} {
+			if got, ok := m.ButtonAt(x+dx, y); !ok || got != i {
+				t.Errorf("ButtonAt(%d,%d) on %q = %d,%v; want %d,true", x+dx, y, text, got, ok, i)
+			}
+		}
+	}
+	x, y := cellOf(t, m, "[2] Dismiss")
+	if _, ok := m.ButtonAt(x-1, y); ok {
+		t.Error("the gap before a button is not a hit")
+	}
+	if _, ok := m.ButtonAt(x, 0); ok {
+		t.Error("the top border row is not a hit")
+	}
+	tx, ty := cellOf(t, m, "Slackbot")
+	if _, ok := m.ButtonAt(tx, ty); ok {
+		t.Error("the title is not a hit")
+	}
+}
+
+func TestButtonAtHidden(t *testing.T) {
+	t.Parallel()
+	if _, ok := New().ButtonAt(5, 5); ok {
+		t.Error("a hidden prompt has no buttons")
+	}
+}
+
+func TestViewWrapsLongTitle(t *testing.T) {
+	t.Parallel()
+	m := New(WithWidth(40))
+	m.OpenChoice(Choice{Title: strings.Repeat("title ", 12), Buttons: []Button{{Label: "OK", Keys: numKey("1")}}, Default: -1})
+	x, y := cellOf(t, m, "[1] OK")
+	if got, ok := m.ButtonAt(x, y); !ok || got != 0 {
+		t.Errorf("with a wrapped title, ButtonAt on the button = %d,%v; want 0,true", got, ok)
 	}
 }

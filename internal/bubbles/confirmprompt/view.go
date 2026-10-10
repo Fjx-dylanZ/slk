@@ -3,8 +3,7 @@ package confirmprompt
 import (
 	"strings"
 
-	"charm.land/lipgloss/v2"
-	"github.com/muesli/reflow/truncate"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/slk/internal/bubbles/ansi"
 	"github.com/gammons/slk/internal/bubbles/buttonrow"
@@ -19,46 +18,70 @@ const (
 	chrome = 4
 	// buttonGap is the number of spaces between buttons.
 	buttonGap = 3
+	// maxBodyLines caps the wrapped body.
+	maxBodyLines = 8
 )
 
-// View renders the prompt box, or "" when hidden.
+// layout is the prompt's content measured at a content width: the title
+// and body lines, and where each button sits in the button rows.
+type layout struct {
+	title, body []string
+	buttons     []buttonrow.Placed
+}
+
+func (m Model) layoutAt(width int) layout {
+	labels := make([]string, len(m.choice.Buttons))
+	for i := range labels {
+		labels[i] = m.label(i)
+	}
+	return layout{
+		title:   wrapLines(m.choice.Title, width, 0),
+		body:    wrapLines(m.choice.Body, width, maxBodyLines),
+		buttons: buttonrow.Layout(labels, width, buttonGap),
+	}
+}
+
+// View renders the prompt box, or "" when hidden: the title, a blank line,
+// the body, a blank line, then the button rows.
 func (m Model) View() string {
 	if !m.visible {
 		return ""
 	}
-
 	width := boxWidth(m.width)
+	l := m.layoutAt(width - chrome)
 	content := strings.Join([]string{
-		m.styles.Title.Render(m.choice.Title),
-		m.styles.Body.Render("> " + preview(m.choice.Body, width-chrome)),
-		m.renderButtons(width - chrome),
+		m.styles.Title.Render(strings.Join(l.title, "\n")),
+		m.styles.Body.Render(strings.Join(l.body, "\n")),
+		m.renderButtons(l.buttons),
 	}, "\n\n")
-
 	return m.styles.Box.Width(width).Render(ansi.ReapplyAfterResets(content, m.styles.BaseANSI))
+}
+
+// ButtonAt reports which button, if any, is at cell (x, y) relative to the
+// box's top-left corner. Hosts use it to turn a click into a press.
+func (m Model) ButtonAt(x, y int) (int, bool) {
+	if !m.visible {
+		return 0, false
+	}
+	l := m.layoutAt(boxWidth(m.width) - chrome)
+	top := m.styles.Box.GetBorderTopSize() + m.styles.Box.GetPaddingTop()
+	left := m.styles.Box.GetBorderLeftSize() + m.styles.Box.GetPaddingLeft()
+	firstRow := top + len(l.title) + 1 + len(l.body) + 1
+	for _, p := range l.buttons {
+		if y == firstRow+p.Row && x >= left+p.Col && x < left+p.Col+p.Width {
+			return p.Index, true
+		}
+	}
+	return 0, false
 }
 
 func boxWidth(termWidth int) int {
 	return min(max(termWidth*widthPercent/100, minWidth), maxWidth)
 }
 
-// preview flattens body to one line and truncates it to limit columns.
-func preview(body string, limit int) string {
-	body = strings.ReplaceAll(body, "\n", " ")
-	body = strings.ReplaceAll(body, "\t", " ")
-	if lipgloss.Width(body) > limit {
-		return truncate.StringWithTail(body, uint(limit), "…")
-	}
-	return body
-}
-
-// renderButtons draws the buttons as wrapping rows, the highlighted one in
+// renderButtons draws placed buttons as rows, the highlighted one in
 // ButtonActive.
-func (m Model) renderButtons(width int) string {
-	labels := make([]string, len(m.choice.Buttons))
-	for i := range labels {
-		labels[i] = m.label(i)
-	}
-	placed := buttonrow.Layout(labels, width, buttonGap)
+func (m Model) renderButtons(placed []buttonrow.Placed) string {
 	gap := m.styles.Footer.Render(strings.Repeat(" ", buttonGap))
 	rows := buttonrow.RowsFunc(placed, gap, func(p buttonrow.Placed) string {
 		if p.Index == m.highlight {
@@ -67,4 +90,23 @@ func (m Model) renderButtons(width int) string {
 		return m.styles.Button.Render(p.Text)
 	})
 	return strings.Join(rows, "\n")
+}
+
+// wrapLines word-wraps s to width, keeping paragraph breaks and turning tabs
+// into spaces. With max > 0 it keeps max lines, ending the last with "…".
+func wrapLines(s string, width, max int) []string {
+	s = strings.ReplaceAll(s, "\t", " ")
+	var out []string
+	for _, para := range strings.Split(s, "\n") {
+		out = append(out, strings.Split(xansi.Wrap(para, width, ""), "\n")...)
+	}
+	if max > 0 && len(out) > max {
+		out = out[:max]
+		last := strings.TrimRight(out[max-1], " ")
+		if xansi.StringWidth(last) >= width {
+			last = xansi.Truncate(last, width-1, "")
+		}
+		out[max-1] = last + "…"
+	}
+	return out
 }
