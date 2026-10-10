@@ -150,3 +150,76 @@ func (a *App) pressAction(ref actionPromptRef, ba messages.ButtonAction) func() 
 		return actionPressedMsg{label: act.Text, err: err}
 	}
 }
+
+// enqueueActionPrompt queues ref and opens it if the user is not busy.
+func (a *App) enqueueActionPrompt(ref actionPromptRef) tea.Cmd {
+	a.actionQueue = append(a.actionQueue, ref)
+	return a.tryOpenActionPrompt()
+}
+
+// tryOpenActionPrompt opens the oldest queued dialog unless the user is
+// busy: another modal is up, or they are typing (insert mode with text in
+// the focused composer), in which case it waits and toasts once. Queued
+// messages no longer shown are dropped. Called on enqueue and from the
+// three re-check points only: the confirm prompt closing, leaving insert
+// mode, and a send clearing the composer.
+func (a *App) tryOpenActionPrompt() tea.Cmd {
+	for len(a.actionQueue) > 0 {
+		if a.mode.IsModalOverlay() {
+			return nil
+		}
+		ref := a.actionQueue[0]
+		if a.mode == ModeInsert && a.focusedComposerValue() != "" {
+			return a.toastActionWaiting(ref)
+		}
+		a.actionQueue = a.actionQueue[1:]
+		delete(a.promptToasted, ref.key())
+		if a.openActionPrompt(ref) {
+			return nil
+		}
+	}
+	return nil
+}
+
+func (a *App) focusedComposerValue() string {
+	if a.focusedPanel == PanelThread && a.threadVisible {
+		return a.threadCompose.Value()
+	}
+	return a.compose.Value()
+}
+
+// toastActionWaiting tells the user, once per message, that a dialog is
+// waiting for them.
+func (a *App) toastActionWaiting(ref actionPromptRef) tea.Cmd {
+	if a.promptToasted[ref.key()] {
+		return nil
+	}
+	if a.promptToasted == nil {
+		a.promptToasted = map[string]bool{}
+	}
+	a.promptToasted[ref.key()] = true
+	sender := "A message"
+	if msg, ok := a.findActionMessage(ref); ok && msg.UserName != "" {
+		sender = msg.UserName
+	}
+	text := sender + ": press b to respond"
+	return func() tea.Msg { return ToastMsg{Text: text} }
+}
+
+// dropActionPrompt forgets a deleted message: it leaves the queue, and if
+// its dialog is showing, the dialog closes (and the next one may open).
+func (a *App) dropActionPrompt(channelID, ts string) tea.Cmd {
+	kept := a.actionQueue[:0]
+	for _, r := range a.actionQueue {
+		if r.channelID != channelID || r.ts != ts {
+			kept = append(kept, r)
+		}
+	}
+	a.actionQueue = kept
+	delete(a.promptToasted, actionPromptRef{channelID: channelID, ts: ts}.key())
+	if s := a.shownPrompt; s != nil && s.channelID == channelID && s.ts == ts && a.mode == ModeConfirm {
+		a.confirmPrompt.Close()
+		return a.afterConfirmPrompt(nil)
+	}
+	return nil
+}

@@ -425,6 +425,11 @@ type App struct {
 	// shownPrompt is the ephemeral message whose buttons the confirm
 	// prompt is showing; nil when it shows anything else, or nothing.
 	shownPrompt *actionPromptRef
+	// actionQueue holds ephemerals with buttons waiting for the action
+	// dialog, oldest first; promptToasted records which have shown the
+	// "press b" toast, so it appears once per message.
+	actionQueue   []actionPromptRef
+	promptToasted map[string]bool
 	// userProfile is the K-opened read-only "who is this person?"
 	// modal (see internal/ui/userprofile). profileSvc fetches the
 	// full profile; defaulted to noopProfileService in NewApp so the

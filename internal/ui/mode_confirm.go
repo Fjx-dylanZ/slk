@@ -20,6 +20,7 @@ func (a *App) afterConfirmPrompt(cmd tea.Cmd) tea.Cmd {
 	if !a.confirmPrompt.IsVisible() {
 		a.shownPrompt = nil
 		a.SetMode(ModeNormal)
+		return tea.Batch(cmd, a.tryOpenActionPrompt())
 	}
 	return cmd
 }
