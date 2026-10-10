@@ -2361,7 +2361,7 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 		bkInteractive = bkInteractive || res.Interactive
 	}
 	if bkInteractive {
-		hint := styles.Timestamp.Render("↗ open in Slack to interact")
+		hint := styles.Timestamp.Render(InteractiveHint(msg))
 		bkLines = append(bkLines, hint)
 	}
 	preAttachmentRows += len(bkLines)

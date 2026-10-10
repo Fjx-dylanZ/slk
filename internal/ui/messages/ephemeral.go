@@ -43,3 +43,13 @@ func HasButtonActions(msg MessageItem) bool {
 	}
 	return false
 }
+
+// InteractiveHint is the line under a message with interactive elements:
+// an ephemeral with buttons can be answered in slk with b; anything else
+// still needs Slack.
+func InteractiveHint(msg MessageItem) string {
+	if msg.Ephemeral && HasButtonActions(msg) {
+		return "b to respond"
+	}
+	return "↗ open in Slack to interact"
+}
