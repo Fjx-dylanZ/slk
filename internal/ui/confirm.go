@@ -40,10 +40,16 @@ func confirmPromptStyles() confirmprompt.Styles {
 	}
 }
 
-// openConfirmPrompt raises the prompt and switches to ModeConfirm.
-func (a *App) openConfirmPrompt(title, body string, onConfirm confirmprompt.ConfirmFunc) {
+// prepareConfirmPrompt pushes the current theme and width before the
+// prompt opens.
+func (a *App) prepareConfirmPrompt() {
 	a.confirmPrompt.SetStyles(confirmPromptStyles())
 	a.confirmPrompt.SetWidth(a.width)
+}
+
+// openConfirmPrompt raises the prompt and switches to ModeConfirm.
+func (a *App) openConfirmPrompt(title, body string, onConfirm confirmprompt.ConfirmFunc) {
+	a.prepareConfirmPrompt()
 	a.confirmPrompt.Open(title, body, onConfirm)
 	a.SetMode(ModeConfirm)
 }

@@ -120,6 +120,8 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | mpdm channel name → human name | `slackfmt.FormatMPDMName` |
 | Channel-type glyph (`#` / `◆` / `●`) | `messages.ChannelGlyph(chType)` |
 | Marker row for a message only the current user can see | `messages.EphemeralLabel()` — drawn above the author line in both panes |
+| A message's pressable legacy buttons (selects excluded) | `messages.ButtonActions(msg)`, `messages.HasButtonActions(msg)` |
+| Open the action dialog for an ephemeral's buttons | `(*App).openActionPrompt(actionPromptRef)` (`internal/ui/action_prompt.go`); queueing and the interruption rule are `enqueueActionPrompt` / `tryOpenActionPrompt` |
 | Replace a pane's list with fetched history without erasing ephemerals already shown | `keepEphemerals(fetched, shown)` (`internal/ui/ephemeral_keep.go`); only for a fetch of the conversation already on screen |
 | Slack permalink parsing | `slackurl.Parse` |
 | Slack ts → `time.Time` (whole seconds, any timezone) | `export.TimeFromTS` |

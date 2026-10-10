@@ -18,6 +18,7 @@ func handleConfirmMode(a *App, msg tea.KeyMsg) tea.Cmd {
 // handles: once the prompt reports hidden, mode drops back to normal.
 func (a *App) afterConfirmPrompt(cmd tea.Cmd) tea.Cmd {
 	if !a.confirmPrompt.IsVisible() {
+		a.shownPrompt = nil
 		a.SetMode(ModeNormal)
 	}
 	return cmd

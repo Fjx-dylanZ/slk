@@ -422,6 +422,9 @@ type App struct {
 	reactionPicker *reactionpicker.Model
 	reactionsView  *reactionsview.Model
 	confirmPrompt  confirmprompt.Model
+	// shownPrompt is the ephemeral message whose buttons the confirm
+	// prompt is showing; nil when it shows anything else, or nothing.
+	shownPrompt *actionPromptRef
 	// userProfile is the K-opened read-only "who is this person?"
 	// modal (see internal/ui/userprofile). profileSvc fetches the
 	// full profile; defaulted to noopProfileService in NewApp so the
@@ -970,6 +973,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceActivity,
 		reduceFocus,
 		reduceSend,
+		reduceActionPrompt,
 		reduceChannels,
 		reduceLinks,
 		reduceFiles,
