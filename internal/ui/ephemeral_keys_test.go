@@ -112,3 +112,49 @@ func TestHelpListsB(t *testing.T) {
 	}
 	t.Error("help overlay is missing b")
 }
+
+// In the activity and threads views the messages-pane slot shows a list, not
+// the channel's messages: the stale channel selection must not be guarded.
+func TestGuardIgnoresHiddenChannelPane(t *testing.T) {
+	for name, view := range map[string]View{"activity": ViewActivity, "threads": ViewThreads} {
+		t.Run(name, func(t *testing.T) {
+			a, _ := selectedEphemeralApp(t, mentionEphemeral(ephTS))
+			a.view = view
+			if got := toastText(pressKey(t, a, keyCode(tea.KeyEnter))); strings.HasPrefix(got, "Only visible to you") {
+				t.Errorf("Enter must not be guarded; toast = %q", got)
+			}
+			if got := toastText(pressKey(t, a, keyPress('b'))); got != "No buttons on this message" {
+				t.Errorf("b toast = %q", got)
+			}
+			if a.confirmPrompt.IsVisible() {
+				t.Error("b must not open a dialog for a message that is not on screen")
+			}
+		})
+	}
+}
+
+func TestGuardIgnoresEphemeralWhenSidebarFocused(t *testing.T) {
+	a, _ := selectedEphemeralApp(t, mentionEphemeral(ephTS))
+	a.focusedPanel = PanelSidebar
+	if got := toastText(pressKey(t, a, keyCode(tea.KeyEnter))); strings.HasPrefix(got, "Only visible to you") {
+		t.Errorf("Enter must not be guarded; toast = %q", got)
+	}
+}
+
+func TestEphemeralReplyInThreadPanel(t *testing.T) {
+	a, _ := selectedEphemeralApp(t, mentionEphemeral(ephTS))
+	openThreadPanel(a, "C1", "1.000000")
+	reply := mentionEphemeral(ephTS)
+	reply.ThreadTS = "1.000000"
+	a.threadPanel.AddReply(reply)
+	a.focusedPanel = PanelThread
+	a.threadPanel.SelectByIndex(0)
+
+	if got := toastText(pressKey(t, a, keyPress('r'))); got != guardText {
+		t.Errorf("r toast = %q, want %q", got, guardText)
+	}
+	pressKey(t, a, keyPress('b'))
+	if !dialogShows(a, "[2] Dismiss") {
+		t.Error("b on an ephemeral reply should open its dialog")
+	}
+}

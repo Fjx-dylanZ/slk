@@ -234,13 +234,18 @@ func (a *App) dropActionPrompt(channelID, ts string) tea.Cmd {
 	return nil
 }
 
+// toastCmd is a local convenience for this file's toasts.
 func toastCmd(text string) tea.Cmd { return func() tea.Msg { return ToastMsg{Text: text} } }
 
 // selectedMessageInFocus returns the selected message in the focused pane
-// and the ref that finds it again.
+// and the ref that finds it again. In the activity and threads views the
+// messages-pane slot shows a list, so there is no selected message.
 func (a *App) selectedMessageInFocus() (messages.MessageItem, actionPromptRef, bool) {
 	switch a.focusedPanel {
 	case PanelMessages:
+		if a.view == ViewActivity || a.view == ViewThreads {
+			return messages.MessageItem{}, actionPromptRef{}, false
+		}
 		msg, ok := a.messagepane.SelectedMessage()
 		return msg, actionPromptRef{channelID: a.activeChannelID, ts: msg.TS}, ok
 	case PanelThread:
