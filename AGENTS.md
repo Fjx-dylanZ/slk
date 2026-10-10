@@ -147,6 +147,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Need | Use |
 |---|---|
 | Scrollbar gutter on a rendered pane | `ui/scrollbar.Overlay`, `ui/scrollbar.Visible` |
+| Lay out a wrapping row of labelled controls (buttons, select labels) with positions for hit-testing | `internal/bubbles/buttonrow` (`Layout`, `Rows`, `RowsFunc`); used by Block Kit actions and the confirm prompt |
 | Centered modal over a dimmed backdrop | `ui/overlay.DimmedOverlay` |
 | Yes/no confirmation modal (title, one-line preview, confirm/cancel keys) | `bubbles/confirmprompt` (`New`, `Open`, `Update`, `View`, `SetStyles`, `SetWidth`; options `WithStyles`/`WithKeyMap`/`WithWidth`; `KeyMap` field). In the App, open it with `App.openConfirmPrompt` (`internal/ui/confirm.go`), which also maps the theme onto its styles and composites it |
 | Text selection ranges and anchors | `ui/selection` (`Range`, `Anchor`, `LessOrEqual`) |
