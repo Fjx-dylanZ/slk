@@ -22,7 +22,7 @@ Success is behaviour-preserving and visible in numbers:
   `openPickerFromMessage`/`openPickerFromThread`,
   `toggleReactionOnSelectedMessage`/`toggleReactionOnSelectedThread`) and the
   mirror arms in `view_*`, `reducer_mouse.go`, `drag.go`, `mode_normal.go`
-  collapsed;
+  and (from #304) `action_prompt.go` collapsed;
 - `internal/ui/thread` no longer imports `charm.land/bubbles/v2/viewport`;
 - every App golden byte-identical except the one exception in §6.3.
 
@@ -166,7 +166,8 @@ var (
 The three `app.go` pairs become one function each, taking a `contentPane` and
 the channel ID (`activeChannelID` or `threadPanel.ChannelID()`). The mirror
 arms in `view_*`, `reducer_mouse.go`, `drag.go` and `mode_normal.go` collapse
-the same way. `App.messagepane`, `App.threadPanel` and `App.winModels` keep
+the same way, as does `selectedMessageInFocus` (`action_prompt.go`, added by
+#304, §7.1). `App.messagepane`, `App.threadPanel` and `App.winModels` keep
 their types, so this costs about zero `App` field churn (§8).
 
 `HitTest` (image click-to-preview) is **not** in `contentPane`. Only the channel
@@ -341,11 +342,20 @@ Each PR is green, behaviour-preserving and reviewable on its own.
 ### 7.1 Sequencing against in-flight work
 
 - **#298 merged** 2026-10-10 (touched both `model.go` files).
-- **Part B, `feat/ephemeral-action-dialog`**, is 8 commits ahead of `main`, with
-  only its docs pushed. It changes `app.go` (+21), `messages/ephemeral.go`,
-  `blockkit` and `internal/bubbles/confirmprompt`, and adds
-  `internal/bubbles/buttonrow`. **Implementation starts after Part B merges.**
-  The plan re-runs §A's measurements at that point.
+- **Part B is open as #304** (`feat/ephemeral-action-dialog` @ `23e09abb`,
+  mergeable). **Implementation starts after #304 merges**, and the plan re-runs
+  §A's measurements at that point. Where it overlaps Phase 3:
+  - it edits **both** `messages/model.go:2364` and `thread/model.go:2109` with
+    the same one-line change (`InteractiveHint(msg)`), which is the mirrored
+    edit Phase 3 exists to remove. PR 6's single renderer absorbs it;
+  - it adds **one new mirror arm**, `selectedMessageInFocus` in
+    `internal/ui/action_prompt.go`, which switches on `focusedPanel` between
+    `messagepane.SelectedMessage()` and `threadPanel.SelectedReply()`. PR 7
+    collapses it with the others, and `contentPane` must cover it;
+  - it also changes `app.go` (+28), `mode_normal.go` (+9),
+    `messages/ephemeral.go`, `blockkit/render.go` and
+    `internal/bubbles/confirmprompt`, and adds `internal/bubbles/buttonrow`.
+    None of these change Phase 3's design.
 - **Open PRs #300 and #271** touch the App mirror files: #300 `app.go` and
   `mode_normal.go`; #271 those two plus `reducer_mouse.go`. Neither touches
   either model.
