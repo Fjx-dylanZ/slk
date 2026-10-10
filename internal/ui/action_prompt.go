@@ -159,7 +159,9 @@ func (a *App) enqueueActionPrompt(ref actionPromptRef) tea.Cmd {
 
 // tryOpenActionPrompt opens the oldest queued dialog unless the user is
 // busy: another modal is up, or they are typing (insert mode with text in
-// the focused composer), in which case it waits and toasts once. Queued
+// the focused composer, or a ':' command or search query), in which case
+// it waits and toasts once; leaving command or search mode does not
+// re-check, the user presses b. Queued
 // messages no longer shown are dropped. Called on enqueue and from the
 // three re-check points only: the confirm prompt closing, leaving insert
 // mode, and a send clearing the composer.
@@ -169,7 +171,8 @@ func (a *App) tryOpenActionPrompt() tea.Cmd {
 			return nil
 		}
 		ref := a.actionQueue[0]
-		if a.mode == ModeInsert && a.focusedComposerValue() != "" {
+		if a.mode == ModeCommand || a.mode == ModeSearch ||
+			(a.mode == ModeInsert && a.focusedComposerValue() != "") {
 			return a.toastActionWaiting(ref)
 		}
 		a.actionQueue = a.actionQueue[1:]

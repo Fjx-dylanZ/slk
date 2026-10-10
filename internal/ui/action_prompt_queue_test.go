@@ -161,3 +161,19 @@ func TestEphemeralReplyInOpenThreadOpensDialog(t *testing.T) {
 		t.Error("an ephemeral reply in the open thread should open its dialog")
 	}
 }
+
+// A command line or search query being typed is as busy as a draft:
+// opening the dialog would discard it.
+func TestCommandAndSearchModesDeferDialog(t *testing.T) {
+	for _, mode := range []Mode{ModeCommand, ModeSearch} {
+		a, _ := actionApp(t, nil)
+		a.SetMode(mode)
+		got := toastText(arrive(t, a, mentionEphemeral(ephTS)))
+		if a.mode != mode || a.confirmPrompt.IsVisible() {
+			t.Errorf("mode %v: the dialog interrupted typing (mode now %v)", mode, a.mode)
+		}
+		if got != "Slackbot: press b to respond" {
+			t.Errorf("mode %v: toast = %q", mode, got)
+		}
+	}
+}
