@@ -6,6 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/help"
 	"github.com/gammons/slk/internal/ui/messages"
 )
@@ -156,5 +158,24 @@ func TestEphemeralReplyInThreadPanel(t *testing.T) {
 	pressKey(t, a, keyPress('b'))
 	if !dialogShows(a, "[2] Dismiss") {
 		t.Error("b on an ephemeral reply should open its dialog")
+	}
+}
+
+// A click on a row opens its thread through openThreadForSelectedMessage,
+// not through the key guard: the ephemeral's ts is a ghost to Slack.
+func TestClickOnEphemeralDoesNotOpenThread(t *testing.T) {
+	a, _ := selectedEphemeralApp(t, mentionEphemeral(ephTS))
+	a.focusedPanel = PanelSidebar // a click does not need the pane focused first
+	fetched := 0
+	a.setThreadFetcherForTest(func(ids.ChannelID, ids.ThreadTS) core.Msg {
+		fetched++
+		return nil
+	})
+	cmd := a.openThreadForSelectedMessage()
+	if got := toastText(drainBatch(cmd)); got != guardText {
+		t.Errorf("toast = %q, want %q", got, guardText)
+	}
+	if a.threadVisible || fetched != 0 {
+		t.Errorf("threadVisible=%v fetches=%d: the click must not open a thread", a.threadVisible, fetched)
 	}
 }

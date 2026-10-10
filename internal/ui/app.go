@@ -425,6 +425,10 @@ type App struct {
 	// shownPrompt is the ephemeral message whose buttons the confirm
 	// prompt is showing; nil when it shows anything else, or nothing.
 	shownPrompt *actionPromptRef
+	// shownPromptInsert records that shownPrompt opened over insert mode
+	// (shownPromptThread: over the thread composer), so closing it puts
+	// the user back to typing.
+	shownPromptInsert, shownPromptThread bool
 	// actionQueue holds ephemerals with buttons waiting for the action
 	// dialog, oldest first; promptToasted records which have shown the
 	// "press b" toast, so it appears once per message.
@@ -2057,6 +2061,9 @@ func (a *App) openThreadForSelectedMessage() tea.Cmd {
 	msg, ok := a.messagepane.SelectedMessage()
 	if !ok {
 		return nil
+	}
+	if cmd, blocked := ephemeralGuard(msg); blocked {
+		return cmd
 	}
 	// Use the message's own TS as the thread parent. If it's a thread
 	// reply (a thread_broadcast row in the channel feed), the selected

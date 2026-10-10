@@ -177,3 +177,112 @@ func TestCommandAndSearchModesDeferDialog(t *testing.T) {
 		}
 	}
 }
+
+// An insert-mode user answering the dialog goes back to typing, not to
+// normal-mode commands.
+func TestDialogFromInsertRestoresInsert(t *testing.T) {
+	a, _ := actionApp(t, nil)
+	a.SetMode(ModeInsert)
+	a.compose.Focus()
+	arrive(t, a, mentionEphemeral(ephTS))
+	if a.mode != ModeConfirm {
+		t.Fatalf("mode = %v; the dialog should open over an empty composer", a.mode)
+	}
+	if got := afterKeyValue(&a.compose, 'x'); got != "" {
+		t.Fatalf("the composer took a key while the dialog was up: %q", got)
+	}
+	pressKey(t, a, keyPress('2'))
+	if a.mode != ModeInsert {
+		t.Errorf("mode = %v after answering, want ModeInsert", a.mode)
+	}
+	if got := afterKeyValue(&a.compose, 'x'); got != "x" {
+		t.Errorf("the composer is not focused again: value %q", got)
+	}
+	if a.shownPromptInsert {
+		t.Error("the insert flag must clear with the prompt")
+	}
+}
+
+func TestDialogFromInsertInThreadRestoresThreadComposer(t *testing.T) {
+	a, _ := actionApp(t, nil)
+	openThreadPanel(a, "C1", "1.000000")
+	a.focusedPanel = PanelThread
+	a.SetMode(ModeInsert)
+	a.threadCompose.Focus()
+	reply := mentionEphemeral(ephTS)
+	reply.ThreadTS = "1.000000"
+	arrive(t, a, reply)
+	if a.mode != ModeConfirm {
+		t.Fatalf("mode = %v; the dialog should open", a.mode)
+	}
+	pressKey(t, a, keyPress('2'))
+	if a.mode != ModeInsert {
+		t.Errorf("mode = %v after answering, want ModeInsert", a.mode)
+	}
+	if got := afterKeyValue(&a.threadCompose, 'x'); got != "x" {
+		t.Errorf("the thread composer is not focused again: value %q", got)
+	}
+}
+
+func TestDialogFromNormalReturnsToNormal(t *testing.T) {
+	a, _ := actionApp(t, nil)
+	arrive(t, a, mentionEphemeral(ephTS))
+	if a.mode != ModeConfirm {
+		t.Fatalf("mode = %v; the dialog should open", a.mode)
+	}
+	pressKey(t, a, keyPress('2'))
+	if a.mode != ModeNormal {
+		t.Errorf("mode = %v after answering, want ModeNormal", a.mode)
+	}
+}
+
+// Deferred behind a modal that is not a confirm prompt: still say so, once.
+func TestDialogWaitingBehindOverlayToastsOnce(t *testing.T) {
+	a, _ := actionApp(t, nil)
+	a.SetMode(ModeHelp)
+	if got := toastText(arrive(t, a, mentionEphemeral(ephTS))); got != "Slackbot: press b to respond" {
+		t.Errorf("toast = %q", got)
+	}
+	if a.confirmPrompt.IsVisible() || a.mode != ModeHelp {
+		t.Error("the dialog must not open over another modal")
+	}
+	if got := toastText(drainBatch(a.tryOpenActionPrompt())); got != "" {
+		t.Errorf("the waiting toast repeated: %q", got)
+	}
+}
+
+// A queue entry whose message is gone must not leave its toast record behind.
+func TestToastRecordDroppedWhenMessageGone(t *testing.T) {
+	a, _ := actionApp(t, nil)
+	a.SetMode(ModeCommand)
+	arrive(t, a, mentionEphemeral(ephTS))
+	ref := actionPromptRef{channelID: "C1", ts: ephTS}
+	if !a.promptToasted[ref.key()] {
+		t.Fatal("setup: the waiting toast should be recorded")
+	}
+	a.messagepane.RemoveMessageByTS(ephTS)
+	a.SetMode(ModeNormal)
+	a.tryOpenActionPrompt()
+	if _, ok := a.promptToasted[ref.key()]; ok {
+		t.Error("promptToasted still holds the key of a message that is gone")
+	}
+}
+
+// Switching workspace takes the dialog and the queue with it.
+func TestWorkspaceSwitchDropsDialogAndQueue(t *testing.T) {
+	a, _ := actionApp(t, nil)
+	a.SetMode(ModeInsert)
+	arrive(t, a, mentionEphemeral(ephTS))
+	later := mentionEphemeral("6.000000")
+	arrive(t, a, later)
+	if !dialogShows(a, "[2] Dismiss") || len(a.actionQueue) != 1 {
+		t.Fatalf("setup: dialog up with one queued, got visible=%v queue=%d", a.confirmPrompt.IsVisible(), len(a.actionQueue))
+	}
+	_, _ = a.Update(WorkspaceSwitchedMsg{TeamID: "T2", TeamName: "Other", Channels: nil})
+	if a.confirmPrompt.IsVisible() || a.mode != ModeNormal {
+		t.Errorf("visible=%v mode=%v: the dialog should close", a.confirmPrompt.IsVisible(), a.mode)
+	}
+	if a.shownPrompt != nil || a.shownPromptInsert || len(a.actionQueue) != 0 || len(a.promptToasted) != 0 {
+		t.Error("the workspace switch left action-dialog state behind")
+	}
+}

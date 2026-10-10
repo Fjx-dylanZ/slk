@@ -61,7 +61,9 @@ func (a *App) openActionPrompt(ref actionPromptRef) bool {
 	if !ok || !messages.HasButtonActions(msg) {
 		return false
 	}
-	if a.mode == ModeInsert {
+	fromInsert := a.mode == ModeInsert
+	fromThread := fromInsert && a.focusedPanel == PanelThread && a.threadVisible
+	if fromInsert {
 		a.compose.Blur()
 		a.threadCompose.Blur()
 	}
@@ -76,8 +78,27 @@ func (a *App) openActionPrompt(ref actionPromptRef) bool {
 	a.prepareConfirmPrompt()
 	a.confirmPrompt.OpenChoice(a.actionChoice(ref, msg))
 	a.shownPrompt = &ref
+	a.shownPromptInsert, a.shownPromptThread = fromInsert, fromThread
 	a.SetMode(ModeConfirm)
 	return true
+}
+
+// clearShownPrompt forgets the action dialog on screen, and where to put
+// the user back.
+func (a *App) clearShownPrompt() {
+	a.shownPrompt = nil
+	a.shownPromptInsert, a.shownPromptThread = false, false
+}
+
+// resetActionPrompts closes the action dialog and forgets every queued
+// message: they belong to the workspace being left.
+func (a *App) resetActionPrompts() {
+	if a.shownPrompt != nil {
+		a.confirmPrompt.Close()
+	}
+	a.clearShownPrompt()
+	a.actionQueue = nil
+	a.promptToasted = nil
 }
 
 // actionChoice is the dialog for msg: its sender, its text, one button per
@@ -175,10 +196,10 @@ func (a *App) enqueueActionPrompt(ref actionPromptRef) tea.Cmd {
 // mode, and a send clearing the composer.
 func (a *App) tryOpenActionPrompt() tea.Cmd {
 	for len(a.actionQueue) > 0 {
-		if a.mode.IsModalOverlay() {
-			return nil
-		}
 		ref := a.actionQueue[0]
+		if a.mode.IsModalOverlay() {
+			return a.toastActionWaiting(ref)
+		}
 		if a.mode == ModeCommand || a.mode == ModeSearch ||
 			(a.mode == ModeInsert && a.focusedComposerValue() != "") {
 			return a.toastActionWaiting(ref)
@@ -187,6 +208,7 @@ func (a *App) tryOpenActionPrompt() tea.Cmd {
 		if a.openActionPrompt(ref) {
 			return nil
 		}
+		delete(a.promptToasted, ref.key())
 	}
 	return nil
 }
@@ -282,7 +304,15 @@ func (a *App) isMessageOpKey(msg tea.KeyMsg) bool {
 // Slack does not know its ts, so the op would fail or act on a ghost.
 func (a *App) ephemeralSelectionGuard() (tea.Cmd, bool) {
 	msg, _, ok := a.selectedMessageInFocus()
-	if !ok || !msg.Ephemeral {
+	if !ok {
+		return nil, false
+	}
+	return ephemeralGuard(msg)
+}
+
+// ephemeralGuard is the guard's verdict on msg.
+func ephemeralGuard(msg messages.MessageItem) (tea.Cmd, bool) {
+	if !msg.Ephemeral {
 		return nil, false
 	}
 	if messages.HasButtonActions(msg) {
