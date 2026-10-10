@@ -11,6 +11,12 @@ import (
 func handleConfirmMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	a.confirmPrompt, cmd = a.confirmPrompt.Update(msg)
+	return a.afterConfirmPrompt(cmd)
+}
+
+// afterConfirmPrompt runs after every key or click the confirm prompt
+// handles: once the prompt reports hidden, mode drops back to normal.
+func (a *App) afterConfirmPrompt(cmd tea.Cmd) tea.Cmd {
 	if !a.confirmPrompt.IsVisible() {
 		a.SetMode(ModeNormal)
 	}
