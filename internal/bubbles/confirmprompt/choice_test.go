@@ -314,3 +314,27 @@ func TestBodyRowsStayCappedWithOverlongLines(t *testing.T) {
 		t.Errorf("ButtonAt on the button = %d,%v; want 0,true", got, ok)
 	}
 }
+
+// With no body there is no body block and no second blank separator.
+func TestEmptyBodyOmitsBodyBlock(t *testing.T) {
+	t.Parallel()
+	m := New(WithWidth(80))
+	m.OpenChoice(okChoice(""))
+	rows := strings.Split(ansi.Strip(m.View()), "\n")
+	titleRow := -1
+	for i, r := range rows {
+		if strings.Contains(r, "T") && titleRow < 0 {
+			titleRow = i
+		}
+	}
+	x, y := cellOf(t, m, "[1] OK")
+	if y != titleRow+2 {
+		t.Errorf("button row = %d, title row = %d; want the button two rows below the title:\n%s", y, titleRow, m.View())
+	}
+	if got, ok := m.ButtonAt(x, y); !ok || got != 0 {
+		t.Errorf("ButtonAt on the button = %d,%v; want 0,true", got, ok)
+	}
+	if _, ok := m.ButtonAt(x, y-1); ok {
+		t.Error("the blank separator row is not a hit")
+	}
+}

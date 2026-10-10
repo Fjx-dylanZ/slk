@@ -29,31 +29,47 @@ type layout struct {
 	buttons     []buttonrow.Placed
 }
 
+// buttonRow is the content row of the first button row: after the title and
+// its blank line, and the body and its blank line when there is a body.
+func (l layout) buttonRow() int {
+	row := len(l.title) + 1
+	if len(l.body) > 0 {
+		row += len(l.body) + 1
+	}
+	return row
+}
+
 func (m Model) layoutAt(width int) layout {
+	var body []string
+	if m.choice.Body != "" {
+		body = wrapLines(m.choice.Body, width, maxBodyLines)
+	}
 	labels := make([]string, len(m.choice.Buttons))
 	for i := range labels {
 		labels[i] = m.label(i)
 	}
 	return layout{
 		title:   wrapLines(m.choice.Title, width, 0),
-		body:    wrapLines(m.choice.Body, width, maxBodyLines),
+		body:    body,
 		buttons: buttonrow.Layout(labels, width, buttonGap),
 	}
 }
 
 // View renders the prompt box, or "" when hidden: the title, a blank line,
-// the body, a blank line, then the button rows.
+// the body and a blank line (both omitted with no body), then the button
+// rows.
 func (m Model) View() string {
 	if !m.visible {
 		return ""
 	}
 	width := boxWidth(m.width)
 	l := m.layoutAt(width - chrome)
-	content := strings.Join([]string{
-		m.styles.Title.Render(strings.Join(l.title, "\n")),
-		m.styles.Body.Render(strings.Join(l.body, "\n")),
-		m.renderButtons(l.buttons),
-	}, "\n\n")
+	sections := []string{m.styles.Title.Render(strings.Join(l.title, "\n"))}
+	if len(l.body) > 0 {
+		sections = append(sections, m.styles.Body.Render(strings.Join(l.body, "\n")))
+	}
+	sections = append(sections, m.renderButtons(l.buttons))
+	content := strings.Join(sections, "\n\n")
 	return m.styles.Box.Width(width).Render(ansi.ReapplyAfterResets(content, m.styles.BaseANSI))
 }
 
@@ -66,7 +82,7 @@ func (m Model) ButtonAt(x, y int) (int, bool) {
 	l := m.layoutAt(boxWidth(m.width) - chrome)
 	top := m.styles.Box.GetBorderTopSize() + m.styles.Box.GetPaddingTop()
 	left := m.styles.Box.GetBorderLeftSize() + m.styles.Box.GetPaddingLeft()
-	firstRow := top + len(l.title) + 1 + len(l.body) + 1
+	firstRow := top + l.buttonRow()
 	for _, p := range l.buttons {
 		if y == firstRow+p.Row && x >= left+p.Col && x < left+p.Col+p.Width {
 			return p.Index, true

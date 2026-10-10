@@ -153,7 +153,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Scrollbar gutter on a rendered pane | `ui/scrollbar.Overlay`, `ui/scrollbar.Visible` |
 | Lay out a wrapping row of labelled controls (buttons, select labels) with positions for hit-testing | `internal/bubbles/buttonrow` (`Layout`, `Rows`, `RowsFunc`); used by Block Kit actions and the confirm prompt |
 | Centered modal over a dimmed backdrop | `ui/overlay.DimmedOverlay` |
-| Prompt modal with N buttons (title, one-line preview, buttons; yes/no is `Open`, any buttons via `OpenChoice(confirmprompt.Choice)`, `Button.Then` for a follow-up step) | `bubbles/confirmprompt` (`New`, `Open`, `OpenChoice`, `Update`, `PressHighlighted`, `View`, `SetStyles`, `SetWidth`; options `WithStyles`/`WithKeyMap`/`WithWidth`; `KeyMap` field). In the App, open it with `App.openConfirmPrompt` (`internal/ui/confirm.go`), which also maps the theme onto its styles and composites it |
+| Prompt modal with N buttons (title, wrapped body of up to 8 lines, buttons; yes/no is `Open`, any buttons via `OpenChoice(confirmprompt.Choice)`, `Button.Then` for a follow-up step) | `bubbles/confirmprompt` (`New`, `Open`, `OpenChoice`, `Update`, `PressHighlighted`, `View`, `SetStyles`, `SetWidth`; options `WithStyles`/`WithKeyMap`/`WithWidth`; `KeyMap` field). In the App, open it with `App.openConfirmPrompt` (`internal/ui/confirm.go`), which also maps the theme onto its styles and composites it |
 | Text selection ranges and anchors | `ui/selection` (`Range`, `Anchor`, `LessOrEqual`) |
 | Theme colors and styles | `ui/styles` (`Username`, `SelectionStyle`, `SearchHighlightStyle`, `MentionBadgeStyle`, `UserColor`) |
 | Change the theme inside the App | `App.applyTheme(name)` (`internal/ui/app.go`): applies it, invalidates render caches and pushes fresh styles to components that snapshot them. A component that holds a style snapshot (anything in `internal/bubbles`) gets its push added there, not at each call site |
@@ -202,6 +202,14 @@ greppable by name; no line numbers, because these files move.
 | Run only the first command of a `tea.Batch` (skip a 2s tick) | `firstBatchCmd(t, cmd)` (`internal/ui/mode_insert_keys_test.go`) |
 | An `App` with the main composer mid-upload, a thread open with its own draft, and workspaces T1/T2, counting uploader and workspace-switcher calls | `uploadGuardApp(t)` (`internal/ui/conversation_drafts_safety_test.go`) |
 | Observe a compose cursor position or blur state (no getter exists) | `afterKeyValue(c, r)` (same file) |
+| An `App` on `C1` showing given messages, whose attachment-button presses are recorded (and answered with an error you choose) | `actionApp(t, err, msgs...)` (`internal/ui/action_prompt_test.go`), returning the `*[]pressCall` log |
+| Slackbot's "not in this channel" ephemeral with Add Them / Dismiss / Don't Show Again buttons | `mentionEphemeral(ts)` (`internal/ui/action_prompt_test.go`) |
+| Deliver a message to the App through the real `Update` chain and get the messages its commands produced | `arrive(t, a, msg)` (`internal/ui/action_prompt_queue_test.go`) |
+| Send a key and feed every resulting command's message back through `Update` | `pressKey(t, a, k)` (`internal/ui/action_prompt_test.go`) |
+| The toast text among such messages | `toastText(msgs)` (`internal/ui/action_prompt_test.go`) |
+| Is the confirm prompt visible and does its view contain some text? | `dialogShows(a, text)` (`internal/ui/action_prompt_queue_test.go`) |
+| Click the cell where some text is drawn inside the open confirm prompt | `clickConfirmText(t, a, text)` (`internal/ui/confirm_click_test.go`) |
+| An `App` with a normal message and then a given ephemeral in `C1`, the ephemeral selected in a focused messages pane | `selectedEphemeralApp(t, msg)` (`internal/ui/ephemeral_keys_test.go`) |
 
 ### Known duplication — do not add to it
 
