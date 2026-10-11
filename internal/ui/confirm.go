@@ -25,19 +25,15 @@ import (
 // workspace connects is still visible when the theme changes.
 func confirmPromptStyles() confirmprompt.Styles {
 	bg := styles.Background
+	cs := messages.ChromeStyles()
 	return confirmprompt.Styles{
-		Box: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(styles.Primary).
-			BorderBackground(bg).
-			Background(bg).
-			Padding(1, 1),
+		Box:          cs.Box,
 		Title:        lipgloss.NewStyle().Background(bg).Foreground(styles.Primary).Bold(true),
 		Body:         lipgloss.NewStyle().Background(bg).Foreground(styles.TextPrimary),
 		Footer:       lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted),
 		Button:       lipgloss.NewStyle().Background(bg).Foreground(styles.TextMuted),
 		ButtonActive: lipgloss.NewStyle().Background(styles.Primary).Foreground(bg).Bold(true),
-		BaseANSI:     messages.BgANSI() + messages.FgANSI(),
+		BaseANSI:     cs.BaseANSI,
 	}
 }
 
