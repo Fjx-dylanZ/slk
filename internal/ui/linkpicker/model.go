@@ -6,6 +6,8 @@
 // App recorded when opening the picker.
 package linkpicker
 
+import "github.com/gammons/slk/internal/bubbles/chrome"
+
 // Item is one selectable row.
 type Item struct {
 	URL   string
@@ -29,6 +31,8 @@ type Model struct {
 	selected int
 	visible  bool
 }
+
+var _ chrome.Dialog = (*Model)(nil)
 
 // New creates a hidden picker.
 func New() *Model { return &Model{} }

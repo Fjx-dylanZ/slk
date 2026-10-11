@@ -41,8 +41,9 @@ internal/ui/            bubbletea App: reducers, mode key handlers, view regions
 internal/ui/<widget>/   self-contained sub-models (messages, thread, sidebar,
                         compose, and 13 modal packages)
 internal/bubbles/       self-contained components and the substrate they
-                        share (RFC #236), e.g. ansi, scrollbar, selection. Never imports
-                        internal/ui; the TUI's I/O ban applies here too.
+                        share (RFC #236), e.g. ansi, scrollbar, selection, and
+                        chrome, the substrate every dialog draws through. Never
+                        imports internal/ui; the TUI's I/O ban applies here too.
                         Widgets move here from internal/ui/<widget>/ one at
                         a time; confirmprompt is the first
 internal/slack/         Slack Web API + browser-protocol WebSocket client
@@ -157,6 +158,8 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 |---|---|
 | Scrollbar gutter on a rendered pane | `bubbles/scrollbar.Overlay`, `bubbles/scrollbar.Visible` |
 | Lay out a wrapping row of labelled controls (buttons, select labels) with positions for hit-testing | `internal/bubbles/buttonrow` (`Layout`, `Rows`, `RowsFunc`); used by Block Kit actions and the confirm prompt |
+| Draw a dialog: its box, title / filter / body / footer layout, filter line, list window, selected-row marker, scrollbar gutter, and the composer popups' box and marker | `bubbles/chrome` (`Frame`, `Box`, `FilterInput`, `Window`, `List`, `Marker`, `BodyTop`, `Popup`, `PopupMarker`), drawn with `messages.ChromeStyles()` called per draw. A dialog keeps its own fields, matching and row content; see the package doc |
+| A scrollbar thumb's rows, for a gutter you draw yourself | `bubbles/scrollbar.Thumb` (the one formula; `Overlay` and `chrome.List` use it) |
 | Centered modal over a dimmed backdrop | `ui/overlay.DimmedOverlay` |
 | Prompt modal with N buttons (title, wrapped body of up to 8 lines, buttons; yes/no is `Open`, any buttons via `OpenChoice(confirmprompt.Choice)`, `Button.Then` for a follow-up step) | `bubbles/confirmprompt` (`New`, `Open`, `OpenChoice`, `Update`, `PressHighlighted`, `View`, `SetStyles`, `SetWidth`; options `WithStyles`/`WithKeyMap`/`WithWidth`; `KeyMap` field). In the App, open it with `App.openConfirmPrompt` (`internal/ui/confirm.go`), which also maps the theme onto its styles and composites it |
 | Text selection ranges and anchors | `bubbles/selection` (`Range`, `Anchor`, `LessOrEqual`) |
@@ -167,7 +170,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Change the theme inside the App | `App.applyTheme(name)` (`internal/ui/app.go`): applies it, invalidates render caches and pushes fresh styles to components that snapshot them. A component that holds a style snapshot (anything in `internal/bubbles`) gets its push added there, not at each call site. `entrylist` is the exception: its owners (the channel and thread panes) call `SetStyles` at the top of every `View`, so `applyTheme` only invalidates for them |
 | Window tree geometry | `ui/wintree` |
 | Sidebar selection across item/filter reorders | Capture `sidebar.Model.currentCursorKey()` **before** mutation, then `rebuildNavWithCursor`; `rebuildNavPreserveCursor` is only safe while old nav indices still identify the same items |
-| Modal geometry / row hit-testing | `boxedOverlay`, `clickableOverlay` (list rows), `pointClickable` (a single glyph, e.g. the profile dialog's 📋) in `internal/ui/reducer_modal_click.go` |
+| Modal geometry / row hit-testing | `chrome.Boxed`, `chrome.Clickable` (list rows; declared in `internal/bubbles/chrome`, asserted by each dialog package) and `pointClickable` (a single glyph, e.g. the profile dialog's 📋; `internal/ui/reducer_modal_click.go`) |
 | Channel/DM destination picker for forwarding | `channelfinder.Model.OpenForForwarding()` (joined conversations only); `Open()` restores the normal switcher |
 | Refresh a workspace finder entry without losing visit recency | `rtmEventHandler.upsertFinderItem(item)` on the serialized event owner; returns the stored item, preserves existing `LastVisited`, seeds a new row from `LastVisitedByChannel` |
 | Render a thread from cache on open, before the fetch lands | `cachedThreadRepliesCmd(threads, chID, threadTS)` (`internal/ui/app.go`); yields a `FromCache` `ThreadRepliesLoadedMsg`, which renders but never marks the thread read — only the fetched result does |
@@ -191,6 +194,7 @@ greppable by name; no line numbers, because these files move.
 | Seed App-level state | `withMode`, `withView`, `withActiveChannel`, `withActiveTeam`, `withChannelService`, `withWindowSplit`. **`withActiveChannel` assigns only `a.activeChannelID`** — nothing derives a *name* from an ID, so the messages-pane header renders as a bare `#`, the statusbar as `#`, and the compose placeholder as `Message #...`. A test that asserts on any of those must push the name through the production trio itself; `newGoldenApp` does it via `nameGoldenActiveChannel` (`internal/ui/golden_test.go`) |
 | Populate `a.layout` bands / pane caches (needed for mouse hit-testing) | `withRender()` |
 | N plain message fixtures | `testMessageItems(n)` |
+| A golden for a dialog or composer popup over the standard fixture | `dialogGoldens()` / `renderDialogGolden(t, d)` (`internal/ui/golden_dialogs_test.go`); add a scenario there for a new dialog |
 | Compare or bless a full-screen frame against `testdata/golden/<name>.ansi` | `compareGolden(t, name, got)` (`internal/ui/golden_test.go`) |
 | Prove two ANSI screens look identical even when their bytes differ (re-encoded SGR), or that every golden is cell-identical to a baseline directory | `cellDiff(want, got)` and `SLK_GOLDEN_BASELINE=<dir> go test ./internal/ui -run TestGoldenCellsMatchBaseline` (`internal/ui/goldencells_test.go`) |
 | Re-bless goldens | the package-local `-update` flag: `go test ./internal/ui -run TestGolden -update`. It is not defined repo-wide, so `go test ./... -update` fails |
@@ -227,12 +231,6 @@ greppable by name; no line numbers, because these files move.
 These are tracked in the refactor plan and are being consolidated. Do not copy
 them as templates:
 
-- **11 `renderBox` implementations** — 10 across the 13 `internal/ui` modal
-  packages, plus confirmprompt's `View` in `internal/bubbles/confirmprompt` —
-  and **7 `visibleWindow`** in the modal packages. If you are building or
-  migrating a modal, expect a shared chrome package in `internal/bubbles` to land
-  first (RFC #236 stages it ahead of the remaining modals); coordinate rather
-  than adding a twelfth copy.
 - **`messages.Model` and `thread.Model`** share `bubbles/entrylist` (scroll,
   selection, window, scrollbar) and `messages.RenderMessage` (one message
   renderer); their differences are `entrylist` options and `RenderOptions`
