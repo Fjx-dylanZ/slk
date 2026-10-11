@@ -94,14 +94,23 @@ func TestLayoutSnapsToCursorOnlyWhenItMoves(t *testing.T) {
 
 func TestTrailRowsAreNotSnappedIntoView(t *testing.T) {
 	m := New()
-	m.SetHeight(3, 0)
+	m.SetHeight(2, 0)
 	m.SetEntries([]Entry{msg("a", 0, 3, 1), msg("b", 1, 3, 0)}, 20, false)
+	// a is rows 0..2 but its last row is trail, so the target is [0,2),
+	// which fits the 2-row window. Counting the trail row would make the
+	// target [0,3) and scroll the window to y=1.
 	m.Layout(0, nil)
-	m.Layout(1, nil) // rows 3..5
+	if s, e := m.CursorSpan(); s != 0 || e != 2 {
+		t.Fatalf("span [%d,%d), want [0,2)", s, e)
+	}
+	if m.YOffset() != 0 {
+		t.Fatalf("y=%d, want 0: the trail row was snapped into view", m.YOffset())
+	}
+	m.Layout(1, nil) // b is rows 3..5 and has no trail; taller than the window, so its top wins
 	if m.YOffset() != 3 {
 		t.Fatalf("y=%d, want 3", m.YOffset())
 	}
-	m.Layout(0, nil) // a is rows 0..2, but its last row is trail: target [0,2)
+	m.Layout(0, nil)
 	if m.YOffset() != 0 {
 		t.Fatalf("y=%d, want 0", m.YOffset())
 	}
@@ -216,14 +225,23 @@ func TestReanchorBottomUsesOldOrNewHeight(t *testing.T) {
 }
 
 func TestReanchorRefsOnlySkipsLeadingNonRefEntries(t *testing.T) {
-	m := New(WithReanchor(ReanchorPolicy{AnchorRefsOnly: true}))
-	m.SetHeight(3, 0)
-	parent := msg("p", -1, 4, 0)
-	m.SetEntries([]Entry{parent, msg("a", 0, 4, 0), msg("b", 1, 4, 0)}, 20, false)
-	m.SetYOffset(2) // inside the parent (Ref -1)
-	m.SetEntries([]Entry{msg("p", -1, 6, 0), msg("a", 0, 6, 0), msg("b", 1, 6, 0)}, 15, true)
-	if m.YOffset() != 2 {
-		t.Fatalf("a line inside a non-ref entry re-anchored: y=%d, want 2 (kept)", m.YOffset())
+	// y=3 is the last row of a 4-row parent (Ref -1) that rewraps to 2
+	// rows. Anchoring on the parent clamps the row within it to 1, so the
+	// window moves to y=1. With AnchorRefsOnly no entry covers the line,
+	// and the raw offset is kept.
+	for _, refsOnly := range []bool{false, true} {
+		m := New(WithReanchor(ReanchorPolicy{AnchorRefsOnly: refsOnly}))
+		m.SetHeight(3, 0)
+		m.SetEntries([]Entry{msg("p", -1, 4, 0), msg("a", 0, 4, 0), msg("b", 1, 4, 0)}, 20, false)
+		m.SetYOffset(3)
+		m.SetEntries([]Entry{msg("p", -1, 2, 0), msg("a", 0, 4, 0), msg("b", 1, 4, 0)}, 15, true)
+		want := 1
+		if refsOnly {
+			want = 3
+		}
+		if m.YOffset() != want {
+			t.Errorf("AnchorRefsOnly=%v: y=%d, want %d", refsOnly, m.YOffset(), want)
+		}
 	}
 }
 
@@ -295,18 +313,33 @@ func TestPressOnDecoration(t *testing.T) {
 		if snap {
 			opts = append(opts, WithSnapDecorationAnchors())
 		}
+		// A decoration with Plain can be pressed: it anchors on itself
+		// (empty ID), or snaps to the next selectable entry.
 		m := New(opts...)
 		m.SetHeight(10, 0)
-		// The channel pane's dividers carry Plain and snap; the thread
-		// pane's decorations carry none and do not.
-		m.SetEntries([]Entry{deco("day", snap), msg("a", 0, 2, 0)}, 20, false)
+		m.SetEntries([]Entry{deco("day", true), msg("a", 0, 2, 0)}, 20, false)
 		m.Layout(0, nil)
 		m.BeginSelection(0, 3)
-		if m.HasSelection() != snap {
-			t.Errorf("snap=%v: HasSelection=%v", snap, m.HasSelection())
+		if !m.HasSelection() {
+			t.Errorf("snap=%v: a press on a decoration with Plain anchored nothing", snap)
 		}
-		if snap && m.Selection().Start.MessageID != "a" {
-			t.Errorf("snapped to %q, want a", m.Selection().Start.MessageID)
+		wantID := ""
+		if snap {
+			wantID = "a"
+		}
+		if got := m.Selection().Start.MessageID; got != wantID {
+			t.Errorf("snap=%v: anchored on %q, want %q", snap, got, wantID)
+		}
+
+		// A decoration without Plain (the thread pane's rules) anchors
+		// nothing in either setting.
+		m = New(opts...)
+		m.SetHeight(10, 0)
+		m.SetEntries([]Entry{deco("rule", false), msg("a", 0, 2, 0)}, 20, false)
+		m.Layout(0, nil)
+		m.BeginSelection(0, 3)
+		if m.HasSelection() {
+			t.Errorf("snap=%v: a press on a Plain-less decoration started a selection", snap)
 		}
 	}
 }
