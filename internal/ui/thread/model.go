@@ -1566,6 +1566,11 @@ func (m *Model) View(height, width int) string {
 			BorderForeground(styles.Background).BorderBackground(styles.Background).
 			Render(parentContent)
 	}
+	// Pad every parent row to the pane width with the theme background.
+	// The outer wrapper used to do this (the parent, unlike a reply, is
+	// not width-filled when rendered); this is the same per-row padding,
+	// applied where it is needed.
+	parentContent = lipgloss.NewStyle().Width(width).Background(styles.Background).Render(parentContent)
 	parentSeparator := lipgloss.NewStyle().
 		Width(width).
 		Background(styles.Background).
@@ -1598,7 +1603,7 @@ func (m *Model) View(height, width int) string {
 			styles.Background, styles.Border, styles.Primary,
 		)
 		result := chrome + "\n" + strings.Join(visibleLines, "\n")
-		return lipgloss.NewStyle().Width(width).Height(height).MaxHeight(height).Background(styles.Background).Render(result)
+		return fitHeight(result, height)
 	}
 
 	// A width change rewraps every reply, so re-anchor YOffset to the same
@@ -2010,7 +2015,20 @@ func (m *Model) View(height, width int) string {
 		styles.Background, styles.Border, styles.Primary,
 	)
 	result := chrome + "\n" + strings.Join(visibleLines, "\n")
-	return lipgloss.NewStyle().Width(width).Height(height).MaxHeight(height).Background(styles.Background).Render(result)
+	return fitHeight(result, height)
+}
+
+// fitHeight keeps the first height rows of s, as the old outer
+// MaxHeight(height) did when a floored reply area (height < chrome + 1)
+// made the pane one row too tall.
+func fitHeight(s string, height int) string {
+	if height <= 0 {
+		return s
+	}
+	if rows := strings.Split(s, "\n"); len(rows) > height {
+		return strings.Join(rows[:height], "\n")
+	}
+	return s
 }
 
 // HitTestReaction returns the (reply index, reaction emoji name) at
