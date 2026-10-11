@@ -48,12 +48,15 @@ func (a *App) setMark(letter string) tea.Cmd {
 	if name, _, found := a.channels.Lookup(loc.ChannelID); found {
 		m.ChannelName = name
 	}
-	if a.focusedPanel == PanelThread {
-		if reply := a.threadPanel.SelectedReply(); reply != nil {
-			m.AuthorName = reply.UserName
-			m.Excerpt = truncateReason(reply.Text, 100)
-		}
-	} else if a.view == ViewThreads {
+	// The same order as currentLocation: the thread pane, then the
+	// Threads view, then the channel pane. focusedContentPane does not
+	// fit, because a mark set with the sidebar focused still names the
+	// channel pane's selection.
+	var pane contentPane
+	switch {
+	case a.focusedPanel == PanelThread:
+		pane = a.threadPanel
+	case a.view == ViewThreads:
 		if s, ok := a.threadsView.SelectedSummary(); ok {
 			m.AuthorName = a.userNameFor(s.ParentUserID)
 			m.Excerpt = truncateReason(s.ParentText, 100)
@@ -61,9 +64,14 @@ func (a *App) setMark(letter string) tea.Cmd {
 				m.ChannelName = s.ChannelName
 			}
 		}
-	} else if msg, ok := a.messagepane.SelectedMessage(); ok {
-		m.AuthorName = msg.UserName
-		m.Excerpt = truncateReason(msg.Text, 100)
+	default:
+		pane = a.messagepane
+	}
+	if pane != nil {
+		if msg, ok := pane.SelectedMessage(); ok {
+			m.AuthorName = msg.UserName
+			m.Excerpt = truncateReason(msg.Text, 100)
+		}
 	}
 	if err := a.marks.Set(a.activeTeamID, letter, m); err != nil {
 		return toastWithClear(a, "Failed to save mark "+letter, 3*time.Second)
