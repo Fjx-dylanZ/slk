@@ -295,7 +295,7 @@ Apply to every phase.
    state relocation cost ~150 mechanical test lines per 10 extractions. Budget
    accordingly.
 5. **Run `go test ./... -race` before and after every commit.** CI runs it;
-   `golangci-lint v2.13.1` and `gofmt` are enforced.
+   `golangci-lint v2.14.0` and `gofmt` are enforced.
 6. **Prefer deleting redundant state over synchronizing it.** F2's `workspaces`
    and `activeTeamID` both have correct existing sources of truth.
 
@@ -550,6 +550,60 @@ goldens byte-identical.
 
 **Risk:** high. The goldens are the primary safety mechanism.
 
+> **As built:** the substrate is `internal/bubbles/entrylist`, not
+> `internal/ui/pane` (RFC #236 removes sibling-package homes); the message layer
+> stayed in `internal/ui/messages`. Design:
+> [`../specs/2026-10-10-phase3-messages-thread-fork-design.md`](../specs/2026-10-10-phase3-messages-thread-fork-design.md)
+> (with its "Addenda (implementation)"), plan:
+> [`2026-10-11-phase3-messages-thread-fork.md`](2026-10-11-phase3-messages-thread-fork.md).
+
+#### Achieved (branches `refactor/phase3/pr0-characterize` … `pr8-close-out`, stacked on #304)
+
+Measured with Task 0.0 step 3 (commands in the plan; baseline in
+[`phase3-baseline/measurements.md`](phase3-baseline/measurements.md)) at
+`c0297b69`, the tip of PR 7.
+
+| Exit criterion | Bar | Achieved |
+|---|---|---|
+| Cloned type declarations (`viewEntry`, `reactionEntryHit`, `reactionHitRect`, `EmojiContext`) | 1 each | **met**: `viewEntry`, `reactionEntryHit`, `reactionHitRect` are gone (replaced by `entrylist.Entry`/`Hit`); `messages.EmojiContext` is the one pane context (the `emojipicker` and `reactionpicker` types of that name are separate modal types) |
+| `app.go` mirror pairs | 3 → 0 | **met**: `handleThreadReactionNav`, `openPickerFromThread`, `toggleReactionOnSelectedThread` are gone; the mirror arms in `view_*`, `reducer_mouse.go`, `drag.go`, `mode_normal.go` and `action_prompt.go` go through `contentPane` |
+| `internal/ui/thread` imports `bubbles/viewport` | no | **met** |
+| `contentPane` asserted against both models | yes | **met** (`internal/ui/content_pane.go`) |
+| `thread/model.go` | ≤ 1,000 lines (stretch < 900) | **not met: 1,353 lines** (2,314 at the PR 0 baseline; 2,072 at the tracking doc's original baseline). `messages/model.go` went 3,795 → 2,218 |
+| Verbatim shared thread→messages lines (≥ 16 chars, spec A.2) | < 50 | **not met: 206 of 540** (491 of 986 at baseline; 233 after Task 6.2). The remainder is per-pane setters, selection wrappers and chrome that no Phase 3 task unified. Unifying the setters overlaps RFC #236's directory/pull stage, so it was left out of scope rather than expanded here |
+| Benchmarks vs the PR 0 baseline (medians of 10, same VM) | within ±10% | **met**: thread `BenchmarkViewScroll` 3.85 ms → 0.50 ms (−87%, allocs 29,814 → 2,092); messages `BenchmarkViewScroll` −0.5%, `BenchmarkBuildCache` −0.4%, `BenchmarkViewFocusFlip` −4.9% (the baseline is noisy on this VM: ±14–15% between runs on the last two) |
+| Goldens | byte-identical except the §6.3 re-bless | **met**: `thread_open`, `wide`, `narrow` and (decision P4) `thread_parent_selected` were re-blessed once, in PR 2+3, cell-identical by `cellDiff`; no other golden changed |
+| `go test ./... -race -count=5` | PASS | **PASS for every package except `internal/ui`, which could not be run as one `-count=5` process**: it was OOM-killed (`signal: killed`) under the 8 GiB sandbox cgroup, because its race test binary retains about 1.2 GB per iteration (1,247 MB at `-count=1`, 2,426 MB at `-count=2`; the #304 head `23e09abb` grows the same, 2,416 MB at `-count=2`, so it predates Phase 3). Five separate single-iteration `-race` runs of the `internal/ui` test binary all passed. Not the literal bar |
+| `thread.Model` / `messages.Model` white-box test refs | — | 139 refs / 10 members, and 144 / 13 (159 / 24 and 137 / 20 at the baseline): the moved state is reached through `entrylist`'s exported API |
+
+**Test references to unexported `ui.App` members.** The PR 0 baseline measured
+**3,972 refs / 191 members** (4,009 / 193 now); this document's Phase 0 figure
+is 2,905 / 142. The difference is #304's tests, which the stack includes, and
+the measurement program also counting unexported composite-literal keys; the
+Phase 0 figure came from selectors alone. Neither number was rewritten.
+
+**PRs**, each green and behaviour-preserving, in stack order:
+
+| PR | Branch | What it did |
+|---|---|---|
+| 0 | `pr0-characterize` | Test-only: measurement and benchmark baseline, the cell-level golden comparison (`cellDiff`), `TestChar_*` characterization of both panes' scroll, selection, scrollbar, indicators and empty states, the scrolling lockstep test, and the `thread_parent_selected` golden |
+| 1 | `pr1-move-substrate` | Pure move: `internal/ui/scrollbar` and `internal/ui/selection` → `internal/bubbles/` |
+| 2+3 | `pr23-thread-viewport` | Thread drops `bubbles/viewport` for a hand-rolled offset with eager clamp, pads and fills the parent row, and loses its outer wrapper. The one golden exception (four goldens, cell-identical) |
+| 4 | `pr4-entrylist` | `internal/bubbles/entrylist` with its options and per-setting tests; `PlainLine` moves in; `messages` adopts it first |
+| 5 | `pr5-thread-entrylist` | Thread adopts `entrylist`; the cloned entry and hit types reduce to one; the reaction hit-test frame converges; the tripwire test is deleted. Thread `BenchmarkViewScroll` ~7.9× faster |
+| 6 | `pr6-message-layer` | One message renderer (`RenderMessage` with `RenderOptions`/`RenderContext`), one reaction mutation and cursor (`ApplyReaction`, `ReactionNav`), one `EmojiContext` and `EntryPayload`, and `WrapRows` for entry wrapping |
+| 7 | `pr7-app-pane` | `contentPane` and its compile-time assertions; pane APIs converge (constructors, `SetLastReadTS`, `View`/`ViewBare`/`ApplySelectionToBordered`, `ClickAt` → bool); the three mirror pairs and the mirror arms collapse |
+| 8 | `pr8-close-out` | Retires `lockstep_test.go` (every divergence is an `entrylist` option, a `RenderOptions`/`RenderContext` field or a pane, mapped in the spec's addenda), updates `AGENTS.md`, this document and the spec, and sweeps stale comments |
+
+**Follow-ups** (spec §9; each its own issue, none filed yet): thread gaining
+U1, U2, U3 and 8(c); thread dropping U4 and U6; #254; the P2 stale focused
+border (pinned by `TestChar_ThreadFocusFlipKeepsFocusedBorder`); caching the
+thread parent; whether thread should get search highlighting, a loading state
+or image click-to-preview; and per-setting tests for the `RenderOptions` fields
+(the `── new ──` landmark row and the thread's boundary lifecycle, which only
+the retired lockstep test covered, are pinned again in PR 8 by
+`TestUnreadLandmark_*` and `TestSetThread_ClearsBoundaryOnlyWhenTheThreadChanges`).
+
 ---
 
 ### Phase 4 — De-duplication: extract the modal chrome substrate
@@ -582,14 +636,77 @@ genuine per-widget behavior. Do **not** unify them — forcing them into a commo
 shape is the classic over-abstraction failure and would be worse than the
 duplication.
 
-**Exit:** modal cluster below ~3,000 lines (from 5,295); one `renderBox`; one
-`visibleWindow`; every modal package satisfying a declared chrome interface with
-a compile-time assertion; all 8 goldens byte-identical except
-`overlay_finder`, which is re-blessed once with a reviewed diff.
+**Exit:** modal cluster line count measured, not gated (see the Phase 4 spec
+§7); one `renderBox`; one `visibleWindow`; every modal package satisfying a
+declared chrome interface with a compile-time assertion; all goldens
+cell-identical to the step-0 baseline (as built: byte-identical, no re-bless;
+originally planned: all 8 byte-identical except `overlay_finder`, re-blessed once
+with a reviewed diff).
 
-**Risk:** medium-high. Touches 13 packages and the `overlay_finder` golden is
-expected to change. Consolidate incrementally — one modal migrated per commit,
+**Risk:** medium-high. Touches 13 packages and the `overlay_finder` golden was
+expected to change (as built, it did not). Consolidate incrementally — one modal migrated per commit,
 goldens green between each.
+
+> **As built:** the substrate is `internal/bubbles/chrome`, drawn with
+> `messages.ChromeStyles()`; it covers 15 dialogs and popups (the 13-package
+> cluster plus userprofile and reactionsview), and none of them needed a golden
+> re-bless. Design:
+> [`../specs/2026-10-12-phase4-modal-chrome-design.md`](../specs/2026-10-12-phase4-modal-chrome-design.md)
+> (with its "Addenda (implementation)"), plan:
+> [`2026-10-12-phase4-modal-chrome.md`](2026-10-12-phase4-modal-chrome.md).
+
+#### Achieved (branches `refactor/phase4/pr1-substrate`, `pr2-dialogs`, `refactor/phase4-modal-chrome`)
+
+Measured with the Step 1 commands of the plan's Task 18, at the tip of the
+close-out branch. Starting numbers are the spec's §2, taken at `cf9742c6`.
+
+| Exit criterion (spec §7) | Bar | Achieved |
+|---|---|---|
+| `renderBox` implementations | 0 outside `chrome` | **met**: no `RoundedBorder()` is left in any of the 14 `internal/ui` dialog packages; confirmprompt draws through `chrome.Box` too |
+| `visibleWindow` implementations | 0 outside `chrome` | **met**: no `selected - max + 1` window is left in `internal/ui` |
+| Hand-rolled scrollbar thumb math | 0 outside `bubbles/scrollbar` | **met**: `thumbHeight`/`thumbStart` appear only in `internal/bubbles/scrollbar/scrollbar.go` |
+| Compile-time `chrome` assertions | every dialog and popup package | **met**: 15 packages (the 14 `internal/ui` dialogs and popups, plus confirmprompt) |
+| Goldens | all cell-identical to the step-0 baseline | **met, and byte-identical**: no golden was re-blessed. `TestGoldenCellsMatchBaseline` compares every golden against the baseline |
+| `go test ./... -race` | PASS | **PASS** |
+| Cluster line count | measured and recorded; not a gate | **5,744 → 4,865** (−879) for the 13-package cluster; plus `chrome`'s own 229 lines, 5,094 (−650) |
+
+Non-test lines per package (before at `cf9742c6`, after at the close-out):
+
+| Package | Before | After |
+|---|---|---|
+| channelfinder | 830 | 724 |
+| newmessagepicker | 656 | 574 |
+| searchresults | 617 | 522 |
+| reactionpicker | 553 | 441 |
+| help | 489 | 355 |
+| themeswitcher | 376 | 258 |
+| presencemenu | 373 | 299 |
+| workspacefinder | 372 | 254 |
+| reactionsview | 228 | 212 |
+| linkpicker | 200 | 175 |
+| userprofile | 640 | 629 |
+| confirmprompt (`internal/bubbles`) | 528 | 534 |
+| mentionpicker | 335 | 325 |
+| emojipicker | 237 | 233 |
+| channelpicker | 178 | 171 |
+| **cluster of 13** (all but reactionsview and userprofile) | **5,744** | **4,865** |
+| `internal/bubbles/chrome` | — | 229 |
+
+The migration removed less than the spec's 1,200–1,400 estimate (−879 gross,
+−650 once `chrome` is counted): what is left is matching and row content, which
+stay in the dialogs by design.
+
+**PRs**, each green and behaviour-preserving, in stack order:
+
+| PR | Branch | What it did |
+|---|---|---|
+| 1 | `pr1-substrate` (`25e34415`) | Goldens for every dialog and popup (`7398d3f6`), `scrollbar.Thumb` (`586a8b0e`), the `chrome` package (`270bd584`), `messages.ChromeStyles` and the click router on `chrome`'s contract (`25e34415`) |
+| 2 | `pr2-dialogs` (`d538fcf6`) | Twelve commits, one each for the eleven dialogs and confirmprompt: `393876fb`, `d55ee045`, `3cc6b292`, `f5994378`, `373ddb9a`, `75496440`, `17edfc5d`, `c874da40`, `1cd9eace`, `5911c050`, `0172d3af`, `d538fcf6` |
+| 3 | `refactor/phase4-modal-chrome` | The emojipicker, channelpicker and mentionpicker popups, then this close-out |
+
+**Follow-ups** (spec §8.1 and §9): the workspacefinder row wrap (§8.1) is still
+open and is to be raised as an issue; the overlay move, `applyOverlays` collapse,
+the `/` command picker and width-clamp convergence are listed in spec §9.
 
 ---
 
@@ -696,8 +813,8 @@ dupl -t 75 -plumbing $(find . -name '*.go' \
 | 0 | Test safety net | — | [spec](../specs/2026-09-06-phase0-test-safety-net-design.md) | [plan](2026-09-06-phase0-test-safety-net.md) | **complete** |
 | 1 | `main.go` topical splits | — | [spec](../specs/2026-09-22-phase1-main-go-splits-design.md) | [plan](2026-09-22-phase1-main-go-splits.md) | **complete** |
 | 2 | `main.go` structural | 1 | — | — | not started |
-| 3 | Collapse `messages`/`thread` fork | 0 | — | — | not started |
-| 4 | Modal chrome substrate | 0, 3 | — | — | not started |
+| 3 | Collapse `messages`/`thread` fork | 0 | [spec](../specs/2026-10-10-phase3-messages-thread-fork-design.md) | [plan](2026-10-11-phase3-messages-thread-fork.md) | **complete** (two exit criteria unmet: shared lines 206 vs < 50, and `thread/model.go` 1,353 lines vs ≤ 1,000; see Phase 3 "Achieved") |
+| 4 | Modal chrome substrate | 0, 3 | [spec](../specs/2026-10-12-phase4-modal-chrome-design.md) | [plan](2026-10-12-phase4-modal-chrome.md) | **complete** |
 | 5 | Finish `App` decomposition | 0b | — | — | not started |
 | 6 | Opportunistic cleanup | 3, 4 | — | — | not started |
 
@@ -714,9 +831,9 @@ at a phase boundary.
 | `internal/ui/app.go` | 3,454 lines | < 2,000 |
 | `App` struct fields | 107 | < 60 |
 | `App` `Set*` methods | 45 | < 25 |
-| `internal/ui/thread/model.go` | 2,072 lines | < 900 |
-| Modal-widget cluster (13 pkgs) | 5,295 lines | < 3,000 |
-| `renderBox` implementations | 11 | 1 |
-| `visibleWindow` implementations | 7 | 1 |
+| `internal/ui/thread/model.go` | 2,072 lines | < 900 — **1,353 after Phase 3** (the spec's ≤ 1,000 bar and this stretch target both missed; see Phase 3 "Achieved") |
+| Modal-widget cluster (13 pkgs) | 5,295 lines | 4,865 after Phase 4 (5,744 at its start), plus 229 in `chrome` — target retired (see the Phase 4 spec §7) |
+| `renderBox` implementations | 11 | 1 — **done (Phase 4)** |
+| `visibleWindow` implementations | 7 | 1 — **done (Phase 4)** |
 | Golden tests for `View()` | 0 | 8 — **done (Phase 0)** |
 | Known data races in `cmd/slk` | 3 | 0 |

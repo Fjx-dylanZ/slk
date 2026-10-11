@@ -422,6 +422,18 @@ type App struct {
 	reactionPicker *reactionpicker.Model
 	reactionsView  *reactionsview.Model
 	confirmPrompt  confirmprompt.Model
+	// shownPrompt is the ephemeral message whose buttons the confirm
+	// prompt is showing; nil when it shows anything else, or nothing.
+	shownPrompt *actionPromptRef
+	// shownPromptInsert records that shownPrompt opened over insert mode
+	// (shownPromptThread: over the thread composer), so closing it puts
+	// the user back to typing.
+	shownPromptInsert, shownPromptThread bool
+	// actionQueue holds ephemerals with buttons waiting for the action
+	// dialog, oldest first; promptToasted records which have shown the
+	// "press b" toast, so it appears once per message.
+	actionQueue   []actionPromptRef
+	promptToasted map[string]bool
 	// userProfile is the K-opened read-only "who is this person?"
 	// modal (see internal/ui/userprofile). profileSvc fetches the
 	// full profile; defaulted to noopProfileService in NewApp so the
@@ -439,6 +451,7 @@ type App struct {
 	// internal/ui/services.go. Defaulted to a no-op adapter in NewApp
 	// so call sites can dispatch without nil-checks.
 	reactions     core.ReactionService
+	interactions  core.InteractionService
 	currentUserID string
 
 	// editing tracks in-progress message edit state. See
@@ -825,6 +838,7 @@ func NewApp() *App {
 		preview:               newImagePreviewController(),
 		layout:                newPanelLayout(),
 		reactions:             noopReactionService,
+		interactions:          noopInteractionService,
 		threads:               noopThreadService,
 		activity:              noopActivityService,
 		messageSvc:            noopMessageService,
@@ -845,7 +859,7 @@ func NewApp() *App {
 	// empty at construction — main.go's Set* forwarders run later and
 	// reach the root model through the messagepane pointer directly.
 	rootModel := messages.New(nil, "")
-	app.winModels = map[wintree.LeafID]*messages.Model{rootWin: &rootModel}
+	app.winModels = map[wintree.LeafID]*messages.Model{rootWin: rootModel}
 	app.messagepane = app.winModels[rootWin]
 	app.editing = newEditController()
 	// typing tracker is referenced by typingOut so it must exist first;
@@ -977,6 +991,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceActivity,
 		reduceFocus,
 		reduceSend,
+		reduceActionPrompt,
 		reduceChannels,
 		reduceLinks,
 		reduceFiles,
@@ -1041,6 +1056,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.forceSixelRepaint = true
 		}
 		a.confirmPrompt.SetWidth(msg.Width)
+		a.confirmPrompt.SetHeight(msg.Height)
 		return a, nil
 
 	case scrollFlushMsg:
@@ -1161,48 +1177,31 @@ func (a *App) updateReactionOnMessage(channelID, messageTS, emojiName, userID st
 	a.threadPanel.UpdateReaction(messageTS, emojiName, userID, remove)
 }
 
-func (a *App) handleReactionNav(msg tea.KeyMsg) tea.Cmd {
+// handleReactionNav routes a key while reaction navigation is active on
+// pane, whose messages belong to channelID.
+func (a *App) handleReactionNav(p contentPane, channelID string, msg tea.KeyMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, a.keys.Left):
-		a.messagepane.ReactionNavLeft()
+		p.ReactionNavLeft()
 	case key.Matches(msg, a.keys.Right):
-		a.messagepane.ReactionNavRight()
+		p.ReactionNavRight()
 	case key.Matches(msg, a.keys.Enter):
-		emojiName, isPlus := a.messagepane.SelectedReaction()
+		emojiName, isPlus := p.SelectedReaction()
 		if isPlus {
-			return a.openPickerFromMessage()
+			return a.openReactionPicker(p, channelID)
 		}
-		return a.toggleReactionOnSelectedMessage(emojiName)
+		return a.toggleReactionOnSelected(p, channelID, emojiName)
 	case key.Matches(msg, a.keys.Reaction):
-		return a.openPickerFromMessage()
+		return a.openReactionPicker(p, channelID)
 	case key.Matches(msg, a.keys.Escape):
-		a.messagepane.ExitReactionNav()
+		p.ExitReactionNav()
 	}
 	return nil
 }
 
-func (a *App) handleThreadReactionNav(msg tea.KeyMsg) tea.Cmd {
-	switch {
-	case key.Matches(msg, a.keys.Left):
-		a.threadPanel.ReactionNavLeft()
-	case key.Matches(msg, a.keys.Right):
-		a.threadPanel.ReactionNavRight()
-	case key.Matches(msg, a.keys.Enter):
-		emojiName, isPlus := a.threadPanel.SelectedReaction()
-		if isPlus {
-			return a.openPickerFromThread()
-		}
-		return a.toggleReactionOnSelectedThread(emojiName)
-	case key.Matches(msg, a.keys.Reaction):
-		return a.openPickerFromThread()
-	case key.Matches(msg, a.keys.Escape):
-		a.threadPanel.ExitReactionNav()
-	}
-	return nil
-}
-
-func (a *App) openPickerFromMessage() tea.Cmd {
-	msg, ok := a.messagepane.SelectedMessage()
+// openReactionPicker opens the emoji picker for pane's selected message.
+func (a *App) openReactionPicker(p contentPane, channelID string) tea.Cmd {
+	msg, ok := p.SelectedMessage()
 	if !ok {
 		return nil
 	}
@@ -1212,27 +1211,9 @@ func (a *App) openPickerFromMessage() tea.Cmd {
 			existing = append(existing, r.Emoji)
 		}
 	}
-	a.messagepane.ExitReactionNav()
+	p.ExitReactionNav()
 	a.reactionPicker.SetFrecentEmoji(a.reactions.LoadFrecent(10))
-	a.reactionPicker.Open(a.activeChannelID, msg.TS, existing)
-	a.SetMode(ModeReactionPicker)
-	return nil
-}
-
-func (a *App) openPickerFromThread() tea.Cmd {
-	reply := a.threadPanel.SelectedReply()
-	if reply == nil {
-		return nil
-	}
-	var existing []string
-	for _, r := range reply.Reactions {
-		if r.HasReacted {
-			existing = append(existing, r.Emoji)
-		}
-	}
-	a.threadPanel.ExitReactionNav()
-	a.reactionPicker.SetFrecentEmoji(a.reactions.LoadFrecent(10))
-	a.reactionPicker.Open(a.threadPanel.ChannelID(), reply.TS, existing)
+	a.reactionPicker.Open(channelID, msg.TS, existing)
 	a.SetMode(ModeReactionPicker)
 	return nil
 }
@@ -1241,25 +1222,16 @@ func (a *App) openPickerFromThread() tea.Cmd {
 // message (main pane) or selected reply (thread pane). It is a no-op when
 // nothing is selected or the target has no reactions.
 func (a *App) openReactionsView() tea.Cmd {
-	var reactions []messages.ReactionItem
-	switch a.focusedPanel {
-	case PanelMessages:
-		msg, ok := a.messagepane.SelectedMessage()
-		if !ok {
-			return nil
-		}
-		reactions = msg.Reactions
-		a.messagepane.ExitReactionNav()
-	case PanelThread:
-		reply := a.threadPanel.SelectedReply()
-		if reply == nil {
-			return nil
-		}
-		reactions = reply.Reactions
-		a.threadPanel.ExitReactionNav()
-	default:
+	p, _, ok := a.focusedContentPane()
+	if !ok {
 		return nil
 	}
+	msg, ok := p.SelectedMessage()
+	if !ok {
+		return nil
+	}
+	reactions := msg.Reactions
+	p.ExitReactionNav()
 	if len(reactions) == 0 {
 		return nil
 	}
@@ -1323,69 +1295,22 @@ func (a *App) buildReactionGroups(reactions []messages.ReactionItem) []reactions
 	return groups
 }
 
-func (a *App) toggleReactionOnSelectedMessage(emojiName string) tea.Cmd {
-	msg, ok := a.messagepane.SelectedMessage()
+// toggleReactionOnSelected toggles the current user's emojiName reaction
+// on pane's selected message.
+func (a *App) toggleReactionOnSelected(p contentPane, channelID, emojiName string) tea.Cmd {
+	msg, ok := p.SelectedMessage()
 	if !ok {
 		return nil
 	}
-	remove := false
-	for _, r := range msg.Reactions {
-		if r.Emoji == emojiName && r.HasReacted {
-			remove = true
-			break
-		}
-	}
-	a.updateReactionOnMessage(a.activeChannelID, msg.TS, emojiName, a.currentUserID, remove)
-	channelID := ids.ChannelID(a.activeChannelID)
-	ts := ids.MessageTS(msg.TS)
-	sent := ReactionSentMsg{ChannelID: a.activeChannelID, MessageTS: msg.TS, Emoji: emojiName, UserID: a.currentUserID, Remove: remove}
-	if remove {
-		return func() tea.Msg {
-			sent.Err = a.reactions.Remove(channelID, ts, emojiName)
-			return sent
-		}
-	}
-	return func() tea.Msg {
-		sent.Err = a.reactions.Add(channelID, ts, emojiName)
-		return sent
-	}
-}
-
-func (a *App) toggleReactionOnSelectedThread(emojiName string) tea.Cmd {
-	reply := a.threadPanel.SelectedReply()
-	if reply == nil {
-		return nil
-	}
-	remove := false
-	for _, r := range reply.Reactions {
-		if r.Emoji == emojiName && r.HasReacted {
-			remove = true
-			break
-		}
-	}
-	threadChannelID := a.threadPanel.ChannelID()
-	a.updateReactionOnMessage(threadChannelID, reply.TS, emojiName, a.currentUserID, remove)
-	channelID := ids.ChannelID(threadChannelID)
-	ts := ids.MessageTS(reply.TS)
-	sent := ReactionSentMsg{ChannelID: threadChannelID, MessageTS: reply.TS, Emoji: emojiName, UserID: a.currentUserID, Remove: remove}
-	if remove {
-		return func() tea.Msg {
-			sent.Err = a.reactions.Remove(channelID, ts, emojiName)
-			return sent
-		}
-	}
-	return func() tea.Msg {
-		sent.Err = a.reactions.Add(channelID, ts, emojiName)
-		return sent
-	}
+	return a.toggleReactionOnMessageItem(channelID, msg, emojiName)
 }
 
 // toggleReactionOnMessageItem toggles the current user's reaction on
 // an arbitrary message (not necessarily the selected one). Used by the
 // click-on-pill path, which identifies the target message by its
-// rendered hit rect rather than by selection. Behavior matches
-// toggleReactionOnSelectedMessage: optimistic in-memory update + an
-// async tea.Cmd that issues the Slack add/remove call.
+// rendered hit rect rather than by selection, and by
+// toggleReactionOnSelected: optimistic in-memory update + an async
+// tea.Cmd that issues the Slack add/remove call.
 func (a *App) toggleReactionOnMessageItem(channelIDStr string, msg messages.MessageItem, emojiName string) tea.Cmd {
 	remove := false
 	for _, r := range msg.Reactions {
@@ -1413,21 +1338,12 @@ func (a *App) toggleReactionOnMessageItem(channelIDStr string, msg messages.Mess
 // copyMessageOfSelected copies the text of the currently-selected message or
 // thread reply to the system clipboard and emits a status-bar toast.
 func (a *App) copyMessageOfSelected() tea.Cmd {
-	var msg messages.MessageItem
-	switch a.focusedPanel {
-	case PanelMessages:
-		m, ok := a.messagepane.SelectedMessage()
-		if !ok {
-			return nil
-		}
-		msg = m
-	case PanelThread:
-		reply := a.threadPanel.SelectedReply()
-		if reply == nil {
-			return nil
-		}
-		msg = *reply
-	default:
+	p, _, ok := a.focusedContentPane()
+	if !ok {
+		return nil
+	}
+	msg, ok := p.SelectedMessage()
+	if !ok {
 		return nil
 	}
 
@@ -1446,25 +1362,15 @@ func (a *App) copyMessageOfSelected() tea.Cmd {
 // reply, calls the permalink fetcher, and returns a tea.Cmd that writes the
 // URL to the clipboard and emits a status-bar toast.
 func (a *App) copyPermalinkOfSelected() tea.Cmd {
-	var channelID, ts string
-	switch a.focusedPanel {
-	case PanelMessages:
-		msg, ok := a.messagepane.SelectedMessage()
-		if !ok {
-			return nil
-		}
-		channelID = a.activeChannelID
-		ts = msg.TS
-	case PanelThread:
-		reply := a.threadPanel.SelectedReply()
-		if reply == nil {
-			return nil
-		}
-		channelID = a.threadPanel.ChannelID()
-		ts = reply.TS
-	default:
+	p, channelID, ok := a.focusedContentPane()
+	if !ok {
 		return nil
 	}
+	msg, ok := p.SelectedMessage()
+	if !ok {
+		return nil
+	}
+	ts := msg.TS
 	if channelID == "" || ts == "" {
 		return nil
 	}
@@ -1500,23 +1406,15 @@ func (a *App) copyPermalinkOfSelected() tea.Cmd {
 // open the link picker modal. All opens converge on OpenLinkMsg,
 // the single routing point in reducer_links.go.
 func (a *App) openLinksOfSelected() tea.Cmd {
-	var links []messages.Link
-	switch a.focusedPanel {
-	case PanelMessages:
-		msg, ok := a.messagepane.SelectedMessage()
-		if !ok {
-			return nil
-		}
-		links = messages.MessageLinks(msg)
-	case PanelThread:
-		reply := a.threadPanel.SelectedReply()
-		if reply == nil {
-			return nil
-		}
-		links = messages.MessageLinks(*reply)
-	default:
+	p, _, ok := a.focusedContentPane()
+	if !ok {
 		return nil
 	}
+	msg, ok := p.SelectedMessage()
+	if !ok {
+		return nil
+	}
+	links := messages.MessageLinks(msg)
 	switch len(links) {
 	case 0:
 		return func() tea.Msg { return ToastMsg{Text: "No links in message"} }
@@ -1542,23 +1440,15 @@ func (a *App) openLinksOfSelected() tea.Cmd {
 // "files" mode. Mirrors openLinksOfSelected. Images are excluded: they
 // already have the preview flow (O/v).
 func (a *App) downloadFilesOfSelected() tea.Cmd {
-	var atts []messages.Attachment
-	switch a.focusedPanel {
-	case PanelMessages:
-		msg, ok := a.messagepane.SelectedMessage()
-		if !ok {
-			return nil
-		}
-		atts = msg.Attachments
-	case PanelThread:
-		reply := a.threadPanel.SelectedReply()
-		if reply == nil {
-			return nil
-		}
-		atts = reply.Attachments
-	default:
+	p, _, ok := a.focusedContentPane()
+	if !ok {
 		return nil
 	}
+	msg, ok := p.SelectedMessage()
+	if !ok {
+		return nil
+	}
+	atts := msg.Attachments
 	files := make([]messages.Attachment, 0, len(atts))
 	for _, att := range atts {
 		if att.Kind == "file" && att.DownloadURL != "" {
@@ -2042,6 +1932,9 @@ func (a *App) openThreadForSelectedMessage() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	if cmd, blocked := ephemeralGuard(msg); blocked {
+		return cmd
+	}
 	// Use the message's own TS as the thread parent. If it's a thread
 	// reply (a thread_broadcast row in the channel feed), the selected
 	// row is NOT the parent: resolve the real parent from the pane
@@ -2389,7 +2282,7 @@ func (a *App) applyThreadUnreadBoundary(channelID, threadTS string) {
 	if channelID == "" || threadTS == "" {
 		return
 	}
-	a.threadPanel.SetUnreadBoundary(a.threads.ThreadLastRead(
+	a.threadPanel.SetLastReadTS(a.threads.ThreadLastRead(
 		ids.ChannelID(channelID), ids.ThreadTS(threadTS)))
 }
 
@@ -2821,11 +2714,7 @@ func (a *App) SetEmojiContext(ctx messages.EmojiContext) {
 	for _, m := range a.allWinModels() {
 		m.SetEmojiContext(ctx)
 	}
-	a.threadPanel.SetEmojiContext(thread.EmojiContext{
-		PlaceCtx: ctx.PlaceCtx,
-		Cells:    ctx.Cells,
-		Customs:  ctx.Customs,
-	})
+	a.threadPanel.SetEmojiContext(ctx)
 	a.reactionPicker.SetEmojiContext(reactionpicker.EmojiContext{
 		PlaceCtx: ctx.PlaceCtx,
 		Cells:    ctx.Cells,
@@ -3233,6 +3122,16 @@ func (a *App) SetReactionService(r core.ReactionService) {
 		r = noopReactionService
 	}
 	a.reactions = r
+}
+
+// SetInteractionService wires the service the action dialog presses
+// buttons through. A nil s restores the no-op, whose presses fail with
+// errors.ErrUnsupported and so surface as a toast.
+func (a *App) SetInteractionService(s core.InteractionService) {
+	if s == nil {
+		s = noopInteractionService
+	}
+	a.interactions = s
 }
 
 // SetProfileService wires the App's ProfileService collaborator, used
@@ -3669,22 +3568,15 @@ func (a *App) isOwnMessage(m messages.MessageItem) bool {
 // pane. Returns ok=false if nothing is selected or the focused panel is
 // not a message-bearing pane.
 func (a *App) selectedMessageContext() (channelID, ts, text, userID string, panel Panel, ok bool) {
-	switch a.focusedPanel {
-	case PanelMessages:
-		msg, sel := a.messagepane.SelectedMessage()
-		if !sel {
-			return "", "", "", "", 0, false
-		}
-		return a.activeChannelID, msg.TS, msg.Text, msg.UserID, PanelMessages, true
-	case PanelThread:
-		reply := a.threadPanel.SelectedReply()
-		if reply == nil {
-			return "", "", "", "", 0, false
-		}
-		return a.threadPanel.ChannelID(), reply.TS, reply.Text, reply.UserID, PanelThread, true
-	default:
+	p, channelID, focused := a.focusedContentPane()
+	if !focused {
 		return "", "", "", "", 0, false
 	}
+	msg, sel := p.SelectedMessage()
+	if !sel {
+		return "", "", "", "", 0, false
+	}
+	return channelID, msg.TS, msg.Text, msg.UserID, a.focusedPanel, true
 }
 
 const maxAttachmentSize = 10 * 1024 * 1024 // 10 MB cap
@@ -3952,7 +3844,7 @@ func (a *App) applyThreadMark(channelID, threadTS, lastRead string) {
 		a.threadPanel.ThreadTS() == threadTS {
 		// The panel renders its "── new ──" landmark after the boundary
 		// ts, so a fully-caught-up cursor renders no landmark.
-		a.threadPanel.SetUnreadBoundary(lastRead)
+		a.threadPanel.SetLastReadTS(lastRead)
 	}
 	a.applyThreadMarkListState(channelID, threadTS, lastRead)
 }
@@ -4052,7 +3944,7 @@ func (a *App) applyThreadMarkUnread(channelID, threadTS, boundaryTS string) {
 	if a.threadVisible &&
 		a.threadPanel.ChannelID() == channelID &&
 		a.threadPanel.ThreadTS() == threadTS {
-		a.threadPanel.SetUnreadBoundary(boundaryTS)
+		a.threadPanel.SetLastReadTS(boundaryTS)
 	}
 	if a.threadsView.MarkByThreadTSUnread(channelID, threadTS) {
 		a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())

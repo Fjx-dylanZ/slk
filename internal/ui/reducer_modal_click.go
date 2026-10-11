@@ -20,37 +20,30 @@
 //     single glyph rather than a row (the
 //     profile dialog's 📋), ClickAt tests
 //     the exact cell and a hit synthesises
-//     the modal's activation key.
+//     the modal's activation key. The
+//     confirm prompt's buttons are point
+//     targets too, but a hit calls onPoint
+//     to press the clicked button directly:
+//     a synthesised Enter would confirm.
 //
 // Geometry comes from each modal's BoxSize, mirroring the centering done
 // by overlay.DimmedOverlay so the hit-test lines up with what was drawn.
+// The contract (chrome.Boxed, chrome.Clickable) is declared in
+// internal/bubbles/chrome and asserted by each modal package.
 package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/gammons/slk/internal/bubbles/chrome"
 )
 
-// boxedOverlay is implemented by every modal overlay: it reports the
-// outer dimensions of its centered box so the router can detect clicks
-// that fall outside it.
-type boxedOverlay interface {
-	BoxSize(termWidth, termHeight int) (int, int)
-}
-
-// clickableOverlay is a boxedOverlay whose contents include a selectable
-// list. ClickRow moves the selection to the row at box-local localY and
-// reports whether a row was actually hit.
-type clickableOverlay interface {
-	boxedOverlay
-	ClickRow(termWidth, termHeight, localY int) bool
-}
-
-// pointClickable is a boxedOverlay whose hot spot is a single cell range
-// rather than a list row. ClickAt reports whether the box-local cell
-// (localX, localY) is on it. A modal implements this or
-// clickableOverlay, not both.
+// pointClickable is a chrome.Boxed modal whose hot spot is a single cell
+// range rather than a list row. ClickAt reports whether the box-local
+// cell (localX, localY) is on it. A modal implements this or
+// chrome.Clickable, not both.
 type pointClickable interface {
-	boxedOverlay
+	chrome.Boxed
 	ClickAt(termWidth, termHeight, localX, localY int) bool
 }
 
@@ -58,10 +51,11 @@ type pointClickable interface {
 // optional list- or point-hit-testing, and the key to synthesise on a
 // hit.
 type modalClickTarget struct {
-	box        boxedOverlay
-	click      clickableOverlay // nil for non-list modals (e.g. confirm)
+	box        chrome.Boxed
+	click      chrome.Clickable // nil for non-list modals (e.g. confirm)
 	activation tea.KeyMsg       // nil when a row click has no activation (help)
 	point      pointClickable   // nil unless the modal has a point hot spot
+	onPoint    func() tea.Cmd   // set: a point hit calls this instead of synthesising activation
 }
 
 // activeModalClickTarget resolves the modal addressed by the current
@@ -89,8 +83,10 @@ func (a *App) activeModalClickTarget() (modalClickTarget, bool) {
 		// Help has no activation: clicking a row only moves the highlight.
 		return modalClickTarget{box: &a.help, click: &a.help, activation: nil}, true
 	case ModeConfirm:
-		// Confirm has no list: outside dismisses, inside is a no-op.
-		return modalClickTarget{box: confirmPromptBox{&a.confirmPrompt}}, true
+		// A click on a button presses it directly; elsewhere inside is a
+		// no-op, outside dismisses.
+		box := confirmPromptBox{&a.confirmPrompt}
+		return modalClickTarget{box: box, point: box, onPoint: a.pressConfirmPromptHighlighted}, true
 	case ModeUserProfile:
 		// Read-only: the only hot spot is the email's 📋, which does
 		// what e does. Inside elsewhere is a no-op.
@@ -126,10 +122,15 @@ func reduceModalClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		return esc()
 	}
 
-	// Inside the box on a point hot spot -> its activation.
+	// Inside the box on a point hot spot -> its press, or its activation.
 	if target.point != nil {
-		if target.activation != nil && target.point.ClickAt(a.width, a.height, m.X-startX, m.Y-startY) {
-			return dispatchModeKey(a, target.activation)
+		if target.point.ClickAt(a.width, a.height, m.X-startX, m.Y-startY) {
+			if target.onPoint != nil {
+				return target.onPoint()
+			}
+			if target.activation != nil {
+				return dispatchModeKey(a, target.activation)
+			}
 		}
 		return nil
 	}

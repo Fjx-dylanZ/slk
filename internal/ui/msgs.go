@@ -39,7 +39,7 @@ type EmojiImageReadyMsg = emojiutil.EmojiImageReadyMsg
 // surface. All EmojiImageReadyMsg arrivals during the debounce window
 // collapse to this one invalidation — without coalescing a busy channel
 // with N cold-cache emoji would produce N full rebuilds (a few hundred
-// renderMessagePlain calls each) on the UI thread in rapid succession,
+// RenderMessage calls each) on the UI thread in rapid succession,
 // presenting as a multi-second freeze.
 //
 // Lowercase (unexported) because no other package dispatches this — it
@@ -317,8 +317,8 @@ type (
 		UserStatuses map[string]peerstatus.Status
 		// ExternalUsers maps userID -> true for users this workspace
 		// considers Slack Connect / shared-channel guests. Hydrated from
-		// cache.User.IsExternal so the mention picker can flag externals
-		// at workspace-switch time, before any new userResolver lookups
+		// the target workspace's cache projection (DB.ExternalUsers), not
+		// another workspace's stored flag, before new userResolver lookups
 		// fire. Order matters: the App handler applies this BEFORE
 		// SetUserNames so the picker rebuild sees the external flags.
 		ExternalUsers map[string]bool
@@ -396,8 +396,8 @@ type (
 		UserStatuses map[string]peerstatus.Status
 		// ExternalUsers maps userID -> true for users this workspace
 		// considers Slack Connect / shared-channel guests. Hydrated from
-		// cache.User.IsExternal so the mention picker can flag externals
-		// on startup, before any new userResolver lookups fire. Order
+		// the target workspace's cache projection (DB.ExternalUsers) so the
+		// picker flags externals on startup before new lookups fire. Order
 		// matters: the App handler applies this BEFORE SetUserNames so
 		// the picker rebuild sees the external flags.
 		ExternalUsers map[string]bool
