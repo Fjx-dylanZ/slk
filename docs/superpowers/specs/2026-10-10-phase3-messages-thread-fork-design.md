@@ -1,6 +1,8 @@
 # Phase 3 — Collapse the `messages`/`thread` fork — Design
 
-> **Status:** design approved in brainstorming 2026-10-10; spec awaiting review.
+> **Status:** design approved in brainstorming 2026-10-10; spec approved 2026-10-11.
+> **Plan:** [`../plans/2026-10-11-phase3-messages-thread-fork.md`](../plans/2026-10-11-phase3-messages-thread-fork.md)
+> (its "Decisions this plan needs from the maintainer" section refines §5 and §6.3).
 > **Tracking doc:** [`../plans/2026-09-06-architecture-refactor.md`](../plans/2026-09-06-architecture-refactor.md), Phase 3 (addresses F3).
 > **Measured at:** `afad298` (main, after #298 merged 2026-10-10).
 > **Related:** RFC #236 (self-contained components in `internal/bubbles/`), and
