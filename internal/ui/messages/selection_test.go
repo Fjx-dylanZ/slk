@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gammons/slk/internal/ui/selection"
+	"github.com/gammons/slk/internal/bubbles/selection"
 )
 
 // newTestModel returns a Model with two simple messages, with the cache
@@ -17,7 +17,7 @@ func newTestModel(width int) *Model {
 		{TS: "2.0", UserName: "bob", UserID: "U2", Text: "second message", Timestamp: "1:01 PM"},
 	}, "general")
 	_ = m.View(40, width)
-	return &m
+	return m
 }
 
 // firstContentY returns the smallest pane-local viewportY that lands on
@@ -84,7 +84,7 @@ func TestSelection_ScrollHintForDrag(t *testing.T) {
 	// ScrollHintForDrag receives a pane-local viewportY (App.panelAt
 	// space): the top content row is at firstContentY(m), the bottom at
 	// firstContentY(m) + lastViewHeight - 1.
-	h := m.lastViewHeight
+	h := m.list.Height()
 	// A row inside the chrome should be treated as "above the top edge"
 	// so an upward drag continues to auto-scroll toward older messages.
 	if got := m.ScrollHintForDrag(0); got != -1 {
@@ -106,7 +106,7 @@ func TestSelection_ScrollHintForDrag(t *testing.T) {
 
 func TestSelection_ScrollHintForDragZeroHeight(t *testing.T) {
 	m := New(nil, "x") // never rendered — lastViewHeight stays 0
-	if got := (&m).ScrollHintForDrag(5); got != 0 {
+	if got := m.ScrollHintForDrag(5); got != 0 {
 		t.Fatalf("zero height: want 0 got %d", got)
 	}
 }
@@ -181,10 +181,10 @@ func TestSelection_SeparatorClickSnapsToMessage(t *testing.T) {
 	// EndSelection might return ok=false (single-col drag may collapse),
 	// but HasSelection at the begin point must be true and the stored
 	// selRange's Start must reference a real message.
-	if !m.hasSelection {
+	if !m.HasSelection() {
 		t.Fatal("BeginSelectionAt on separator must still record a selection")
 	}
-	if m.selRange.Start.MessageID == "" {
+	if m.list.Selection().Start.MessageID == "" {
 		t.Fatalf("separator anchor must snap to a real message; got empty MessageID")
 	}
 }
@@ -196,7 +196,7 @@ func TestSelection_DeletedMessageCollapsesToEmpty(t *testing.T) {
 	// resolveAnchor must return ok=false for an unknown MessageID — that's
 	// the underlying invariant that protects against stale anchors after
 	// SetMessages drops a message.
-	if _, _, ok := m.resolveAnchor(selection.Anchor{MessageID: "nonexistent.0"}); ok {
+	if _, _, ok := m.list.Resolve(selection.Anchor{MessageID: "nonexistent.0"}); ok {
 		t.Fatal("resolveAnchor must return ok=false for unknown MessageID")
 	}
 }
@@ -269,7 +269,7 @@ func TestSelection_HighlightDoesNotCorruptMoreBelowIndicator(t *testing.T) {
 	m.GoToTop()
 	_ = m.View(15, 60) // ensure cache + yOffset reflect top position with "more below"
 	// Selection covers a wide vertical range to overlap the bottom row.
-	mp := &m
+	mp := m
 	m.BeginSelectionAt(firstContentY(mp), 0)
 	m.ExtendSelectionAt(firstContentY(mp)+20, 60)
 	out := m.View(15, 60)
@@ -309,7 +309,7 @@ func TestSelection_HighlightSurvivesScroll(t *testing.T) {
 	}
 	m := New(msgs, "general")
 	_ = m.View(20, 60)
-	mp := &m
+	mp := m
 	y := firstContentY(mp) + 2
 	m.BeginSelectionAt(y, 0)
 	m.ExtendSelectionAt(y, 20)
@@ -375,18 +375,18 @@ func TestSelection_ExtendUnchangedDoesNotDirty(t *testing.T) {
 	m.BeginSelectionAt(firstContentY(m), 0)
 	// First extend establishes a real end anchor and dirties.
 	m.ExtendSelectionAt(firstContentY(m)+1, 10)
-	end := m.selRange.End
-	beforeVersion := m.version
+	end := m.list.Selection().End
+	beforeVersion := m.Version()
 
 	// Re-call with the exact same coordinates: the resolved end
 	// anchor must be identical and no version bump should occur.
 	m.ExtendSelectionAt(firstContentY(m)+1, 10)
 
-	if m.selRange.End != end {
-		t.Fatalf("selRange.End drifted across identical Extend: before=%+v after=%+v", end, m.selRange.End)
+	if m.list.Selection().End != end {
+		t.Fatalf("selRange.End drifted across identical Extend: before=%+v after=%+v", end, m.list.Selection().End)
 	}
-	if m.version != beforeVersion {
-		t.Errorf("ExtendSelectionAt with unchanged end anchor must not bump version (before=%d after=%d)", beforeVersion, m.version)
+	if m.Version() != beforeVersion {
+		t.Errorf("ExtendSelectionAt with unchanged end anchor must not bump version (before=%d after=%d)", beforeVersion, m.Version())
 	}
 }
 
@@ -406,10 +406,10 @@ func TestSelection_ExtendUnchangedDoesNotDirty(t *testing.T) {
 func TestSelection_MutationsDoNotBumpVersion(t *testing.T) {
 	m := newTestModel(60)
 	_ = m.View(40, 60) // prime cache
-	v0 := m.version
+	v0 := m.Version()
 
 	m.BeginSelectionAt(firstContentY(m), 0)
-	v1 := m.version
+	v1 := m.Version()
 	if v1 > v0+1 {
 		t.Errorf("BeginSelectionAt bumped version more than once: before=%d after=%d", v0, v1)
 	}
@@ -417,17 +417,17 @@ func TestSelection_MutationsDoNotBumpVersion(t *testing.T) {
 	// distinct end anchor (Col advances by 1 every call).
 	for col := 1; col <= 8; col++ {
 		m.ExtendSelectionAt(firstContentY(m)+1, col)
-		if m.version != v1 {
-			t.Errorf("ExtendSelectionAt(col=%d) bumped version: before=%d after=%d", col, v1, m.version)
+		if m.Version() != v1 {
+			t.Errorf("ExtendSelectionAt(col=%d) bumped version: before=%d after=%d", col, v1, m.Version())
 		}
 	}
 	_, _ = m.EndSelection()
-	if m.version != v1 {
-		t.Errorf("EndSelection bumped version: before=%d after=%d", v1, m.version)
+	if m.Version() != v1 {
+		t.Errorf("EndSelection bumped version: before=%d after=%d", v1, m.Version())
 	}
 	m.ClearSelection()
-	if m.version > v1+1 {
-		t.Errorf("ClearSelection bumped version more than once: before=%d after=%d", v1, m.version)
+	if m.Version() > v1+1 {
+		t.Errorf("ClearSelection bumped version more than once: before=%d after=%d", v1, m.Version())
 	}
 }
 

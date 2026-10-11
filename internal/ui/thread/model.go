@@ -3,96 +3,24 @@ package thread
 import (
 	"bytes"
 	"fmt"
-	"io"
+	"math"
+	"slices"
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/gammons/slk/internal/debuglog"
-	emojiutil "github.com/gammons/slk/internal/emoji"
 
+	"github.com/gammons/slk/internal/bubbles/entrylist"
 	imgpkg "github.com/gammons/slk/internal/image"
 	"github.com/gammons/slk/internal/ui/imgrender"
 	"github.com/gammons/slk/internal/ui/messages"
-	"github.com/gammons/slk/internal/ui/messages/blockkit"
 	"github.com/gammons/slk/internal/ui/peerstatus"
-	"github.com/gammons/slk/internal/ui/scrollbar"
-	"github.com/gammons/slk/internal/ui/selection"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/gammons/slk/internal/usergroups"
 )
 
 var thickLeftBorder = lipgloss.Border{Left: "▌"}
-
-// viewEntry is a pre-rendered reply. linesNormal/linesSelected hold the FULLY
-// BORDERED rendered content split on "\n" so View() can flatten directly into
-// the visible window without any per-frame string scanning, lipgloss render,
-// or width measurement. linesPlain mirrors the UNBORDERED content for
-// selection extraction. contentColOffset is 1 (the thick left border ▌ that
-// linesNormal/linesSelected include).
-//
-// This shape mirrors internal/ui/messages.viewEntry exactly; keeping them in
-// lockstep means scroll and selection logic can be kept in sync.
-type viewEntry struct {
-	linesNormal   []string
-	linesSelected []string
-	// linesSelectedShort is the selected variant with the short
-	// timestamp, shown while a text selection exists. Built on demand by
-	// selectedLines from shortSrc, the unmodified content, which is empty
-	// when the selected variant carries no long timestamp.
-	linesSelectedShort []string
-	shortSrc           string
-	linesPlain         []messages.PlainLine
-	height             int
-	replyIdx           int
-	contentColOffset   int
-
-	// flushes are per-frame side effects (kitty image upload escapes)
-	// returned by imgrender.Renderer.RenderBlock for inline image
-	// attachments on this reply. Invoked during View() with a per-frame
-	// buffer that is then written directly to imgpkg.KittyOutput.
-	// Mirrors internal/ui/messages viewEntry.flushes. nil for entries
-	// with no inline image attachments.
-	//
-	// v1 scope: sixel inline-byte injection is deferred — sixel images
-	// render as their imgrender placeholder/sentinel only, so no
-	// sixelRows field is captured here.
-	flushes []func(io.Writer) error
-
-	// reactionHits records the column extents of each rendered
-	// reaction pill on this reply, in coordinates relative to
-	// linesNormal. View() translates these to pane-local coordinates
-	// (including the thread chromeHeight offset) and appends to
-	// Model.lastReactionHits per frame so the app-level mouse handler
-	// can route clicks to a toggle-reaction command.
-	reactionHits []reactionEntryHit
-}
-
-// reactionEntryHit is one reaction-pill hit-rect, expressed in
-// coordinates relative to a single viewEntry's linesNormal. Mirrors
-// internal/ui/messages.reactionEntryHit; kept package-local so the
-// thread panel doesn't import unexported types.
-type reactionEntryHit struct {
-	rowStartInEntry int
-	rowEndInEntry   int // exclusive
-	colStart        int
-	colEnd          int // exclusive
-	emoji           string
-}
-
-// reactionHitRect is one clickable reaction-pill footprint in the
-// thread pane, expressed in pane-local coordinates (rowStart is
-// measured from the top of the panel, AFTER the chromeHeight rows).
-type reactionHitRect struct {
-	rowStart int
-	rowEnd   int // exclusive
-	colStart int
-	colEnd   int // exclusive
-	replyIdx int
-	emoji    string
-}
 
 // Model represents the thread panel UI component.
 // It displays a parent message and its replies with cursor navigation.
@@ -101,58 +29,55 @@ type reactionHitRect struct {
 const parentSelected = -1
 
 type Model struct {
-	parent            messages.MessageItem
-	replies           []messages.MessageItem
-	channelID         string
-	threadTS          string
-	selected          int
-	focused           bool
-	coloredUsernames  bool
-	avatarFn          messages.AvatarFunc
-	userNames         map[string]string
-	userStatuses      map[string]peerstatus.Status
-	channelNames      map[string]string
-	vp                viewport.Model
-	reactionNavActive bool
-	reactionNavIndex  int
+	parent           messages.MessageItem
+	replies          []messages.MessageItem
+	channelID        string
+	threadTS         string
+	selected         int
+	focused          bool
+	coloredUsernames bool
+	avatarFn         messages.AvatarFunc
+	userNames        map[string]string
+	userStatuses     map[string]peerstatus.Status
+	channelNames     map[string]string
+	nav              messages.ReactionNav
 	// currentUserID is the authenticated user; UpdateReaction uses it to
 	// set HasReacted only for the current user's own reactions.
 	currentUserID string
 
-	// Render cache -- pre-rendered reply entries (unbordered content
-	// captured per reply; borders are applied later when assembling
-	// viewContent).
-	cache         []viewEntry
+	// Reply cache: the payload and the list entry of every reply,
+	// index-aligned with m.replies, rebuilt when the replies or the width
+	// change. nil means the cache was discarded and the next View
+	// rebuilds it. The thread pane captures no sixel rows (v1 scope:
+	// sixel renders its placeholder only).
+	cache         []messages.EntryPayload
+	replyEntries  []entrylist.Entry
 	cacheWidth    int
 	cacheReplyLen int
 
-	// entryOffsets / totalLines mirror the FULLY BORDERED viewContent:
-	// entryOffsets[i] is the absolute line index inside viewContent where
-	// reply i starts. Inter-reply separators occupy a single line that is
-	// NOT inside any entry's [start, start+height) range; selection
-	// overlay/extraction skips them naturally.
-	entryOffsets []int
-	totalLines   int
+	// list is the shared substrate: entries (the parent, the replies and
+	// the decoration rows between them), scroll, the visible window, text
+	// selection, hit translation and the scrollbar. Configured for the
+	// thread pane's behaviour in New.
+	list *entrylist.Model
 
-	// parentEntry mirrors the rendered parent message at the start of
-	// viewContent. It provides the same plain-text and column metadata as
-	// reply entries so mouse selection can address the parent.
-	parentEntry viewEntry
+	// layoutValid says the previous frame's layout still describes the
+	// screen: a width change then keeps the scroll position (U5). Cleared
+	// by every invalidation, by SetFocused, SetLastReadTS and ClickAt
+	// (the events that cleared the old view cache).
+	layoutValid bool
 
-	// View-level cache -- bordered content ready for viewport
-	viewContent       string
-	viewSelected      int
-	viewHasSelection  bool
-	viewWidth         int
-	viewHeight        int
-	viewCacheValid    bool
-	selectedStartLine int
-	selectedEndLine   int
+	// flushKey is the layout the reply flushes were last written for;
+	// kitty uploads are re-emitted only when it changes, as when the old
+	// view cache was rebuilt.
+	flushKey struct {
+		selected, width, height int
+		hasSelection            bool
+	}
 
-	// chromeCache holds the rendered "header + separator + parent message +
-	// separator" prefix that View() prepends to viewContent. Rebuilt only
-	// when its inputs (width, replyCount, parent identity, parent text,
-	// userNames, channelNames) change. On a plain j/k it is reused as-is.
+	// chromeCache holds the rendered "header + separator" prefix that
+	// View() prepends to the reply area. Rebuilt only when its inputs
+	// (width, replyCount, userNames, channelNames, breadcrumb) change.
 	chromeCache         string
 	chromeCacheValid    bool
 	chromeWidth         int
@@ -175,43 +100,21 @@ type Model struct {
 	channelNamesV uint64
 	userGroups    map[string]string
 
-	// Mouse selection state. selRange is the user's drag selection.
-	// replyIDToIdx maps reply TS -> entry index in m.cache for O(1)
-	// anchor resolution; rebuilt on every cache build. lastViewHeight is
-	// captured during View() so ScrollHintForDrag knows the reply-area
-	// bounds without needing the App to plumb them through.
-	selRange       selection.Range
-	hasSelection   bool
-	replyIDToIdx   map[string]int
-	lastViewHeight int
-	// chromeHeight is the number of visual rows occupied by the thread's
-	// chrome (header + separator + parent message + separator) at the top
-	// of View()'s output. It's stored so click / drag handlers can offset
-	// pane-local y coordinates into the reply-content coordinate space the
-	// rest of the model operates in.
+	// replyIDToIdx maps reply TS -> reply index; rebuilt with the reply
+	// cache. HasReply reads it.
+	replyIDToIdx map[string]int
+	// chromeHeight is the number of rows the thread's chrome (header +
+	// separator) occupies at the top of View()'s output. Click and drag
+	// handlers subtract it from pane-local rows.
 	chromeHeight int
-
-	// lastReactionHits holds the reaction-pill hit rects captured
-	// during the most recent View() call, in pane-local coordinates
-	// (rowStart is measured from the panel top, AFTER chromeHeight
-	// rows). Consumed by HitTestReaction so the app-level mouse
-	// handler can toggle a reaction when the user clicks a pill.
-	lastReactionHits []reactionHitRect
 
 	// unreadBoundaryTS is the Slack timestamp the user has already read up
 	// to in this thread. Replies whose TS > unreadBoundaryTS are considered
 	// new; a "── new ──" landmark is inserted between the last read reply
 	// and the first new one. Empty string disables the landmark. Set via
-	// SetUnreadBoundary, typically with the parent channel's last_read_ts
+	// SetLastReadTS, typically with the parent channel's last_read_ts
 	// at the moment the thread is opened.
 	unreadBoundaryTS string
-
-	// snappedSelection lets View() avoid re-snapping vp.YOffset back to the
-	// selected reply on every render. While snappedSelection == selected,
-	// mouse-wheel / programmatic scrolls (ScrollUp/ScrollDown) are preserved
-	// across renders -- mirrors the same convention used by messages.Model.
-	snappedSelection int
-	hasSnapped       bool
 
 	// version increments on every state change that could alter View() output.
 	version int64
@@ -227,23 +130,39 @@ type Model struct {
 	// through RenderSlackMarkdownWith for reply body text and consulted
 	// directly when building reply reaction pills. Configured at startup
 	// via Model.SetEmojiContext (mirrors messages.Model).
-	emojiCtx EmojiContext
-}
-
-// EmojiContext bundles the emoji-image rendering dependencies for the
-// thread pane. Mirrors messages.EmojiContext in shape and purpose —
-// see internal/ui/messages/model.go for the architectural rationale.
-type EmojiContext struct {
-	PlaceCtx emojiutil.PlaceContext
-	Cells    int               // 1 or 2; 0 falls back to 2
-	Customs  map[string]string // workspace custom emoji map; nil = empty
+	emojiCtx messages.EmojiContext
 }
 
 // New creates an empty thread panel.
 func New() *Model {
 	return &Model{
 		imgRenderer: imgrender.NewRenderer(),
+		list:        newThreadList(),
 	}
+}
+
+// newThreadList configures the substrate for the thread pane (spec §5):
+// the offset clamps eagerly, as bubbles/viewport did (U6); every drag
+// step bumps Version (U4); a width change anchors only on replies, so a
+// first visible line inside the parent keeps its raw offset (#254) and
+// "at the bottom" is measured with the previous frame's height (U5). The
+// cursor does not follow the scroll (U1), a shrinking pane is not pinned
+// (U2) and a press on a separator anchors nothing (8c): the defaults.
+func newThreadList() *entrylist.Model {
+	return entrylist.New(
+		entrylist.WithStyles(messages.ThemeListStyles()),
+		entrylist.WithEagerClamp(),
+		entrylist.WithDirtyOnDrag(),
+		entrylist.WithReanchor(entrylist.ReanchorPolicy{AnchorRefsOnly: true}),
+	)
+}
+
+// dropCache discards the reply cache. Until the next View, lookups see
+// only the parent, whose entry stays current.
+func (m *Model) dropCache() {
+	m.cache = nil
+	m.replyEntries = nil
+	m.list.KeepLookups(1)
 }
 
 // SetImageContext configures the inline-image rendering pipeline for
@@ -261,7 +180,7 @@ func (m *Model) SetImageContext(ctx imgrender.ImageContext) {
 // Should be called once at startup (cmd/slk/main.go) and again after
 // CustomEmojisLoadedMsg arrives (via SetEmojiCustoms). Mirrors
 // messages.Model.SetEmojiContext.
-func (m *Model) SetEmojiContext(ctx EmojiContext) {
+func (m *Model) SetEmojiContext(ctx messages.EmojiContext) {
 	if ctx.Cells != 1 && ctx.Cells != 2 {
 		ctx.Cells = 2
 	}
@@ -290,15 +209,20 @@ func (m *Model) HandleEmojiImageReady(url string) {
 
 // Version returns a counter that increments any time the View() output could
 // change. Used by App's panel-output cache.
-func (m *Model) Version() int64 { return m.version }
+func (m *Model) Version() int64 { return m.version + m.list.Version() }
+
+// ChromeHeight returns the number of rows the breadcrumb chrome occupies
+// at the top of the pane, as of the last View. The app-level mouse
+// handler subtracts it from a pane-local row before HitTestReaction.
+func (m *Model) ChromeHeight() int { return m.chromeHeight }
 
 func (m *Model) dirty() { m.version++ }
 
 // InvalidateCache forces the render cache to be rebuilt on next View().
 // Call this after theme changes or style updates.
 func (m *Model) InvalidateCache() {
-	m.cache = nil
-	m.viewCacheValid = false
+	m.dropCache()
+	m.layoutValid = false
 	m.chromeCacheValid = false
 	m.dirty()
 }
@@ -322,7 +246,7 @@ func (m *Model) HandleAvatarReady(userID string) {
 // The cursor starts at the bottom (newest reply). When the channel/thread
 // identity changes (i.e. the user is opening a different thread, not just
 // receiving a refresh of the current one), the unread boundary is cleared
-// so a fresh boundary can be set by the caller via SetUnreadBoundary.
+// so a fresh boundary can be set by the caller via SetLastReadTS.
 func (m *Model) SetThread(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
 	if channelID != m.channelID || threadTS != m.threadTS {
 		m.unreadBoundaryTS = ""
@@ -345,21 +269,21 @@ func (m *Model) SetThread(parent messages.MessageItem, replies []messages.Messag
 	// Without this, opening a thread whose newest-reply index matches the
 	// previously-viewed thread's snapped selection skips the snap and leaves
 	// the viewport scrolled to the top. Mirrors messages.Model.SetMessages.
-	m.hasSnapped = false
+	m.list.ResetSnap()
 	m.InvalidateCache()
 }
 
-// SetUnreadBoundary sets the timestamp the user has already read up to in
+// SetLastReadTS sets the timestamp the user has already read up to in
 // this thread. A "── new ──" landmark is rendered between the last reply
 // with TS <= boundary and the first reply with TS > boundary. Pass "" to
 // clear the boundary. Typically called by the App right after SetThread,
 // using the thread's own last-read cursor from thread_subscriptions.
-func (m *Model) SetUnreadBoundary(ts string) {
+func (m *Model) SetLastReadTS(ts string) {
 	if m.unreadBoundaryTS == ts {
 		return
 	}
 	m.unreadBoundaryTS = ts
-	m.viewCacheValid = false
+	m.layoutValid = false
 	m.dirty()
 }
 
@@ -383,8 +307,10 @@ func (m *Model) breadcrumbAuthor() string {
 	return m.userNames[m.parent.UserID]
 }
 
-// UnreadBoundaryTS returns the current unread-boundary ts. Used by tests.
-func (m *Model) UnreadBoundaryTS() string {
+// LastReadTS returns the current unread-boundary ts. Only tests call it
+// today; production code reads the field via the SetLastReadTS-driven
+// render.
+func (m *Model) LastReadTS() string {
 	return m.unreadBoundaryTS
 }
 
@@ -605,15 +531,15 @@ func (m *Model) UpdateParentInPlace(ts, newText string) bool {
 }
 
 // SetFocused sets whether the thread panel has focus. When the value flips
-// the view-level cache is invalidated so the selected reply's "▌" border
+// the layout is invalidated so the selected reply's "▌" border
 // re-renders with the appropriate color (Accent when focused, TextMuted when
 // not — see styles.SelectionBorderColor).
 func (m *Model) SetFocused(focused bool) {
 	if m.focused != focused {
 		m.focused = focused
-		m.viewCacheValid = false
+		m.layoutValid = false
 		m.dirty()
-		debuglog.Perf("thread.SetFocused flip focused=%v replies=%d viewCache=invalidated",
+		debuglog.Perf("thread.SetFocused flip focused=%v replies=%d layout=invalidated",
 			focused, len(m.replies))
 	}
 }
@@ -724,8 +650,8 @@ func (m *Model) hasAuthor(userID string) bool {
 // message's header too.
 func (m *Model) invalidateAuthors() {
 	m.userNamesV++
-	m.cache = nil
-	m.viewCacheValid = false
+	m.dropCache()
+	m.layoutValid = false
 }
 
 // PatchUserName updates the in-memory userNames map (used for @mention
@@ -756,8 +682,8 @@ func (m *Model) PatchUserName(userID, displayName string) {
 	// Bump userNamesV so chromeCache (which renders the parent message
 	// and consults userNames for its mentions) also rebuilds.
 	m.userNamesV++
-	m.cache = nil
-	m.viewCacheValid = false
+	m.dropCache()
+	m.layoutValid = false
 	if m.parent.UserID == userID && m.parent.UserName != displayName {
 		m.parent.UserName = displayName
 	}
@@ -792,6 +718,15 @@ func (m *Model) SelectedReply() *messages.MessageItem {
 	return &m.replies[m.selected]
 }
 
+// SelectedMessage returns the message under the cursor (the parent when
+// it is selected), the channel pane's accessor.
+func (m *Model) SelectedMessage() (messages.MessageItem, bool) {
+	if r := m.SelectedReply(); r != nil {
+		return *r, true
+	}
+	return messages.MessageItem{}, false
+}
+
 // SelectByIndex moves the selection cursor to i (an index into Replies()).
 // No-op if i is out of range. Used by tests that need a deterministic
 // selection state.
@@ -810,35 +745,25 @@ func (m *Model) SelectByIndex(i int) {
 // selected reply. Marks the current selection as already-snapped so View()
 // won't pull the viewport back to keep selection visible on the next render.
 func (m *Model) ScrollUp(n int) {
-	if n > 0 {
-		m.vp.ScrollUp(n)
-		m.snappedSelection = m.selected
-		m.hasSnapped = true
-		m.dirty()
-	}
+	m.list.ScrollUp(n, m.selected)
 }
 
 // ScrollDown scrolls the thread viewport down by n lines without changing the
 // selected reply. Marks the current selection as already-snapped so View()
 // won't pull the viewport back on the next render.
 func (m *Model) ScrollDown(n int) {
-	if n > 0 {
-		m.vp.ScrollDown(n)
-		m.snappedSelection = m.selected
-		m.hasSnapped = true
-		m.dirty()
-	}
+	m.list.ScrollDown(n, m.selected)
 }
 
 // ViewportAtTop reports whether the thread viewport is scrolled to the top.
 // Used by the app layer to detect a wheel-up / PageUp that hit the top of the
 // reply stream (cosmetic only -- no thread backfill exists today).
 func (m *Model) ViewportAtTop() bool {
-	return m.vp.YOffset() == 0
+	return m.list.YOffset() == 0
 }
 
 func (m *Model) MoveUp() {
-	if m.reactionNavActive {
+	if m.nav.Active {
 		m.ExitReactionNav()
 	}
 	// The parent row (parentSelected, index -1) sits above the first
@@ -851,7 +776,7 @@ func (m *Model) MoveUp() {
 
 // MoveDown moves the selection cursor down one reply.
 func (m *Model) MoveDown() {
-	if m.reactionNavActive {
+	if m.nav.Active {
 		m.ExitReactionNav()
 	}
 	if m.selected < len(m.replies)-1 {
@@ -883,22 +808,22 @@ func (m *Model) GoToBottom() {
 // EnterReactionNav activates reaction navigation on the selected reply.
 func (m *Model) EnterReactionNav() {
 	if reply := m.SelectedReply(); reply != nil && len(reply.Reactions) > 0 {
-		m.reactionNavActive = true
-		m.reactionNavIndex = 0
+		m.nav.Active = true
+		m.nav.Index = 0
 		m.InvalidateCache()
 	}
 }
 
 // ExitReactionNav deactivates reaction navigation.
 func (m *Model) ExitReactionNav() {
-	m.reactionNavActive = false
-	m.reactionNavIndex = 0
+	m.nav.Active = false
+	m.nav.Index = 0
 	m.InvalidateCache()
 }
 
 // ReactionNavActive returns whether reaction navigation is active.
 func (m *Model) ReactionNavActive() bool {
-	return m.reactionNavActive
+	return m.nav.Active
 }
 
 // ReactionNavLeft moves the reaction cursor left with wrapping.
@@ -907,8 +832,7 @@ func (m *Model) ReactionNavLeft() {
 	if reply == nil {
 		return
 	}
-	total := len(reply.Reactions) + 1
-	m.reactionNavIndex = (m.reactionNavIndex - 1 + total) % total
+	m.nav.Left(len(reply.Reactions))
 	m.InvalidateCache()
 }
 
@@ -918,8 +842,7 @@ func (m *Model) ReactionNavRight() {
 	if reply == nil {
 		return
 	}
-	total := len(reply.Reactions) + 1
-	m.reactionNavIndex = (m.reactionNavIndex + 1) % total
+	m.nav.Right(len(reply.Reactions))
 	m.InvalidateCache()
 }
 
@@ -930,10 +853,7 @@ func (m *Model) SelectedReaction() (emojiName string, isPlus bool) {
 	if reply == nil {
 		return "", false
 	}
-	if m.reactionNavIndex >= len(reply.Reactions) {
-		return "", true
-	}
-	return reply.Reactions[m.reactionNavIndex].Emoji, false
+	return m.nav.Selected(reply.Reactions)
 }
 
 // ClampReactionNav ensures the reaction nav index is within bounds.
@@ -943,10 +863,7 @@ func (m *Model) ClampReactionNav() {
 		m.ExitReactionNav()
 		return
 	}
-	total := len(reply.Reactions) + 1
-	if m.reactionNavIndex >= total {
-		m.reactionNavIndex = total - 1
-	}
+	m.nav.Clamp(len(reply.Reactions))
 	m.InvalidateCache()
 }
 
@@ -967,442 +884,117 @@ func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool)
 		return
 	}
 
-	m.updateMessageReaction(msg, emojiName, userID, remove)
+	messages.ApplyReaction(msg, emojiName, userID, m.currentUserID, remove)
 	m.InvalidateCache()
-	if m.reactionNavActive {
+	if m.nav.Active {
 		m.ClampReactionNav()
 	}
-}
-
-// updateMessageReaction applies one idempotent reaction event to msg.
-func (m *Model) updateMessageReaction(msg *messages.MessageItem, emojiName, userID string, remove bool) {
-	if remove {
-		for j, r := range msg.Reactions {
-			if r.Emoji != emojiName {
-				continue
-			}
-			newIDs := messages.RemoveUserID(r.UserIDs, userID)
-			if len(newIDs) == len(r.UserIDs) && r.Count <= len(r.UserIDs) {
-				return
-			}
-			r.UserIDs = newIDs
-			r.Count--
-			if userID == m.currentUserID {
-				r.HasReacted = false
-			}
-			if r.Count <= 0 {
-				msg.Reactions = append(msg.Reactions[:j], msg.Reactions[j+1:]...)
-			} else {
-				msg.Reactions[j] = r
-			}
-			return
-		}
-		return
-	}
-
-	for j, r := range msg.Reactions {
-		if r.Emoji != emojiName {
-			continue
-		}
-		newIDs := messages.AppendUserID(r.UserIDs, userID)
-		if len(newIDs) != len(r.UserIDs) {
-			r.UserIDs = newIDs
-			r.Count++
-		}
-		if userID == m.currentUserID {
-			r.HasReacted = true
-		}
-		msg.Reactions[j] = r
-		return
-	}
-	msg.Reactions = append(msg.Reactions, messages.ReactionItem{
-		Emoji:      emojiName,
-		Count:      1,
-		HasReacted: userID == m.currentUserID,
-		UserIDs:    messages.AppendUserID(nil, userID),
-	})
 }
 
 // ClickAt handles a mouse click at the given y-coordinate (the pane-local
 // y returned by App.panelAt — measured from the panel's top border, so
 // y=0..chromeHeight-1 sits inside the chrome (header + separator) and
 // y=chromeHeight onward is the scrolling parent+replies content). Clicks
-// in the chrome are ignored: absoluteLineAt clamps them to the first
-// content line, which would otherwise read as a click on the parent.
-func (m *Model) ClickAt(y int) {
+// in the chrome are ignored. A click below the content lands on the last
+// line (the row is clamped), so it selects the last reply; a click on a
+// separator, a divider or the rule under the parent selects nothing.
+// It reports whether the click landed on a selectable row (the selection
+// was updated or already there).
+func (m *Model) ClickAt(y int) bool {
 	if y < m.chromeHeight {
-		return
+		return false
 	}
-	entry, _, messageTS, ok := m.selectionEntryAt(m.absoluteLineAt(y))
+	i, within, ok := m.list.EntryAt(m.list.AbsLine(y - m.chromeHeight))
 	if !ok {
-		return
+		return false
 	}
-	selected := entry.replyIdx
-	if messageTS == m.parent.TS {
-		selected = parentSelected
+	e := m.list.Entries()[i]
+	if !e.Selectable || within >= len(e.Plain) {
+		return false
 	}
-	if m.selected != selected {
-		m.selected = selected
-		m.viewCacheValid = false
+	if m.selected != e.Ref {
+		m.selected = e.Ref
+		m.layoutValid = false
 		m.dirty()
 	}
+	return true
 }
 
 // BeginSelectionAt anchors a new selection at the given pane-local
-// coordinates (App.panelAt's coordinate system: 0 == panel content top,
-// just below the border). Chrome rows (header + separator at
-// y < chromeHeight) are ignored; the scrolling parent+replies content
-// begins at chromeHeight. The selection becomes Active. Out-of-range
-// inputs that do not land on a message entry are silently no-ops.
+// coordinates (App.panelAt's coordinate system). Chrome rows are ignored;
+// a press on a separator or divider anchors nothing (thread does not snap
+// to the nearest message).
 func (m *Model) BeginSelectionAt(viewportY, x int) {
 	if viewportY < m.chromeHeight {
 		return
 	}
-	abs := m.absoluteLineAt(viewportY)
-	a, ok := m.anchorAt(abs, x)
-	if !ok {
-		return
-	}
-	m.selRange = selection.Range{Start: a, End: a, Active: true}
-	m.hasSelection = true
-	m.dirty()
+	m.list.BeginSelection(m.list.AbsLine(viewportY-m.chromeHeight), x)
 }
 
 // ExtendSelectionAt updates the End anchor of the active selection.
 // No-op if BeginSelectionAt was never called or the coordinates fall
 // on a non-entry row (inter-reply separator).
 func (m *Model) ExtendSelectionAt(viewportY, x int) {
-	if !m.hasSelection {
-		return
-	}
-	abs := m.absoluteLineAt(viewportY)
-	a, ok := m.anchorAt(abs, x)
-	if !ok {
-		return
-	}
-	// Perf: MouseModeCellMotion fires a MouseMotionMsg for every
-	// cell traversed while the button is held, and many of those
-	// cells resolve (via anchorAt) to the same end anchor. Bumping
-	// m.version unconditionally would bust the thread-pane render
-	// cache on every motion event. Skip the dirty when nothing
-	// actually changed.
-	if a == m.selRange.End {
-		return
-	}
-	m.selRange.End = a
-	m.dirty()
+	m.list.ExtendSelection(m.list.AbsLine(viewportY-m.chromeHeight), x)
 }
 
 // EndSelection finalizes the drag, returning the plain-text contents
 // of the selection. Returns ok=false when the selection is empty
 // (a click without drag).
-func (m *Model) EndSelection() (string, bool) {
-	if !m.hasSelection {
-		return "", false
-	}
-	m.selRange.Active = false
-	if m.selRange.IsEmpty() {
-		m.hasSelection = false
-		m.selRange = selection.Range{}
-		m.dirty()
-		return "", false
-	}
-	text := m.SelectionText()
-	m.dirty()
-	if text == "" {
-		return "", false
-	}
-	return text, true
-}
+func (m *Model) EndSelection() (string, bool) { return m.list.EndSelection() }
 
 // ClearSelection removes the current selection, if any.
-func (m *Model) ClearSelection() {
-	if !m.hasSelection {
-		return
-	}
-	m.hasSelection = false
-	m.selRange = selection.Range{}
-	m.dirty()
-}
+func (m *Model) ClearSelection() { m.list.ClearSelection() }
 
 // HasSelection reports whether a selection is currently active or
 // pinned-on-screen post-drag.
-func (m *Model) HasSelection() bool { return m.hasSelection }
+func (m *Model) HasSelection() bool { return m.list.HasSelection() }
 
-// selectedLines returns the lines to draw for the selected reply e: the
-// long-timestamp variant, or the short one while a text selection exists.
-// The drag overlay splices linesPlain, which holds the short form, into
-// the displayed row by column; the long header would come out garbled.
-// Mirrors messages.Model.selectedLines.
+// SelectionText extracts the plain-text contents of the current
+// selection.
+func (m *Model) SelectionText() string { return m.list.SelectionText() }
+
+// selectedLines returns the rows to draw for the cursor's entry i. For a
+// reply: the long-timestamp variant, or the short one while a text
+// selection exists (the drag overlay splices the short-form plain text
+// into the row by column). The parent's rows are re-rendered every frame
+// for its current state, so they are drawn as they are.
 //
-// The short variant is memoised into e, which must point into m.cache.
-func (m *Model) selectedLines(e *viewEntry, width int) []string {
-	if !m.hasSelection || e.shortSrc == "" {
-		return e.linesSelected
+// The short variant is memoised in m.cache.
+func (m *Model) selectedLines(i int) []string {
+	e := &m.list.Entries()[i]
+	if e.Ref < 0 || e.Ref >= len(m.cache) {
+		return e.Lines
 	}
-	if e.linesSelectedShort == nil {
-		short := m.selectedVariant(e.shortSrc, width, m.borderSelectStyle())
-		if len(short) != len(e.linesSelected) {
-			return e.linesSelected // unreachable: variants share a height
-		}
-		e.linesSelectedShort = short
-	}
-	return e.linesSelectedShort
-}
-
-// borderSelectStyle is the thick, tinted left border of the selected reply.
-func (m *Model) borderSelectStyle() lipgloss.Style {
-	return lipgloss.NewStyle().BorderStyle(thickLeftBorder).BorderLeft(true).
-		BorderForeground(styles.SelectionBorderColor(m.focused)).
-		BorderBackground(styles.SelectionTintColor(m.focused)).
-		Background(styles.SelectionTintColor(m.focused))
-}
-
-// selectedVariant renders content r as the selected reply: the selection
-// tint repainted over inner spans, filled to the row width, then the
-// selection border. Split on "\n". Mirrors messages.Model.selectedVariant.
-func (m *Model) selectedVariant(r string, width int, borderSelect lipgloss.Style) []string {
-	fill := lipgloss.NewStyle().Background(styles.SelectionTintColor(m.focused)).Width(width - 1)
-	return strings.Split(borderSelect.Render(fill.Render(messages.RepaintBgToSelectionTint(r, m.focused))), "\n")
+	return m.cache[e.Ref].SelectedLines(e, m.list.HasSelection(), func(src string) []string {
+		return messages.NewWrapStyles(m.focused).SelectedVariant(src, m.cacheWidth)
+	})
 }
 
 // ScrollHintForDrag returns -1 if the cursor is within 1 row of the top
 // edge of the scrolling content, +1 if within 1 row of the bottom, else 0.
-// The incoming viewportY is pane-local (0 == top of panel content, just
-// below the border). We offset by m.chromeHeight so the top edge is measured
-// below the header and separator. A cursor sitting on chrome is treated as
-// the top content row, so an upward drag keeps auto-scrolling toward older
-// messages.
+// The incoming viewportY is pane-local; a cursor on the chrome counts as
+// the top content row, so an upward drag keeps auto-scrolling.
 func (m *Model) ScrollHintForDrag(viewportY int) int {
-	h := m.lastViewHeight
-	if h <= 0 {
-		return 0
-	}
-	contentY := viewportY - m.chromeHeight
-	if contentY <= 0 {
-		return -1
-	}
-	if contentY >= h-1 {
-		return +1
-	}
-	return 0
-}
-
-// absoluteLineAt converts a pane-local y coordinate to an absolute line
-// index inside m.viewContent (the bordered content the viewport scrolls
-// through). Rows 0..chromeHeight-1 are the thread chrome (header +
-// separator); chromeHeight onward is scrolling parent+replies content. We
-// strip the chrome offset before mapping into viewContent lines, clamping
-// negative (in-chrome) values to the first content line. The result is
-// clamped to [0, totalLines-1] for out-of-range inputs.
-func (m *Model) absoluteLineAt(viewportY int) int {
-	contentY := viewportY - m.chromeHeight
-	if contentY < 0 {
-		contentY = 0
-	}
-	abs := contentY + m.vp.YOffset()
-	if abs < 0 {
-		abs = 0
-	}
-	if m.totalLines > 0 && abs >= m.totalLines {
-		abs = m.totalLines - 1
-	}
-	return abs
-}
-
-// selectionEntryAt returns the rendered message entry containing absLine.
-// Parent lines begin at zero; reply lines use parent-inclusive offsets.
-func (m *Model) selectionEntryAt(absLine int) (*viewEntry, int, string, bool) {
-	if m.parent.TS != "" && absLine >= 0 && absLine < m.parentEntry.height {
-		return &m.parentEntry, 0, m.parent.TS, true
-	}
-	for i := range m.cache {
-		start := m.entryOffsets[i]
-		if absLine >= start && absLine < start+m.cache[i].height {
-			return &m.cache[i], start, m.replies[m.cache[i].replyIdx].TS, true
-		}
-	}
-	return nil, 0, "", false
-}
-
-// anchorAt converts an absolute line + display column into an Anchor.
-// `col` is the mouse's display column (relative to the reply area's
-// content). We subtract contentColOffset to get the plain column, then
-// clamp to plain-line width. Returns ok=false when no entry covers the
-// line (inter-reply separator) or when the cache is empty.
-func (m *Model) anchorAt(absLine, col int) (selection.Anchor, bool) {
-	entry, start, messageTS, ok := m.selectionEntryAt(absLine)
-	if !ok {
-		return selection.Anchor{}, false
-	}
-	line := absLine - start
-	plainCol := col - entry.contentColOffset
-	if plainCol < 0 {
-		plainCol = 0
-	}
-	if line < len(entry.linesPlain) {
-		if width := messages.DisplayWidthOfPlain(entry.linesPlain[line]); plainCol > width {
-			plainCol = width
-		}
-	}
-	return selection.Anchor{MessageID: messageTS, Line: line, Col: plainCol}, true
-}
-
-// resolveAnchor returns the absolute line + plain col for an Anchor.
-// Returns ok=false when the reply is no longer present.
-func (m *Model) resolveAnchor(a selection.Anchor) (absLine, col int, ok bool) {
-	if a.MessageID == "" {
-		return 0, 0, false
-	}
-	if a.MessageID == m.parent.TS {
-		if a.Line < 0 || a.Line >= m.parentEntry.height {
-			return 0, 0, false
-		}
-		return a.Line, a.Col, true
-	}
-	idx, found := m.replyIDToIdx[a.MessageID]
-	if !found || idx >= len(m.cache) {
-		return 0, 0, false
-	}
-	entry := m.cache[idx]
-	if a.Line < 0 || a.Line >= entry.height {
-		return 0, 0, false
-	}
-	return m.entryOffsets[idx] + a.Line, a.Col, true
-}
-
-// SelectionText extracts the plain-text contents of the current
-// selection. Trailing whitespace is trimmed per line; a final trailing
-// newline is removed. Multi-rune grapheme clusters are preserved
-// intact.
-func (m *Model) SelectionText() string {
-	if !m.hasSelection || m.selRange.IsEmpty() {
-		return ""
-	}
-	loA, hiA := m.selRange.Normalize()
-	loLine, loCol, ok1 := m.resolveAnchor(loA)
-	hiLine, hiCol, ok2 := m.resolveAnchor(hiA)
-	if !ok1 || !ok2 || loLine > hiLine || (loLine == hiLine && loCol >= hiCol) {
-		return ""
-	}
-	var b strings.Builder
-	appendSelectionText(&b, 0, m.parentEntry, loLine, loCol, hiLine, hiCol)
-	for i, entry := range m.cache {
-		appendSelectionText(&b, m.entryOffsets[i], entry, loLine, loCol, hiLine, hiCol)
-	}
-	return strings.TrimRight(b.String(), "\n")
-}
-
-func appendSelectionText(b *strings.Builder, entryStart int, entry viewEntry, loLine, loCol, hiLine, hiCol int) {
-	entryEnd := entryStart + entry.height
-	if entryEnd <= loLine || entryStart > hiLine {
-		return
-	}
-	for line, plain := range entry.linesPlain {
-		absLine := entryStart + line
-		if absLine < loLine {
-			continue
-		}
-		if absLine > hiLine {
-			break
-		}
-		from := 0
-		to := messages.DisplayWidthOfPlain(plain)
-		if absLine == loLine {
-			from = loCol
-		}
-		if absLine == hiLine {
-			to = hiCol
-		}
-		b.WriteString(strings.TrimRight(messages.SliceColumns(plain, from, to), " "))
-		if absLine != hiLine {
-			b.WriteByte('\n')
-		}
-	}
-}
-
-// applySelectionOverlay returns viewContent with selection-style
-// applied to the visible columns of the active selection range.
-// Operates on the FULLY-BORDERED viewContent because the viewport
-// will slice and render it. Plain columns from linesPlain map to
-// display columns by adding the entry's contentColOffset (= 1 for
-// reply rows, since the thick left border occupies display column 0).
-//
-// Inter-reply separator lines are NOT inside any cache entry's
-// [start, end) range, so they are skipped naturally.
-func (m *Model) applySelectionOverlay(content string) string {
-	loA, hiA := m.selRange.Normalize()
-	loLine, loCol, ok1 := m.resolveAnchor(loA)
-	hiLine, hiCol, ok2 := m.resolveAnchor(hiA)
-	if !ok1 || !ok2 || loLine > hiLine || (loLine == hiLine && loCol >= hiCol) {
-		return content
-	}
-	selStyle := styles.SelectionStyle()
-	lines := strings.Split(content, "\n")
-	for absLine := loLine; absLine <= hiLine && absLine < len(lines); absLine++ {
-		entry, entryStart, _, ok := m.selectionEntryAt(absLine)
-		if !ok {
-			continue
-		}
-		line := absLine - entryStart
-		if line < 0 || line >= len(entry.linesPlain) {
-			continue
-		}
-		plain := entry.linesPlain[line]
-		from := 0
-		to := messages.DisplayWidthOfPlain(plain)
-		if absLine == loLine {
-			from = loCol
-		}
-		if absLine == hiLine {
-			to = hiCol
-		}
-		if from < 0 {
-			from = 0
-		}
-		if to > messages.DisplayWidthOfPlain(plain) {
-			to = messages.DisplayWidthOfPlain(plain)
-		}
-		if from >= to {
-			continue
-		}
-		styled := lines[absLine]
-		dispFrom := from + entry.contentColOffset
-		dispTo := to + entry.contentColOffset
-		styledWidth := ansi.StringWidth(styled)
-		if dispFrom >= styledWidth {
-			continue
-		}
-		if dispTo > styledWidth {
-			dispTo = styledWidth
-		}
-		prefix := ansi.Cut(styled, 0, dispFrom)
-		suffix := ansi.Cut(styled, dispTo, styledWidth)
-		lines[absLine] = prefix + selStyle.Render(messages.SliceColumns(plain, from, to)) + suffix
-	}
-	return strings.Join(lines, "\n")
-}
-
-// entryAndOffsetForLine maps a flattened line number to the entry that
-// contains it, plus the offset within that entry. entryOffsets covers
-// replies only -- the parent message block is a content prefix, not a
-// cache entry -- so ok is false when line falls before the first reply
-// (including the parent) or entryOffsets is empty.
-func (m *Model) entryAndOffsetForLine(line int) (idx, within int, ok bool) {
-	if len(m.entryOffsets) == 0 || line < m.entryOffsets[0] {
-		return 0, 0, false
-	}
-	for i := len(m.entryOffsets) - 1; i >= 0; i-- {
-		if m.entryOffsets[i] <= line {
-			return i, line - m.entryOffsets[i], true
-		}
-	}
-	return 0, 0, false
+	return m.list.ScrollHint(viewportY - m.chromeHeight)
 }
 
 // View renders the thread panel content without a border.
 // The parent App is responsible for adding the border.
-func (m *Model) View(height, width int) string {
+func (m *Model) View(height, width int) string { return m.viewInternal(height, width, true) }
+
+// ViewBare renders the thread panel WITHOUT the selection-highlight
+// overlay; see messages.Model.ViewBare.
+func (m *Model) ViewBare(height, width int) string { return m.viewInternal(height, width, false) }
+
+// ApplySelectionToBordered paints the selection onto a cached bordered
+// render; see messages.Model.ApplySelectionToBordered.
+func (m *Model) ApplySelectionToBordered(bordered string, topBorderRows, leftBorderCols int) string {
+	m.list.SetStyles(messages.ThemeListStyles())
+	return m.list.ApplySelectionToBordered(bordered, topBorderRows+m.chromeHeight, leftBorderCols)
+}
+
+func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	if m.IsEmpty() {
 		return lipgloss.NewStyle().
 			Width(width).
@@ -1437,11 +1029,11 @@ func (m *Model) View(height, width int) string {
 			chromeReplyCount++
 		}
 	}
-	// Chrome no longer contains the parent message -- the parent now lives
-	// at the top of m.viewContent so it scrolls with the replies (a long
+	// Chrome no longer contains the parent message -- the parent is the
+	// first entry of the list so it scrolls with the replies (a long
 	// parent must not pin and block the reply area). Chrome is only the
-	// header line + a single border separator; everything else moved into
-	// the viewport, so parent identity no longer participates in the
+	// header line + a single border separator; everything else lives in
+	// the list, so parent identity no longer participates in the
 	// chrome cache key.
 	author := m.breadcrumbAuthor()
 	if !m.chromeCacheValid ||
@@ -1472,48 +1064,40 @@ func (m *Model) View(height, width int) string {
 	chrome := m.chromeCache
 	chromeHeight := m.chromeHeight
 
-	// chromeHeight already counts every visual row of `chrome`; joining with
-	// a single "\n" between chrome and the viewport produces exactly
-	// chromeHeight+vp.Height() lines total. No extra row is consumed.
-	replyAreaHeight := height - chromeHeight
-	if replyAreaHeight < 1 {
-		replyAreaHeight = 1
-	}
-	m.lastViewHeight = replyAreaHeight
+	// The reply area is everything under the chrome.
+	replyAreaHeight := max(height-chromeHeight, 1)
+	m.list.SetStyles(messages.ThemeListStyles())
+	m.list.SetHeight(replyAreaHeight, m.selected)
 
-	// Render the parent message once -- it now lives at the top of the
-	// scrollable viewContent (chrome only carries the header + separator).
-	// We discard the parent's image flushes and reaction-hit rects in v1:
-	// parent attachments are rare and threading flushes through the cache
-	// lifecycle adds complexity; reply flushes and hit rects ARE captured
-	// in the per-reply loop below.
+	// The parent is rendered every frame for its current state (selected
+	// or not, focused or not) and is entry 0 of the list: its rows, then
+	// the rule under it. The rule is not selectable text (Plain stops
+	// before it). We discard the parent's image flushes and reaction hits
+	// in v1, as before.
 	parentIsSelected := m.selected == parentSelected
-	parentContent, _, _, parentHeader, parentHeaderBudget := m.renderThreadMessage(m.parent, width, m.userNames, m.channelNames, parentIsSelected)
+	parentRendered := m.renderMessage(m.parent, width, parentIsSelected)
+	parentContent, parentHeader, parentHeaderBudget := parentRendered.Content, parentRendered.Header, parentRendered.HeaderBudget
 	// Replies only get a day divider when their day differs from the
 	// parent's, so the parent header carries its own date; otherwise a
 	// thread whose first replies share the parent's day shows no date.
-	// Before m.parentEntry, so the plain mirror (copy, drag highlight)
-	// matches what is drawn. Skipped when the header would not fit, and
-	// for a summary-built parent that has no time yet.
+	// Before the plain mirror, so copy and drag highlight match what is
+	// drawn. Skipped when the header would not fit, and for a
+	// summary-built parent that has no time yet.
 	if !parentIsSelected && m.parent.Timestamp != "" {
 		if date := messages.DateFromTS(m.parent.TS); date != "" {
 			dated := messages.FormatShortDate(date) + ", " + m.parent.Timestamp
 			parentContent = messages.ReplaceHeaderTimestamp(parentContent, parentHeader, m.parent.Timestamp, dated, parentHeaderBudget)
 		}
 	}
-	m.parentEntry = viewEntry{
-		linesPlain:       messages.PlainLines(parentContent),
-		height:           lipgloss.Height(parentContent),
-		contentColOffset: 1,
-	}
+	parentPlain := messages.PlainLines(parentContent)
 	// Selection border for the parent row mirrors the per-reply
 	// cache-build treatment (borderSelect / borderInvis below): thick
 	// left border + tint when the cursor sits on the parent, invisible
 	// border otherwise so the parent's width matches the reply rows.
 	if parentIsSelected {
-		// After m.parentEntry, so its plain mirror keeps the short form.
-		// Skipped while a text selection exists; see selectedLines.
-		if !m.hasSelection {
+		// After the plain mirror, so it keeps the short form. Skipped
+		// while a text selection exists; see selectedLines.
+		if !m.list.HasSelection() {
 			parentContent = messages.SelectedHeader(parentContent, parentHeader, m.parent.TS, m.parent.Timestamp, parentHeaderBudget)
 		}
 		parentContent = lipgloss.NewStyle().BorderStyle(thickLeftBorder).BorderLeft(true).
@@ -1526,71 +1110,60 @@ func (m *Model) View(height, width int) string {
 			BorderForeground(styles.Background).BorderBackground(styles.Background).
 			Render(parentContent)
 	}
+	// Pad every parent row to the pane width with the theme background.
+	// The outer wrapper used to do this (the parent, unlike a reply, is
+	// not width-filled when rendered); this is the same per-row padding,
+	// applied where it is needed.
+	parentContent = lipgloss.NewStyle().Width(width).Background(styles.Background).Render(parentContent)
 	parentSeparator := lipgloss.NewStyle().
 		Width(width).
 		Background(styles.Background).
 		Foreground(styles.Border).
 		Render(strings.Repeat("─", width))
-	parentBlock := parentContent + "\n" + parentSeparator
-	parentBlockHeight := lipgloss.Height(parentBlock)
+	parent := entrylist.Entry{
+		ID:         m.parent.TS,
+		Ref:        parentSelected,
+		Selectable: true,
+		Lines:      append(strings.Split(parentContent, "\n"), parentSeparator),
+		ColOffset:  1,
+	}
+	if m.parent.TS != "" {
+		// A parent without a ts cannot be clicked or text-selected.
+		parent.Plain = parentPlain
+	}
 
 	if len(m.replies) == 0 {
-		emptyHeight := replyAreaHeight - parentBlockHeight
-		if emptyHeight < 1 {
-			emptyHeight = 1
-		}
+		// "No replies yet" under the parent. It goes through the list so
+		// a parent taller than the pane still scrolls; the scrollbar
+		// reflects the parent's own height. No snap, no hits, no
+		// selection overlay: as before (plan decision P1 for the totals).
+		emptyHeight := max(replyAreaHeight-len(parent.Lines), 1)
 		empty := lipgloss.NewStyle().
 			Width(width).
 			Height(emptyHeight).
 			Background(styles.Background).
 			Foreground(styles.TextMuted).
 			Render("No replies yet")
-		// Push parent + placeholder through the viewport so a parent
-		// taller than the pane still scrolls. The scrollbar overlay
-		// reflects the parent's own height.
-		emptyContent := parentBlock + "\n" + empty
-		emptyTotalLines := lipgloss.Height(emptyContent)
-		m.vp.SetWidth(width)
-		m.vp.SetHeight(replyAreaHeight)
-		m.vp.KeyMap = viewport.KeyMap{}
-		m.vp.SetContent(emptyContent)
-		visibleLines := strings.Split(m.vp.View(), "\n")
-		visibleLines = scrollbar.Overlay(
-			visibleLines, width,
-			emptyTotalLines, m.vp.YOffset(), replyAreaHeight,
-			styles.Background, styles.Border, styles.Primary,
-		)
-		result := chrome + "\n" + strings.Join(visibleLines, "\n")
-		return lipgloss.NewStyle().Width(width).Height(height).MaxHeight(height).Background(styles.Background).Render(result)
+		m.list.SetEntries([]entrylist.Entry{parent, {Ref: -1, Lines: strings.Split(empty, "\n")}}, width, false)
+		rows := m.list.Compose(m.list.Static(), "", "", false)
+		return fitHeight(chrome+"\n"+strings.Join(rows, "\n"), height)
 	}
 
-	// A width change rewraps every reply, so re-anchor YOffset to the same
-	// entry instead of reusing the now-stale line count (mirrors
-	// messages.Model.View()). Must be captured before the reply-cache
-	// rebuild below, which unconditionally clears m.viewCacheValid on a
-	// width change.
-	oldEntryCount := len(m.entryOffsets)
-	widthChanged := m.viewCacheValid && m.viewWidth != width
-	wasAnchoredAtBottom := m.totalLines > 0 && m.vp.YOffset()+m.vp.Height() >= m.totalLines
-	var anchorEntryIdx, anchorWithin int
-	var anchorOK bool
-	if widthChanged {
-		anchorEntryIdx, anchorWithin, anchorOK = m.entryAndOffsetForLine(m.vp.YOffset())
-	}
+	// A width change with the previous layout intact keeps the scroll
+	// position (SetEntries, per the reanchor policy). Captured before the
+	// reply-cache rebuild.
+	keepPosition := m.layoutValid
 
-	// Rebuild render cache if replies or width changed
+	// Rebuild the reply cache if the replies or the width changed.
 	//
-	// Per-reply cache rebuild predicate intentionally excludes m.selected,
-	// m.focused, m.reactionNavActive/Index, and theme version. The cache
-	// holds renderThreadMessage output, which depends on those fields, so
-	// any state that can change rendered output for a given (reply, width)
+	// The predicate intentionally excludes m.selected, m.focused,
+	// m.nav.Active/Index and the theme version. The cache holds
+	// renderMessage output, which depends on those fields, so any
+	// state that can change rendered output for a given (reply, width)
 	// MUST call InvalidateCache() on its mutation path. EnterReactionNav /
-	// ExitReactionNav / ReactionNavLeft / ReactionNavRight all do this
-	// today; MoveUp/MoveDown call ExitReactionNav before mutating selected.
-	// If you add a new visual feature gated on mutable model state, either
-	// invalidate on the relevant transition or add the state to this
-	// predicate. Adding to the predicate forces a full cache rebuild on the
-	// transition, which defeats the j/k speedup — prefer invalidation.
+	// ExitReactionNav / ReactionNavLeft / ReactionNavRight all do;
+	// MoveUp/MoveDown call ExitReactionNav before mutating selected.
+	// (SetFocused does not: plan decision P2, a known stale-border bug.)
 	if m.cache == nil || m.cacheWidth != width || m.cacheReplyLen != len(m.replies) {
 		var perfReason string
 		var perfStart time.Time
@@ -1606,709 +1179,175 @@ func (m *Model) View(height, width int) string {
 			perfStart = time.Now()
 		}
 		m.cache = m.cache[:0]
+		m.replyEntries = m.replyEntries[:0]
 		if m.replyIDToIdx == nil {
 			m.replyIDToIdx = make(map[string]int, len(m.replies))
 		} else {
-			for k := range m.replyIDToIdx {
-				delete(m.replyIDToIdx, k)
-			}
+			clear(m.replyIDToIdx)
 		}
-		// Pre-build border styles ONCE (don't allocate per reply). Mirrors
-		// internal/ui/messages/model.go:1051-1056: the thick left border ▌
-		// is now applied at cache-build time so View() can pick a slice
-		// (linesNormal vs linesSelected) instead of running lipgloss for
-		// every visible reply on every j/k.
-		borderFill := lipgloss.NewStyle().Background(styles.Background)
-		borderInvis := lipgloss.NewStyle().BorderStyle(thickLeftBorder).BorderLeft(true).
-			BorderForeground(styles.Background).BorderBackground(styles.Background)
-		borderSelect := m.borderSelectStyle()
+		// Pre-build the wrap styles ONCE (don't allocate per reply): the
+		// thick left border ▌ is applied at cache-build time so View()
+		// picks a slice (normal vs selected) instead of running lipgloss
+		// for every visible reply on every j/k.
+		wrap := messages.NewWrapStyles(m.focused)
 		for i, reply := range m.replies {
-			// renderThreadMessage's last arg ("isSelected") drives reaction-
-			// nav pill highlighting (lines 1040, 1049): when reaction nav
-			// is active on the selected reply, the navigated pill / "+"
-			// button gets a distinct style. We MUST forward i==m.selected
-			// here (not a constant false) to preserve that UX. EnterReactionNav
-			// / ReactionNavLeft / ReactionNavRight all call InvalidateCache(),
-			// so the cache rebuilds whenever the highlighted index changes.
-			// This matches the messages-pane convention
-			// (internal/ui/messages/model.go:1050).
-			rendered, attachFlushes, reactHits, header, headerBudget := m.renderThreadMessage(reply, width, m.userNames, m.channelNames, i == m.selected)
-			// Selected variant only; linesNormal / linesPlain keep the short form.
-			renderedSel := messages.SelectedHeader(rendered, header, reply.TS, reply.Timestamp, headerBudget)
-			// Two filled variants — see internal/ui/messages/model.go for the
-			// rationale. Without per-variant fills, the trailing whitespace of
-			// every wrapped line shows the wrong bg and the tint stops at the
-			// last character of content. linesPlain mirrors the UNTINTED
-			// (filledNormal) so clipboard text never carries the tint.
-			filledNormal := borderFill.Width(width - 1).Render(rendered)
-			// For the selected variant, repaint inner explicit-bg ANSI
-			// escapes (Username, Timestamp, MessageText, RenderSlackMarkdown's
-			// reset-reapplications) with the tint color so the tint reaches
-			// every cell of the row, not just the trailing whitespace.
-			normal := borderInvis.Render(filledNormal)
-			linesN := strings.Split(normal, "\n")
-			linesS := m.selectedVariant(renderedSel, width, borderSelect)
-			// The short-timestamp selected variant is built on demand
-			// from shortSrc (see selectedLines).
-			var shortSrc string
-			if renderedSel != rendered {
-				shortSrc = rendered
-			}
-			m.cache = append(m.cache, viewEntry{
-				linesNormal:   linesN,
-				linesSelected: linesS,
-				shortSrc:      shortSrc,
-				// linesPlain mirrors the UNBORDERED, UNTINTED content (filledNormal)
-				// so the thick left-border column is NOT present in plain text and
-				// never bleeds into clipboard output via SelectionText. The
-				// mouse-column to plain-column mapping uses contentColOffset.
-				// Same convention as internal/ui/messages/model.go:1057-1061.
-				linesPlain:       messages.PlainLines(filledNormal),
-				height:           len(linesN),
-				replyIdx:         i,
-				contentColOffset: 1,
-				flushes:          attachFlushes,
-				reactionHits:     reactHits,
+			// renderMessage's last arg ("isSelected") drives reaction-
+			// nav pill highlighting, so it MUST be i == m.selected.
+			r := m.renderMessage(reply, width, i == m.selected)
+			// The thread pane's kitty upload order: body, blocks,
+			// reactions, then attachments.
+			flushes := slices.Concat(r.BodyFlushes, r.BlockFlushes, r.ReactionFlushes, r.AttachmentFlushes)
+			w := messages.WrapRows(reply, r, width, wrap)
+			m.replyEntries = append(m.replyEntries, entrylist.Entry{
+				ID:         reply.TS,
+				Ref:        i,
+				Selectable: true,
+				Lines:      w.Lines,
+				Selected:   w.Selected,
+				Plain:      w.Plain,
+				ColOffset:  1,
+				Hits:       r.Hits,
 			})
+			m.cache = append(m.cache, messages.EntryPayload{ShortSrc: w.ShortSrc, Flushes: flushes})
 			m.replyIDToIdx[reply.TS] = i
 		}
 		m.cacheWidth = width
 		m.cacheReplyLen = len(m.replies)
-		m.viewCacheValid = false
+		m.flushKey.selected = math.MinInt // re-emit the kitty uploads
 		if debuglog.Enabled() {
 			debuglog.Perf("thread.buildCache N=%d width=%d took=%s reason=%s",
 				len(m.replies), width, time.Since(perfStart), perfReason)
 		}
 	}
 
-	// Check if view-level cache (bordered content) can be reused
-	var viewPerfReason string
-	var viewPerfStart time.Time
-	// viewHasSelection is part of the key because the selected row swaps
-	// between its long- and short-timestamp variants when a text
-	// selection starts or ends (see selectedLines).
-	viewPerfRebuild := !m.viewCacheValid || m.viewSelected != m.selected || m.viewHasSelection != m.hasSelection || m.viewWidth != width || m.viewHeight != replyAreaHeight
-	if viewPerfRebuild && debuglog.Enabled() {
-		switch {
-		case !m.viewCacheValid:
-			viewPerfReason = "invalidated"
-		case m.viewSelected != m.selected:
-			viewPerfReason = fmt.Sprintf("selected-changed %d->%d", m.viewSelected, m.selected)
-		case m.viewHasSelection != m.hasSelection:
-			viewPerfReason = fmt.Sprintf("text-selection-changed %v->%v", m.viewHasSelection, m.hasSelection)
-		case m.viewWidth != width:
-			viewPerfReason = fmt.Sprintf("width-changed %d->%d", m.viewWidth, width)
-		default:
-			viewPerfReason = fmt.Sprintf("height-changed %d->%d", m.viewHeight, replyAreaHeight)
-		}
-		viewPerfStart = time.Now()
-	}
-	if viewPerfRebuild {
-		// Visible separator drawn between replies. Uses the panel border color
-		// over the themed background so it reads as a divider but doesn't
-		// fight with the panel's outer border. Falls through full content
-		// width.
-		separatorStyle := lipgloss.NewStyle().
+	// The list: the parent, then for each reply its day divider (when
+	// its local day differs from the previous one, seeded with the
+	// parent's), the "── new ──" landmark before the first reply past
+	// the unread boundary, the reply, and a full-width rule between
+	// replies. Dividers, landmark and rules are decorations: not
+	// selectable, not text-selectable.
+	ruleStyle := lipgloss.NewStyle().
+		Width(width).
+		Background(styles.Background).
+		Foreground(styles.Border)
+	replySeparator := ruleStyle.Render(strings.Repeat("─", width))
+	var newLandmark string
+	if m.unreadBoundaryTS != "" {
+		newLandmark = lipgloss.NewStyle().
 			Width(width).
 			Background(styles.Background).
-			Foreground(styles.Border)
-		replySeparator := separatorStyle.Render(strings.Repeat("─", width))
-
-		// "── new ──" landmark inserted just before the first reply with
-		// TS > unreadBoundaryTS. Mirrors the channel pane's new-message
-		// line (see the unread-landmark logic in messages/model.go). The
-		// landmark line is NOT inside any cache entry, matching the
-		// inter-reply separator convention so selection overlay /
-		// extraction skip it naturally. Only constructed when a boundary
-		// is set — the typical case (no unread boundary) skips the style
-		// allocation entirely.
-		var newLandmark string
-		if m.unreadBoundaryTS != "" {
-			landmarkStyle := lipgloss.NewStyle().
-				Width(width).
-				Background(styles.Background).
-				Foreground(styles.Error).
-				Bold(true).
-				Align(lipgloss.Center)
-			newLandmark = landmarkStyle.Render("── new ──")
-		}
-		landmarkInserted := false
-
-		// Day-divider style for "── Today ──" / "── Yesterday ──" /
-		// weekday / fully-qualified date rows inserted between replies on
-		// different local days. Mirrors the channel pane's date separator
-		// (see internal/ui/messages/model.go: buildCache). Like
-		// replySeparator and newLandmark, these rows live OUTSIDE any
-		// cache entry so selection overlay and extraction skip them
-		// naturally. lastDate is seeded from the parent so the divider
-		// only fires when a reply lands on a day different from the
-		// parent's day.
-		dateSeparatorStyle := lipgloss.NewStyle().
-			Width(width).
-			Background(styles.Background).
-			Foreground(styles.TextMuted).
+			Foreground(styles.Error).
 			Bold(true).
-			Align(lipgloss.Center)
-		lastDate := messages.DateFromTS(m.parent.TS)
-
-		// viewContent begins with the parent message block so the parent
-		// scrolls together with the replies. entryOffsets / selectedStartLine
-		// / m.totalLines are built in parent-inclusive coordinates from here
-		// on -- the snap-to-selection math and reaction-hit translation
-		// both index into viewContent and so naturally account for the
-		// parent prefix without further adjustment.
-		allRows := []string{parentBlock}
-		startLine := 0
-		endLine := 0
-		if parentIsSelected {
-			// Parent row occupies lines 0..parentBlockHeight; the
-			// snap-to-selection math below scrolls to the top.
-			endLine = parentBlockHeight
+			Align(lipgloss.Center).
+			Render("── new ──")
+	}
+	dateSeparatorStyle := lipgloss.NewStyle().
+		Width(width).
+		Background(styles.Background).
+		Foreground(styles.TextMuted).
+		Bold(true).
+		Align(lipgloss.Center)
+	decoration := func(row string) entrylist.Entry { return entrylist.Entry{Ref: -1, Lines: []string{row}} }
+	entries := make([]entrylist.Entry, 0, 2*len(m.replyEntries)+2)
+	entries = append(entries, parent)
+	lastDate := messages.DateFromTS(m.parent.TS)
+	landmarkInserted := false
+	for i, e := range m.replyEntries {
+		if replyDate := messages.DateFromTS(m.replies[i].TS); replyDate != "" && replyDate != lastDate {
+			entries = append(entries, decoration(dateSeparatorStyle.Render("── "+messages.FormatDateSeparator(replyDate)+" ──")))
+			lastDate = replyDate
 		}
-		currentLine := parentBlockHeight
-		// kittyFlushBuf collects per-image kitty APC upload bytes for
-		// every cached entry (the thread cache holds only the open
-		// thread's replies — typically a handful — so we don't bother
-		// with viewport-visibility scoping). Written directly to
-		// imgpkg.KittyOutput AFTER the loop, before viewContent is
-		// assembled. Mirrors internal/ui/messages/model.go's
-		// kittyFlushBuf handling; APC sequences embedded in line
-		// content are known to get mangled by the bubbletea/lipgloss
-		// renderer, so we bypass the frame buffer.
+		if !landmarkInserted && newLandmark != "" && m.replies[i].TS > m.unreadBoundaryTS {
+			entries = append(entries, decoration(newLandmark))
+			landmarkInserted = true
+		}
+		entries = append(entries, e)
+		if i < len(m.replyEntries)-1 {
+			entries = append(entries, decoration(replySeparator))
+		}
+	}
+	m.list.SetEntries(entries, width, keepPosition)
+
+	// Kitty uploads for every reply (the thread cache is small, so no
+	// visibility scoping), written straight to the terminal output: APC
+	// sequences embedded in line content get mangled by the renderer.
+	// Re-emitted only when the layout changes, as before.
+	key := m.flushKey
+	key.selected, key.width, key.height, key.hasSelection = m.selected, width, replyAreaHeight, m.list.HasSelection()
+	if key != m.flushKey || !m.layoutValid {
 		var kittyFlushBuf bytes.Buffer
-
-		// entryOffsets / totalLines mirror the BORDERED viewContent. Each
-		// reply takes lipgloss.Height(borderedReply) lines (== e.height,
-		// since the thick left border is purely horizontal padding), plus
-		// 1 line per inter-reply separator.
-		m.entryOffsets = m.entryOffsets[:0]
-
-		for i, e := range m.cache {
-			// Insert a centered day-divider row when this reply's local
-			// day differs from the previous one (seeded with the parent's
-			// day). Sits ABOVE both the unread landmark and the reply
-			// itself so users see e.g. "── Yesterday ──" before any
-			// replies from yesterday — matching the channel pane's
-			// behavior. Falls through silently when the TS can't be
-			// parsed.
-			if i < len(m.replies) {
-				replyDate := messages.DateFromTS(m.replies[i].TS)
-				if replyDate != "" && replyDate != lastDate {
-					divider := dateSeparatorStyle.Render("── " + messages.FormatDateSeparator(replyDate) + " ──")
-					allRows = append(allRows, divider)
-					currentLine++
-					lastDate = replyDate
-				}
-			}
-
-			// Insert the new-reply landmark before the first reply whose
-			// TS exceeds the unread boundary. We check this BEFORE
-			// recording the entry offset so the landmark sits above
-			// reply i.
-			if !landmarkInserted && newLandmark != "" && i < len(m.replies) && m.replies[i].TS > m.unreadBoundaryTS {
-				allRows = append(allRows, newLandmark)
-				currentLine++
-				landmarkInserted = true
-			}
-
-			// linesNormal/linesSelected are pre-bordered at cache-build
-			// time (see buildCache above). View() just picks the slice for
-			// the cursor row vs everything else; no per-frame lipgloss work.
-			var lines []string
-			if i == m.selected {
-				startLine = currentLine
-				lines = m.selectedLines(&m.cache[i], width)
-			} else {
-				lines = e.linesNormal
-			}
-			content := strings.Join(lines, "\n")
-			h := e.height
-			m.entryOffsets = append(m.entryOffsets, currentLine)
-			if i == m.selected {
-				endLine = currentLine + h
-			}
-			allRows = append(allRows, content)
-			currentLine += h
-
-			// Collect kitty per-image upload escapes for this entry.
-			// We invoke flushes for every cached entry rather than only
-			// viewport-visible ones; the thread cache is small and
-			// scoping adds complexity. A future optimization can clip
-			// to visible entries.
-			for _, fl := range e.flushes {
+		for _, p := range m.cache {
+			for _, fl := range p.Flushes {
 				if fl != nil {
 					_ = fl(&kittyFlushBuf)
 				}
 			}
-
-			// Separator between replies (not after the last). Separator
-			// lines are NOT inside any cache entry — selection overlay /
-			// extraction skip them naturally because no entry covers
-			// them.
-			if i < len(m.cache)-1 {
-				allRows = append(allRows, replySeparator)
-				currentLine++
-			}
 		}
-
-		// Write kitty upload escapes directly to the terminal output,
-		// bypassing bubbletea's frame buffer. Same rationale as
-		// internal/ui/messages/model.go's kittyFlushBuf write.
 		if kittyFlushBuf.Len() > 0 {
 			_, _ = imgpkg.KittyOutput.Write(kittyFlushBuf.Bytes())
 		}
-
-		m.viewContent = strings.Join(allRows, "\n")
-		m.viewSelected = m.selected
-		m.viewHasSelection = m.hasSelection
-		m.viewWidth = width
-		m.viewHeight = replyAreaHeight
-		m.selectedStartLine = startLine
-		m.selectedEndLine = endLine
-		m.totalLines = currentLine
-		m.viewCacheValid = true
-		if debuglog.Enabled() {
-			debuglog.Perf("thread.viewCache rebuild N=%d width=%d took=%s reason=%s",
-				len(m.replies), width, time.Since(viewPerfStart), viewPerfReason)
-		}
+		m.flushKey = key
 	}
 
-	// Configure viewport
-	m.vp.SetWidth(width)
-	m.vp.SetHeight(replyAreaHeight)
-	m.vp.KeyMap = viewport.KeyMap{}
-	m.vp.SetContent(m.viewContent)
-
-	if widthChanged {
-		// Known limitation (gammons/slk#254): when anchorOK is false, the
-		// viewport was scrolled inside the parent-message prefix rather
-		// than a reply entry, and neither case below fires -- the stale
-		// pre-resize YOffset is left as-is. Deliberately out of scope
-		// here to keep this fix reviewable; tracked separately.
-		switch {
-		case wasAnchoredAtBottom:
-			m.vp.SetYOffset(m.totalLines) // clamps to the new bottom
-		case oldEntryCount == len(m.replies) && anchorOK && anchorEntryIdx < len(m.entryOffsets):
-			within := anchorWithin
-			if h := m.cache[anchorEntryIdx].height; within >= h {
-				within = h - 1
-			}
-			if within < 0 {
-				within = 0
-			}
-			m.vp.SetYOffset(m.entryOffsets[anchorEntryIdx] + within)
-		}
-	}
-
-	// Scroll to keep selected item visible -- but only when the selection
-	// has actually changed since the last snap. This lets the mouse wheel
-	// (or programmatic ScrollUp/Down) move the viewport away from the
-	// selected reply without the next render yanking it back. Mirrors the
-	// same guard used in messages.Model.View().
-	if !m.hasSnapped || m.snappedSelection != m.selected {
-		if m.selectedEndLine > m.vp.YOffset()+m.vp.Height() {
-			m.vp.SetYOffset(m.selectedEndLine - m.vp.Height())
-		}
-		if m.selectedStartLine < m.vp.YOffset() {
-			m.vp.SetYOffset(m.selectedStartLine)
-		}
-		m.snappedSelection = m.selected
-		m.hasSnapped = true
-	}
-
-	// Populate the per-frame reaction-hit slice in pane-local
-	// coordinates so the app-level mouse handler can route clicks to
-	// a toggle-reaction command. Done after the scroll-snap above so
-	// YOffset is settled; cleared at the start of every frame so an
-	// invisible entry's hits don't survive the next render. Capacity
-	// is preserved across frames (typical case: a handful of pills).
-	m.lastReactionHits = m.lastReactionHits[:0]
-	yOff := m.vp.YOffset()
-	for i, e := range m.cache {
-		if len(e.reactionHits) == 0 {
-			continue
-		}
-		entryStart := m.entryOffsets[i]
-		for _, h := range e.reactionHits {
-			absStart := entryStart + h.rowStartInEntry
-			absEnd := entryStart + h.rowEndInEntry
-			// Clip to the viewport in viewContent coordinates.
-			if absEnd <= yOff || absStart >= yOff+replyAreaHeight {
-				continue
-			}
-			clipStart := absStart - yOff
-			if clipStart < 0 {
-				clipStart = 0
-			}
-			clipEnd := absEnd - yOff
-			if clipEnd > replyAreaHeight {
-				clipEnd = replyAreaHeight
-			}
-			// Pane-local rows include the chromeHeight prefix that
-			// View()'s final string prepends, mirroring the convention
-			// used by ClickAt (which subtracts chromeHeight from
-			// incoming pane-local y).
-			m.lastReactionHits = append(m.lastReactionHits, reactionHitRect{
-				rowStart: chromeHeight + clipStart,
-				rowEnd:   chromeHeight + clipEnd,
-				colStart: h.colStart,
-				colEnd:   h.colEnd,
-				replyIdx: e.replyIdx,
-				emoji:    h.emoji,
-			})
-		}
-	}
-
-	// Overlay the active selection on top of viewContent. Done after
-	// scroll-snapping so YOffset is settled, then re-apply the overlayed
-	// content to the viewport for the final View() render.
-	if m.hasSelection {
-		m.vp.SetContent(m.applySelectionOverlay(m.viewContent))
-	}
-
-	// Scrollbar overlay on the right edge of the scrollable area. Chrome
-	// (header + separator) is left alone since it does not scroll. Same
-	// pattern as messages.Model.View().
-	visibleLines := strings.Split(m.vp.View(), "\n")
-	visibleLines = scrollbar.Overlay(
-		visibleLines, width,
-		m.totalLines, m.vp.YOffset(), replyAreaHeight,
-		styles.Background, styles.Border, styles.Primary,
-	)
-	result := chrome + "\n" + strings.Join(visibleLines, "\n")
-	return lipgloss.NewStyle().Width(width).Height(height).MaxHeight(height).Background(styles.Background).Render(result)
+	// Snap to the cursor if it moved, slice the window, translate the
+	// reply hits (content-relative), overlay the selection, draw the
+	// scrollbar.
+	frame := m.list.Layout(m.selected, m.selectedLines)
+	rows := m.list.Compose(frame, "", "", applySelection)
+	m.layoutValid = true
+	return fitHeight(chrome+"\n"+strings.Join(rows, "\n"), height)
 }
 
 // HitTestReaction returns the (reply index, reaction emoji name) at
-// (row, col) within the thread pane, or ok=false when no reaction
-// pill covers that cell. Coordinate frame: row is pane-local and
-// includes the chromeHeight rows of header/parent message at the top
-// (i.e., the same frame as the app-level mouse handler's panel-local
-// y from panelAt). Hits are populated from the most recent View().
+// (row, col) within the thread's content area, or ok=false when no
+// reaction pill covers that cell. Coordinate frame: row 0 is the first
+// row under the chrome, as for messages.Model.HitTestReaction (the
+// app-level mouse handler subtracts ChromeHeight). Hits come from the
+// most recent View().
 func (m *Model) HitTestReaction(row, col int) (replyIdx int, emoji string, ok bool) {
-	for _, h := range m.lastReactionHits {
-		if row >= h.rowStart && row < h.rowEnd && col >= h.colStart && col < h.colEnd {
-			return h.replyIdx, h.emoji, true
-		}
+	h, ok := m.list.HitTest(entrylist.HitReaction, row, col)
+	if !ok {
+		return 0, "", false
 	}
-	return 0, "", false
+	return h.Ref, h.Key, true
 }
 
-// renderThreadMessage renders a single message for the thread panel.
-// Returns the content string, any per-frame kitty flush callbacks for
-// inline image attachments, and the per-pill hit rects for the
-// rendered reactions (in coordinates relative to the rendered content
-// AFTER buildCache wraps it with the thick left border in column 0).
-// The flushes are consumed by View() when the entry is visible
-// (mirroring messages.Model). v1: per-block Hit and SixelRows from
-// imgrender are discarded — click-to-preview from a thread reply and
-// inline sixel emission are out of scope.
-// blockkitContext wires the thread pane's host dependencies into a
-// blockkit.Context. Mirrors messages.Model.blockkitContext so Block
-// Kit blocks and legacy attachments render identically in the thread
-// panel and the main message pane.
-func (m *Model) blockkitContext(msg messages.MessageItem, userNames, channelNames map[string]string) blockkit.Context {
-	var imgCtx imgrender.ImageContext
-	if m.imgRenderer != nil {
-		imgCtx = m.imgRenderer.Context()
+// fitHeight keeps the first height rows of s, as the old outer
+// MaxHeight(height) did when a floored reply area (height < chrome + 1)
+// made the pane one row too tall.
+func fitHeight(s string, height int) string {
+	if height <= 0 {
+		return s
 	}
-	send := imgCtx.SendMsg
-	return blockkit.Context{
-		Protocol:    imgCtx.Protocol,
-		Fetcher:     imgCtx.Fetcher,
-		KittyRender: imgCtx.KittyRender,
-		CellPixels:  imgCtx.CellPixels,
-		MaxRows:     imgCtx.MaxRows,
-		MaxCols:     imgCtx.MaxCols,
-		UserNames:   userNames,
-		MessageTS:   msg.TS,
-		Channel:     m.channelID,
-		RenderText: func(s string, un map[string]string) string {
-			return messages.RenderSlackMarkdownWith(s, messages.RenderSlackMarkdownOpts{
-				UserNames:    un,
-				ChannelNames: channelNames,
-				UserGroups:   m.userGroups,
-				PlaceCtx:     m.emojiCtx.PlaceCtx,
-				EmojiCells:   m.emojiCtx.Cells,
-				Customs:      m.emojiCtx.Customs,
-				EmojiFlushes: nil,
-			})
-		},
-		WrapText: messages.WordWrap,
-		SendMsg: func(v any) {
-			if send != nil {
-				send(v)
-			}
-		},
+	if rows := strings.Split(s, "\n"); len(rows) > height {
+		return strings.Join(rows[:height], "\n")
+	}
+	return s
+}
+
+// renderContext is what messages.RenderMessage reads from the thread
+// pane. ImageChannel is the channel ID, where the channel pane uses the
+// channel name (plan decision P3).
+func (m *Model) renderContext() *messages.RenderContext {
+	if m.imgRenderer == nil {
+		m.imgRenderer = imgrender.NewRenderer()
+	}
+	return &messages.RenderContext{
+		ColoredUsernames: m.coloredUsernames,
+		UserStatuses:     m.userStatuses,
+		UserNames:        m.userNames,
+		ChannelNames:     m.channelNames,
+		UserGroups:       m.userGroups,
+		Emoji:            m.emojiCtx,
+		Images:           m.imgRenderer,
+		ImageChannel:     m.channelID,
+		Nav:              m.nav,
 	}
 }
 
-func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNames map[string]string, channelNames map[string]string, isSelected bool) (string, []func(io.Writer) error, []reactionEntryHit, string, int) {
-	line := styles.Username(msg.UserID, m.coloredUsernames).Render(msg.UserName) + messages.AuthorStatusSuffix(m.userStatuses, msg.UserID, time.Now()) + lipgloss.NewStyle().Background(styles.Background).Render("  ") + styles.Timestamp.Render(msg.Timestamp)
-
-	// Label rows above the author line; mirrors the messages pane.
-	labelRows, labelRowCount := "", 0
-	if msg.Ephemeral {
-		labelRows, labelRowCount = messages.EphemeralLabel()+"\n", 1
-	}
-
-	contentWidth := width - 4
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
-
-	// flushes aggregates per-frame side effects (kitty image upload
-	// escapes) from body-text emoji, reaction-pill emoji, and inline
-	// image attachments. Walked by the View() loop for visible entries.
-	// Mirrors the messages-pane named-return `flushes` slice.
-	var flushes []func(io.Writer) error
-	bodyOpts := messages.RenderSlackMarkdownOpts{
-		UserNames:    userNames,
-		ChannelNames: channelNames,
-		UserGroups:   m.userGroups,
-		PlaceCtx:     m.emojiCtx.PlaceCtx,
-		EmojiCells:   m.emojiCtx.Cells,
-		Customs:      m.emojiCtx.Customs,
-		EmojiFlushes: &flushes,
-		Width:        contentWidth,
-	}
-	// Match the main pane: content-bearing blocks suppress the fallback
-	// text and its row. See messages.BlocksCarryBody.
-	hasBody := !messages.BlocksCarryBody(msg)
-	bodySrc := messages.MessageTextSource(msg)
-	if !hasBody {
-		bodySrc = ""
-	}
-	text := styles.MessageText.Render(messages.WordWrap(messages.RenderSlackMarkdownWith(bodySrc, bodyOpts), contentWidth))
-	bodyRow, bodyRows := "", 0
-	if hasBody {
-		bodyRow, bodyRows = "\n"+text, lipgloss.Height(text)
-	}
-
-	// Block Kit blocks + legacy attachments render between the body
-	// text and file attachments, mirroring the main message pane's
-	// renderMessagePlain. Image flushes are aggregated into the shared
-	// `flushes` slice; per-image Hit/SixelRows are discarded (v1 thread
-	// rendering, consistent with the file-attachment path below).
-	bkCtx := m.blockkitContext(msg, userNames, channelNames)
-	var bkLines []string
-	bkInteractive := false
-	if len(msg.Blocks) > 0 {
-		res := blockkit.Render(msg.Blocks, bkCtx, contentWidth)
-		bkLines = append(bkLines, res.Lines...)
-		flushes = append(flushes, res.Flushes...)
-		bkInteractive = bkInteractive || res.Interactive
-	}
-	if len(msg.LegacyAttachments) > 0 {
-		res := blockkit.RenderLegacy(msg.LegacyAttachments, bkCtx, contentWidth)
-		bkLines = append(bkLines, res.Lines...)
-		flushes = append(flushes, res.Flushes...)
-		bkInteractive = bkInteractive || res.Interactive
-	}
-	if bkInteractive {
-		bkLines = append(bkLines, styles.Timestamp.Render(messages.InteractiveHint(msg)))
-	}
-	bkBlock := ""
-	bkLineCount := len(bkLines)
-	if bkLineCount > 0 {
-		// Same background treatment the message pane applies; see the
-		// comment at the matching site in messages/model.go. Block Kit
-		// lines have no outer background-providing style, so without
-		// this the run after the gutter's closing reset draws on the
-		// terminal default instead of the theme's.
-		bkBlock = "\n" + messages.WithBackground(bkLines, messages.BgANSI())
-	}
-
-	var reactionLine string
-	// pillSpecs captures one entry per real (non-"+") reaction pill in
-	// rendering order, with line index and column extents relative to
-	// the reaction-line block. Translated to absolute reactionEntryHit
-	// rects below (once we know the row offset of the reaction block).
-	type pillSpec struct {
-		lineIdx  int
-		colStart int
-		colEnd   int
-		emoji    string
-	}
-	var pillSpecs []pillSpec
-	reactionLineCount := 0
-	if len(msg.Reactions) > 0 {
-		var pills []string
-		var pillEmojis []string
-		// Image-aware emoji-as-image path is active only when the
-		// process-global ImageMode is on AND a fetcher has been
-		// installed via SetEmojiContext. Otherwise the legacy
-		// glyph/shortcode-text branch renders. Mirrors the
-		// messages-pane reaction-pill loop.
-		imageOK := emojiutil.ImageModeActive() && m.emojiCtx.PlaceCtx.Fetcher != nil
-		pillCells := m.emojiCtx.Cells
-		if pillCells <= 0 {
-			pillCells = 2
-		}
-		for i, r := range msg.Reactions {
-			// Image path: pass r.Emoji directly (including any skin-tone
-			// suffix) — URLForShortcode composes the per-tone CDN URL
-			// natively. Stripping skin tone was a workaround for
-			// glyph-rendering width inconsistencies that no longer apply
-			// at the kitty-image cell footprint. Mirror of the
-			// messages-pane reaction-pill loop.
-			//
-			// Legacy path: still strip the suffix because the glyph
-			// renderer suffers the original width-inconsistency problem
-			// (multi-codepoint ZWJ / skin-tone sequences render at
-			// terminal-dependent widths and break border alignment).
-			var emojiStr string
-			var placedFlush func(io.Writer) error
-			if imageOK {
-				if url, ok := emojiutil.URLForShortcode(r.Emoji, m.emojiCtx.Customs); ok {
-					if placement, flush, ok := emojiutil.Place(m.emojiCtx.PlaceCtx, url, pillCells); ok {
-						emojiStr = placement
-						placedFlush = flush
-					}
-				}
-			}
-			if emojiStr == "" {
-				// Legacy fallback path (image mode off, no URL, or
-				// Place returned false). Strip skin tone here only —
-				// the glyph renderer still needs the workaround.
-				legacyName := emojiutil.StripSkinTone(r.Emoji)
-				resolved := emojiutil.Sprint(":" + legacyName + ":")
-				if emojiutil.ShouldRenderUnicode(resolved) {
-					emojiStr = resolved
-				} else {
-					emojiStr = ":" + legacyName + ":"
-				}
-			}
-			var style lipgloss.Style
-			if isSelected && m.reactionNavActive && i == m.reactionNavIndex {
-				style = styles.ReactionPillSelected
-			} else if r.HasReacted {
-				style = styles.ReactionPillOwn
-			} else {
-				style = styles.ReactionPillOther
-			}
-			pillText := messages.ReactionPillText(emojiStr, r.Count, style, placedFlush != nil)
-			pills = append(pills, style.Render(pillText))
-			pillEmojis = append(pillEmojis, r.Emoji)
-			// Image emoji in reaction pills land in the same per-frame
-			// flush list as body text and inline image attachments.
-			if placedFlush != nil {
-				flushes = append(flushes, placedFlush)
-			}
-		}
-		if isSelected && m.reactionNavActive {
-			plusStyle := styles.ReactionPillPlus
-			if m.reactionNavIndex >= len(msg.Reactions) {
-				plusStyle = styles.ReactionPillSelected
-			}
-			pills = append(pills, plusStyle.Render("+"))
-			pillEmojis = append(pillEmojis, "")
-		}
-		bgSpace := lipgloss.NewStyle().Background(styles.Background).Render(" ")
-		var reactionLines []string
-		currentLine := ""
-		lineIdx := 0
-		for i, pill := range pills {
-			candidate := currentLine
-			sepWidth := 0
-			if i > 0 {
-				candidate += bgSpace
-				sepWidth = 1
-			}
-			candidate += pill
-			pillW := emojiutil.Width(pill)
-			if emojiutil.Width(candidate) > contentWidth && currentLine != "" {
-				reactionLines = append(reactionLines, currentLine)
-				lineIdx++
-				currentLine = pill
-				if pillEmojis[i] != "" {
-					pillSpecs = append(pillSpecs, pillSpec{
-						lineIdx:  lineIdx,
-						colStart: 0,
-						colEnd:   pillW,
-						emoji:    pillEmojis[i],
-					})
-				}
-			} else {
-				colStart := emojiutil.Width(currentLine) + sepWidth
-				if pillEmojis[i] != "" {
-					pillSpecs = append(pillSpecs, pillSpec{
-						lineIdx:  lineIdx,
-						colStart: colStart,
-						colEnd:   colStart + pillW,
-						emoji:    pillEmojis[i],
-					})
-				}
-				currentLine = candidate
-			}
-		}
-		if currentLine != "" {
-			reactionLines = append(reactionLines, currentLine)
-		}
-		reactionLine = "\n" + strings.Join(reactionLines, "\n")
-		reactionLineCount = len(reactionLines)
-	}
-
-	// Attachments: per-attachment inline render via imgrender.Renderer.
-	// v1: flushes are aggregated into the unified `flushes` slice for
-	// the cache layer to invoke during View(); the per-block Hit and
-	// SixelRows are discarded (click-to-preview from threads and inline
-	// sixel emission are out of scope for v1; sixel images render their
-	// res.Lines placeholder/sentinel only).
-	var attachmentLines string
-	attachmentLineCount := 0
-	if len(msg.Attachments) > 0 {
-		if m.imgRenderer == nil {
-			m.imgRenderer = imgrender.NewRenderer()
-		}
-		blocks := make([]string, 0, len(msg.Attachments))
-		for attIdx, att := range msg.Attachments {
-			imgThumbs := make([]imgrender.ThumbSpec, len(att.Thumbs))
-			for i, t := range att.Thumbs {
-				imgThumbs[i] = imgrender.ThumbSpec{URL: t.URL, W: t.W, H: t.H}
-			}
-			res := m.imgRenderer.RenderBlock(imgrender.Block{
-				Kind:   att.Kind,
-				FileID: att.FileID,
-				Name:   att.Name,
-				URL:    att.URL,
-				Thumbs: imgThumbs,
-			}, m.channelID, msg.TS, contentWidth, 0 /* baseRow */, attIdx, 0 /* contentColBase */)
-			blocks = append(blocks, strings.Join(res.Lines, "\n"))
-			flushes = append(flushes, res.Flushes...)
-			attachmentLineCount += len(res.Lines)
-		}
-		attachmentLines = "\n" + strings.Join(blocks, "\n")
-	}
-
-	// Translate per-pill specs into reactionEntryHit rects. Row layout
-	// of the reply content (pre-border, pre-tint):
-	//   rows [0 .. labelRowCount): label rows (ephemeral)
-	//   next row: username + timestamp line
-	//   rows [labelRowCount+1 .. +textRows): wrapped body text
-	//   rows [.. +bkLineCount): block kit + legacy attachment content
-	//   rows [.. +attachmentLineCount): file attachments
-	//   rows [reactionRowBase ..): reaction lines
-	// buildCache wraps the content with a thick left border in col 0
-	// (so contentColBase = 1); it adds no rows.
-	var reactionHits []reactionEntryHit
-	if len(pillSpecs) > 0 && reactionLineCount > 0 {
-		const contentColBase = 1 // thick left border occupies col 0 of linesNormal
-		reactionRowBase := labelRowCount + 1 + bodyRows + bkLineCount + attachmentLineCount
-		for _, ps := range pillSpecs {
-			row := reactionRowBase + ps.lineIdx
-			reactionHits = append(reactionHits, reactionEntryHit{
-				rowStartInEntry: row,
-				rowEndInEntry:   row + 1,
-				colStart:        contentColBase + ps.colStart,
-				colEnd:          contentColBase + ps.colEnd,
-				emoji:           ps.emoji,
-			})
-		}
-	}
-
-	// Header width budget for messages.SelectedHeader: the body's wrap
-	// width, capped at the columns the row really has (width-1 after the
-	// thick left border) because contentWidth is floored at 20.
-	return labelRows + line + bodyRow + bkBlock + attachmentLines + reactionLine, flushes, reactionHits, line, min(contentWidth, width-1)
+// renderMessage renders msg with the thread pane's options: no avatar
+// (even with SetAvatarFunc), no "(edited)", no broadcast label, no reply
+// affordance and no image hits or sixel rows (plan decision P3).
+func (m *Model) renderMessage(msg messages.MessageItem, width int, isSelected bool) messages.RenderedMessage {
+	return messages.RenderMessage(msg, width, m.renderContext(), messages.RenderOptions{IsSelected: isSelected})
 }
