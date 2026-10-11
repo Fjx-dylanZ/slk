@@ -1072,9 +1072,23 @@ func TestScrollAnchorInsideParentPrefixNotPreservedAcrossWidthResize(t *testing.
 		t.Fatalf("test setup: viewport should be inside the parent, not a reply:\n%s", before)
 	}
 
+	raw := m.list.YOffset()
+
 	after := m.View(20, 200) // widen: parent shrinks to far fewer lines
 	if !threadMarkRE.MatchString(after) {
 		t.Fatalf("expected the known limitation (jump into a reply) to still reproduce; if this now fails, #254 was fixed -- replace this test with a real preservation assertion")
+	}
+
+	// AnchorRefsOnly finds no anchor in the parent prefix, so the raw
+	// pre-resize offset carries through, bounded only by the new extent.
+	// Anchoring on the parent instead would clamp the offset to the
+	// rewrapped parent's last row, far above raw.
+	want := min(raw, max(0, m.list.Total()-m.list.Height()))
+	if parentLines := len(m.list.Entries()[0].Lines); want < parentLines {
+		t.Fatalf("test setup: expected offset %d is still inside the %d-line parent, so the anchor policies cannot differ", want, parentLines)
+	}
+	if got := m.list.YOffset(); got != want {
+		t.Errorf("YOffset after widening = %d, want the raw pre-resize offset %d bounded by the new extent (%d); #254 pin", got, raw, want)
 	}
 }
 
