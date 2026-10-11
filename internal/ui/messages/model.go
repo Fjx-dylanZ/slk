@@ -33,27 +33,46 @@ type (
 // AvatarFunc returns the rendered half-block avatar for a user ID, or empty string.
 type AvatarFunc func(userID string) string
 
-// viewEntry is the message layer's payload for one entry of m.list,
-// index-aligned with m.list.Entries(): the parts the substrate does not
-// need. m.cache == nil means the render cache was discarded and the
-// next View rebuilds it (see dropCache).
-type viewEntry struct {
-	// shortSrc is the selected row's content with the short timestamp,
+// EntryPayload is a content pane's payload for one entry of its list,
+// index-aligned with the list's entries: the parts the substrate does
+// not need. A nil cache of payloads means the render cache was discarded
+// and the next View rebuilds it. Both panes use it.
+type EntryPayload struct {
+	// ShortSrc is the selected row's content with the short timestamp,
 	// set only when the selected variant carries a long one;
-	// linesSelectedShort is built from it on demand (selectedLines) and
+	// SelectedShort is built from it on demand (SelectedLines) and
 	// shown while a text selection exists, because the drag overlay
 	// splices the short-form plain text into the row by column.
-	shortSrc           string
-	linesSelectedShort []string
+	ShortSrc      string
+	SelectedShort []string
 
-	// flushes are per-frame kitty image uploads, invoked once per frame
+	// Flushes are per-frame kitty image uploads, invoked once per frame
 	// for visible entries. nil when the entry has no inline images.
-	flushes []func(io.Writer) error
+	Flushes []func(io.Writer) error
 
 	// sixelRows maps a row within the entry to the sixel image whose
 	// top-left cell is on it. View paints an image out-of-band when it
 	// is fully visible and substitutes its halfblock fallback otherwise.
+	// Only the channel pane fills it.
 	sixelRows map[int]sixelEntry
+}
+
+// SelectedLines returns the rows to draw for a cursor entry e: its
+// selected variant, or (while a text selection exists) the short-
+// timestamp variant built once from ShortSrc by build. Rows past the
+// short variant (the channel pane's spacer) are shared by every variant.
+func (p *EntryPayload) SelectedLines(e *entrylist.Entry, hasSelection bool, build func(src string) []string) []string {
+	if !hasSelection || p.ShortSrc == "" {
+		return e.Selected
+	}
+	if p.SelectedShort == nil {
+		short := build(p.ShortSrc)
+		if len(short) > len(e.Selected) {
+			return e.Selected // unreachable: variants share a height
+		}
+		p.SelectedShort = append(short, e.Selected[len(short):]...)
+	}
+	return p.SelectedShort
 }
 
 // sixelEntry holds the pre-computed sixel bytes for one inline image,
@@ -104,7 +123,7 @@ type Model struct {
 	// Render cache -- invalidated when messages or width change.
 	// Each entry holds pre-bordered variants so selection movement does not
 	// re-invoke lipgloss per keypress.
-	cache          []viewEntry
+	cache          []EntryPayload
 	cacheWidth     int
 	cacheMsgLen    int
 	cacheSpacer    string // pre-rendered blank spacer line (1 row, full width, themed background)
@@ -174,7 +193,7 @@ type Model struct {
 	// false, the selected-message "▌" border dims from Accent to
 	// TextMuted (via styles.SelectionBorderColor) so the unfocused
 	// selection doesn't compete visually with the focused panel. The
-	// color is baked into viewEntry.linesSelected during buildCache, so
+	// color is baked into the entry payload during buildCache, so
 	// SetFocused must invalidate the cache.
 	focused bool
 
@@ -1477,7 +1496,7 @@ func (m *Model) renderContext() *RenderContext {
 	}
 }
 
-// renderMessageEntry builds a single viewEntry for m.messages[i] using
+// renderMessageEntry builds a single entry and its EntryPayload for m.messages[i] using
 // the shared cacheStyles. The returned entry is fully populated with
 // both the unselected and selected pre-bordered line slices, the
 // plain-text mirror, the per-frame image flushes, and the per-image
@@ -1495,7 +1514,7 @@ func (m *Model) renderContext() *RenderContext {
 // it for later aggregation. Callers must NOT increment stats.count --
 // renderMessageEntry does that itself so the count always matches the
 // number of entries produced.
-func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entryPerfStats) (entrylist.Entry, viewEntry) {
+func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entryPerfStats) (entrylist.Entry, EntryPayload) {
 	msg := m.messages[i]
 	opt := RenderOptions{
 		IsSelected:      i == m.selected,
@@ -1584,7 +1603,7 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		Trail:      trail,
 		Hits:       r.Hits,
 	}
-	return entry, viewEntry{shortSrc: shortSrc, flushes: flushes, sixelRows: r.SixelRows}
+	return entry, EntryPayload{ShortSrc: shortSrc, Flushes: flushes, sixelRows: r.SixelRows}
 }
 
 // buildCache pre-renders all messages and day separators, splitting each
@@ -1617,7 +1636,7 @@ func (m *Model) buildCache(width int, keepPosition bool) {
 	}
 
 	if cap(m.cache) < len(m.messages)+8 {
-		m.cache = make([]viewEntry, 0, len(m.messages)+8)
+		m.cache = make([]EntryPayload, 0, len(m.messages)+8)
 	}
 	entries := make([]entrylist.Entry, 0, cap(m.cache))
 
@@ -1629,7 +1648,7 @@ func (m *Model) buildCache(width int, keepPosition bool) {
 			Selected: lines,
 			Plain:    plainLines(rendered),
 		})
-		m.cache = append(m.cache, viewEntry{})
+		m.cache = append(m.cache, EntryPayload{})
 	}
 
 	var lastDate string
@@ -1883,19 +1902,9 @@ func (m *Model) ScrollHintForDrag(viewportY int) int {
 // garbled. The short variant is memoised in m.cache[i].
 func (m *Model) selectedLines(i int) []string {
 	e := &m.list.Entries()[i]
-	p := &m.cache[i]
-	if !m.list.HasSelection() || p.shortSrc == "" {
-		return e.Selected
-	}
-	if p.linesSelectedShort == nil {
-		short := m.selectedVariant(p.shortSrc, m.cacheWidth, m.borderSelectStyle())
-		if len(short) > len(e.Selected) {
-			return e.Selected // unreachable: variants share a height
-		}
-		// Trailing spacer rows are shared by every variant.
-		p.linesSelectedShort = append(short, e.Selected[len(short):]...)
-	}
-	return p.linesSelectedShort
+	return m.cache[i].SelectedLines(e, m.list.HasSelection(), func(src string) []string {
+		return m.selectedVariant(src, m.cacheWidth, m.borderSelectStyle())
+	})
 }
 
 // viewInternal is the body shared by View and ViewBare. When
@@ -2032,7 +2041,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	offsets := m.list.Offsets()
 	for _, v := range frame.Visible {
 		p := &m.cache[v.Index]
-		for _, fl := range p.flushes {
+		for _, fl := range p.Flushes {
 			if fl != nil {
 				_ = fl(&kittyFlushBuf)
 			}

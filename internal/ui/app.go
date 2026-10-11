@@ -2845,11 +2845,7 @@ func (a *App) SetEmojiContext(ctx messages.EmojiContext) {
 	for _, m := range a.allWinModels() {
 		m.SetEmojiContext(ctx)
 	}
-	a.threadPanel.SetEmojiContext(thread.EmojiContext{
-		PlaceCtx: ctx.PlaceCtx,
-		Cells:    ctx.Cells,
-		Customs:  ctx.Customs,
-	})
+	a.threadPanel.SetEmojiContext(ctx)
 	a.reactionPicker.SetEmojiContext(reactionpicker.EmojiContext{
 		PlaceCtx: ctx.PlaceCtx,
 		Cells:    ctx.Cells,

@@ -3,7 +3,6 @@ package thread
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"math"
 	"slices"
 	"strings"
@@ -11,7 +10,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/gammons/slk/internal/debuglog"
-	emojiutil "github.com/gammons/slk/internal/emoji"
 
 	"github.com/gammons/slk/internal/bubbles/entrylist"
 	imgpkg "github.com/gammons/slk/internal/image"
@@ -23,24 +21,6 @@ import (
 )
 
 var thickLeftBorder = lipgloss.Border{Left: "▌"}
-
-// viewEntry is the thread pane's payload for one reply, index-aligned
-// with m.replies (and with m.replyEntries): the parts the list substrate
-// does not need. m.cache == nil means the reply cache was discarded and
-// the next View rebuilds it.
-type viewEntry struct {
-	// shortSrc is the selected reply's content with the short timestamp,
-	// set only when the selected variant carries a long one;
-	// linesSelectedShort is built from it on demand (selectedLines) and
-	// shown while a text selection exists.
-	shortSrc           string
-	linesSelectedShort []string
-
-	// flushes are per-frame kitty image uploads for the reply's inline
-	// images, invoked when the frame's layout is rebuilt. v1 scope: sixel
-	// renders its placeholder only, so no sixel rows are captured.
-	flushes []func(io.Writer) error
-}
 
 // Model represents the thread panel UI component.
 // It displays a parent message and its replies with cursor navigation.
@@ -66,8 +46,11 @@ type Model struct {
 	currentUserID string
 
 	// Reply cache: the payload and the list entry of every reply,
-	// rebuilt when the replies or the width change.
-	cache         []viewEntry
+	// index-aligned with m.replies, rebuilt when the replies or the width
+	// change. nil means the cache was discarded and the next View
+	// rebuilds it. The thread pane captures no sixel rows (v1 scope:
+	// sixel renders its placeholder only).
+	cache         []messages.EntryPayload
 	replyEntries  []entrylist.Entry
 	cacheWidth    int
 	cacheReplyLen int
@@ -147,16 +130,7 @@ type Model struct {
 	// through RenderSlackMarkdownWith for reply body text and consulted
 	// directly when building reply reaction pills. Configured at startup
 	// via Model.SetEmojiContext (mirrors messages.Model).
-	emojiCtx EmojiContext
-}
-
-// EmojiContext bundles the emoji-image rendering dependencies for the
-// thread pane. Mirrors messages.EmojiContext in shape and purpose —
-// see internal/ui/messages/model.go for the architectural rationale.
-type EmojiContext struct {
-	PlaceCtx emojiutil.PlaceContext
-	Cells    int               // 1 or 2; 0 falls back to 2
-	Customs  map[string]string // workspace custom emoji map; nil = empty
+	emojiCtx messages.EmojiContext
 }
 
 // New creates an empty thread panel.
@@ -206,7 +180,7 @@ func (m *Model) SetImageContext(ctx imgrender.ImageContext) {
 // Should be called once at startup (cmd/slk/main.go) and again after
 // CustomEmojisLoadedMsg arrives (via SetEmojiCustoms). Mirrors
 // messages.Model.SetEmojiContext.
-func (m *Model) SetEmojiContext(ctx EmojiContext) {
+func (m *Model) SetEmojiContext(ctx messages.EmojiContext) {
 	if ctx.Cells != 1 && ctx.Cells != 2 {
 		ctx.Cells = 2
 	}
@@ -978,18 +952,9 @@ func (m *Model) selectedLines(i int) []string {
 	if e.Ref < 0 || e.Ref >= len(m.cache) {
 		return e.Lines
 	}
-	p := &m.cache[e.Ref]
-	if !m.list.HasSelection() || p.shortSrc == "" {
-		return e.Selected
-	}
-	if p.linesSelectedShort == nil {
-		short := m.selectedVariant(p.shortSrc, m.cacheWidth, m.borderSelectStyle())
-		if len(short) != len(e.Selected) {
-			return e.Selected // unreachable: variants share a height
-		}
-		p.linesSelectedShort = short
-	}
-	return p.linesSelectedShort
+	return m.cache[e.Ref].SelectedLines(e, m.list.HasSelection(), func(src string) []string {
+		return m.selectedVariant(src, m.cacheWidth, m.borderSelectStyle())
+	})
 }
 
 // borderSelectStyle is the thick, tinted left border of the selected reply.
@@ -1250,7 +1215,7 @@ func (m *Model) View(height, width int) string {
 				ColOffset:  1,
 				Hits:       r.Hits,
 			})
-			m.cache = append(m.cache, viewEntry{shortSrc: shortSrc, flushes: flushes})
+			m.cache = append(m.cache, messages.EntryPayload{ShortSrc: shortSrc, Flushes: flushes})
 			m.replyIDToIdx[reply.TS] = i
 		}
 		m.cacheWidth = width
@@ -1319,7 +1284,7 @@ func (m *Model) View(height, width int) string {
 	if key != m.flushKey || !m.layoutValid {
 		var kittyFlushBuf bytes.Buffer
 		for _, p := range m.cache {
-			for _, fl := range p.flushes {
+			for _, fl := range p.Flushes {
 				if fl != nil {
 					_ = fl(&kittyFlushBuf)
 				}
@@ -1380,7 +1345,7 @@ func (m *Model) renderContext() *messages.RenderContext {
 		UserNames:        m.userNames,
 		ChannelNames:     m.channelNames,
 		UserGroups:       m.userGroups,
-		Emoji:            messages.EmojiContext(m.emojiCtx),
+		Emoji:            m.emojiCtx,
 		Images:           m.imgRenderer,
 		ImageChannel:     m.channelID,
 		Nav:              m.nav,

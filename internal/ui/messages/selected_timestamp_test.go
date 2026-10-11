@@ -47,9 +47,9 @@ func assertHeightsMatch(t *testing.T, m *Model) {
 			t.Errorf("entry %d: len(linesSelected)=%d != len(linesNormal)=%d",
 				i, len(e.Selected), len(e.Lines))
 		}
-		if p := m.cache[i]; p.linesSelectedShort != nil && len(p.linesSelectedShort) != len(e.Lines) {
-			t.Errorf("entry %d: len(linesSelectedShort)=%d != len(linesNormal)=%d",
-				i, len(p.linesSelectedShort), len(e.Lines))
+		if p := m.cache[i]; p.SelectedShort != nil && len(p.SelectedShort) != len(e.Lines) {
+			t.Errorf("entry %d: len(SelectedShort)=%d != len(linesNormal)=%d",
+				i, len(p.SelectedShort), len(e.Lines))
 		}
 	}
 }
@@ -197,7 +197,7 @@ func TestSelectedTimestamp_SelectionToggleBumpsVersion(t *testing.T) {
 func TestSelectedTimestamp_ShortVariantBuiltLazily(t *testing.T) {
 	m, _ := longTSModel(t, longTSItems(), 80)
 	for i, e := range m.cache {
-		if e.linesSelectedShort != nil {
+		if e.SelectedShort != nil {
 			t.Fatalf("entry %d built a short variant with no text selection", i)
 		}
 	}
