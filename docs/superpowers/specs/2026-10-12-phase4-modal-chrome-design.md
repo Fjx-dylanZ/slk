@@ -1,6 +1,6 @@
 # Phase 4 — Extract the modal chrome substrate — Design
 
-> **Status:** design approved in brainstorming 2026-10-12; spec awaiting review.
+> **Status:** implemented 2026-10-12 (see Addenda).
 > **Tracking doc:** [`../plans/2026-09-06-architecture-refactor.md`](../plans/2026-09-06-architecture-refactor.md), Phase 4 (addresses F6 and F7 cause #1).
 > **Measured at:** `cf9742c6` (main, after #305 merged).
 > **Related:** RFC #236 (self-contained components in `internal/bubbles/`);
@@ -383,3 +383,22 @@ The tracking doc is updated to say so in step 17.
 - Collapse `applyOverlays` in `view_overlays.go` onto a slice of overlays.
 - The `/` command picker for #247, built on `chrome.List` + `chrome.Popup`.
 - Converging width clamps and matchers, if wanted, one per PR.
+
+## Addenda (implementation)
+
+Measured numbers are in the tracking doc's Phase 4 "Achieved".
+
+- **No golden was re-blessed.** Every migration, all 15 dialogs and popups, was
+  byte-identical to the step-0 baseline, not merely cell-identical, so
+  `TestGoldenCellsMatchBaseline` never had a `bytes differ, cells identical`
+  line to report. The two `_narrow` scenarios open at 40x20, as designed; no
+  scenario width was changed in step 0.
+- **confirmprompt's `const chrome = 4` was renamed `frameWidth`.** The
+  package-level constant collided with the new `chrome` import. The only other
+  edit was the one identifier in `choice_test.go`.
+- **userprofile's package comment was refreshed** in its migration commit.
+- **§8.1 is still open.** The workspacefinder row wrap is preserved exactly,
+  as designed, and is still to be raised as an issue. No finding beyond §8.1.
+- **The cluster shrank less than §7 estimated:** 5,744 → 4,865 lines for the
+  13 packages (−879), 5,094 with `chrome`'s 229 lines (−650), against an
+  estimated 1,200–1,400 removed. The line count is not a gate.
