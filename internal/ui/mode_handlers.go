@@ -89,12 +89,19 @@ func normalizeFinderKey(msg tea.KeyMsg) string {
 
 // dispatchModeKey looks up the handler for the App's current
 // mode and invokes it; falls back to the Normal handler when no
-// entry exists. Returns the handler's tea.Cmd unchanged.
+// entry exists. Returns the handler's tea.Cmd, batched with the opening of
+// an action dialog that was waiting if the key closed a modal.
 func dispatchModeKey(a *App, msg tea.KeyMsg) tea.Cmd {
-	if h, ok := modeHandlers[a.mode]; ok {
-		return h(a, msg)
+	wasModal := a.mode.IsModalOverlay()
+	h, ok := modeHandlers[a.mode]
+	if !ok {
+		h = handleNormalMode
 	}
-	return handleNormalMode(a, msg)
+	cmd := h(a, msg)
+	if wasModal && !a.mode.IsModalOverlay() {
+		return tea.Batch(cmd, a.tryOpenActionPrompt())
+	}
+	return cmd
 }
 
 // Compile-time assertion: the free-function form of every

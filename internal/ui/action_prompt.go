@@ -192,8 +192,9 @@ func (a *App) enqueueActionPrompt(ref actionPromptRef) tea.Cmd {
 // it waits and toasts once; leaving command or search mode does not
 // re-check, the user presses b. Queued
 // messages no longer shown are dropped. Called on enqueue and from the
-// three re-check points only: the confirm prompt closing, leaving insert
-// mode, and a send clearing the composer.
+// re-check points only: the confirm prompt closing, any other modal
+// closing from a key (dispatchModeKey), leaving insert mode, and a send
+// clearing the composer.
 func (a *App) tryOpenActionPrompt() tea.Cmd {
 	for len(a.actionQueue) > 0 {
 		ref := a.actionQueue[0]

@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/ui/help"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -284,5 +285,24 @@ func TestWorkspaceSwitchDropsDialogAndQueue(t *testing.T) {
 	}
 	if a.shownPrompt != nil || a.shownPromptInsert || len(a.actionQueue) != 0 || len(a.promptToasted) != 0 {
 		t.Error("the workspace switch left action-dialog state behind")
+	}
+}
+
+// A dialog waiting behind a modal that closes with a plain SetMode (Help,
+// the finders) opens when that modal closes, not only after a confirm prompt.
+func TestDialogOpensWhenHelpCloses(t *testing.T) {
+	a, _ := actionApp(t, nil)
+	a.help.SetEntries(help.FromKeyMap(a.keys))
+	a.help.Open()
+	a.SetMode(ModeHelp)
+
+	arrive(t, a, mentionEphemeral(ephTS))
+	if a.confirmPrompt.IsVisible() {
+		t.Fatal("the dialog must not open over Help")
+	}
+
+	pressKey(t, a, keyCode(tea.KeyEscape))
+	if a.mode != ModeConfirm || !dialogShows(a, "[2] Dismiss") {
+		t.Errorf("mode = %v; closing Help should open the waiting dialog", a.mode)
 	}
 }
