@@ -166,7 +166,6 @@ type Model struct {
 	width   int
 
 	height, prevHeight int
-	extent             int // lines the eager clamp bounds against
 	yOffset            int
 	snapped            int
 	hasSnapped         bool
@@ -340,7 +339,7 @@ func (m *Model) ScrollUp(n, sel int) {
 		return
 	}
 	if m.eager {
-		if m.yOffset > 0 && m.extent > 0 {
+		if m.yOffset > 0 && m.total > 0 {
 			m.setY(m.yOffset - n)
 		}
 	} else {
@@ -358,7 +357,7 @@ func (m *Model) ScrollDown(n, sel int) {
 		return
 	}
 	if m.eager {
-		if m.yOffset < m.maxOffset() && m.extent > 0 {
+		if m.yOffset < m.maxOffset() && m.total > 0 {
 			m.setY(m.yOffset + n)
 		}
 	} else {
@@ -382,7 +381,7 @@ func (m *Model) ScrollHint(contentY int) int {
 	return 0
 }
 
-func (m *Model) maxOffset() int { return max(0, m.extent-m.height) }
+func (m *Model) maxOffset() int { return max(0, m.total-m.height) }
 
 func (m *Model) setY(n int) {
 	if m.eager {
@@ -419,7 +418,6 @@ func (m *Model) recomputeOffsets() {
 		off += len(m.entries[i].Lines)
 	}
 	m.total = off
-	m.extent = off
 }
 
 // lineAnchor maps an absolute line to the anchor candidate covering it:
