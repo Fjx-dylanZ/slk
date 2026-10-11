@@ -3,8 +3,9 @@
 // The marks overlay widget: a scrollable list of the active
 // workspace's marks, one row per mark. It follows the repo's overlay
 // convention — HandleKey(keyStr string) *MarksResult (nil = stay
-// open), ViewOverlay(termWidth, termHeight, background) string —
-// copied structurally from the channel finder (channelfinder/model.go).
+// open), ViewOverlay(termWidth, termHeight, background) string — and
+// draws its box, list window, marker and scrollbar through
+// internal/bubbles/chrome, like the channel finder.
 //
 // Every row renders exclusively from the preview snapshot stored at
 // mark time: the widget never fetches, never resolves a channel or
@@ -21,6 +22,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -55,6 +57,8 @@ type Model struct {
 	selected int // index into rows
 	visible  bool
 }
+
+var _ chrome.Dialog = (*Model)(nil)
 
 // New creates the widget in its closed state.
 func New() Model {
@@ -151,27 +155,9 @@ func boxWidth(termWidth int) int {
 }
 
 // visibleWindow returns the [start, end) slice of rows currently
-// shown in the list, applying the same scroll-window math the
-// renderer uses.
+// shown in the list.
 func (m *Model) visibleWindow() (int, int) {
-	maxVisible := maxVisibleRows
-	total := len(m.rows)
-	if maxVisible > total {
-		maxVisible = total
-	}
-	startIdx := 0
-	if m.selected >= maxVisible {
-		startIdx = m.selected - maxVisible + 1
-	}
-	endIdx := startIdx + maxVisible
-	if endIdx > total {
-		endIdx = total
-		startIdx = endIdx - maxVisible
-		if startIdx < 0 {
-			startIdx = 0
-		}
-	}
-	return startIdx, endIdx
+	return chrome.Window(m.selected, len(m.rows), maxVisibleRows)
 }
 
 // View renders just the overlay box (no backdrop). Used by tests.
@@ -196,72 +182,30 @@ func (m Model) renderBox(termWidth int) string {
 	if !m.visible {
 		return ""
 	}
-
+	s := messages.ChromeStyles()
 	overlayWidth := boxWidth(termWidth)
 	innerWidth := overlayWidth - 4 // border + padding
 
-	// All inner spans share the modal bg so the dimmed app behind the
-	// overlay doesn't bleed through where styled fragments end.
-	bg := styles.Background
+	start, end := m.visibleWindow()
+	list := chrome.List{Start: start, End: end, Total: len(m.rows)}
+	contentWidth := list.ContentWidth(innerWidth)
 
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Background(bg).
-		Foreground(styles.Primary).
-		Render("Marks")
-
-	total := len(m.rows)
-	startIdx, endIdx := m.visibleWindow()
-	maxVisible := endIdx - startIdx
-
-	// Scrollbar, shown only when the list overflows the window.
-	showScrollbar := total > maxVisible
-	contentWidth := innerWidth - 1 // 1 col letter prefix
-	if showScrollbar {
-		contentWidth-- // 1 col for the scrollbar gutter
-	}
-
-	var thumbStart, thumbEnd int
-	if showScrollbar {
-		thumbHeight := maxVisible * maxVisible / total
-		if thumbHeight < 1 {
-			thumbHeight = 1
-		}
-		denom := total - maxVisible
-		if denom < 1 {
-			denom = 1
-		}
-		thumbStart = startIdx * (maxVisible - thumbHeight) / denom
-		if thumbStart < 0 {
-			thumbStart = 0
-		}
-		if thumbStart > maxVisible-thumbHeight {
-			thumbStart = maxVisible - thumbHeight
-		}
-		thumbEnd = thumbStart + thumbHeight
-	}
-	thumbStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Primary)
-	trackStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Border)
-
-	var rows []string
-	for i := startIdx; i < endIdx; i++ {
+	letterStyle := s.Row.Foreground(styles.Accent).Bold(true)
+	rows := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
 		row := m.rows[i]
-		isSelected := i == m.selected
-
-		letterStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Bold(true)
-		contentStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.TextPrimary)
-		if isSelected {
-			letterStyle = letterStyle.Foreground(styles.Primary)
-			contentStyle = contentStyle.Foreground(styles.Primary).Bold(true)
+		letter, content := letterStyle, s.Row
+		if i == m.selected {
+			letter, content = letterStyle.Foreground(styles.Primary), s.RowSelected
 		}
 
 		preview := row.Excerpt
 		if row.AuthorName != "" {
 			preview = row.AuthorName + ": " + preview
 		}
-		line := letterStyle.Render(row.Letter) + "  " +
-			contentStyle.Render("#"+row.ChannelName) + "  " +
-			contentStyle.Render(preview)
+		line := letter.Render(row.Letter) + "  " +
+			content.Render("#"+row.ChannelName) + "  " +
+			content.Render(preview)
 
 		// Truncate on measured width (lipgloss.Width), not rune count:
 		// excerpts are arbitrary user text and can carry wide glyphs
@@ -273,47 +217,12 @@ func (m Model) renderBox(termWidth int) string {
 		if pad := contentWidth - lipgloss.Width(line); pad > 0 {
 			line += strings.Repeat(" ", pad)
 		}
-
-		var rowStr string
-		if isSelected {
-			indicator := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Render("▌")
-			rowStr = indicator + line
-		} else {
-			rowStr = " " + line
-		}
-
-		if showScrollbar {
-			rel := i - startIdx
-			if rel >= thumbStart && rel < thumbEnd {
-				rowStr += thumbStyle.Render("\u2588") // █ thumb
-			} else {
-				rowStr += trackStyle.Render("\u2502") // │ track
-			}
-		}
-		rows = append(rows, rowStr)
+		rows = append(rows, line)
 	}
 
-	if total == 0 {
-		noMarks := lipgloss.NewStyle().
-			Background(bg).
-			Foreground(styles.TextMuted).
-			Italic(true).
-			Render("No marks set")
-		rows = append(rows, noMarks)
-	}
-
-	content := title + "\n\n" + strings.Join(rows, "\n")
-
-	// Re-paint modal bg+fg after every ANSI reset emitted by inner
-	// styled spans, mirroring the channel finder.
-	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		Background(bg).
-		Padding(1, 1).
-		Width(overlayWidth).
-		Render(content)
+	return chrome.Frame{
+		Title: "Marks",
+		Body:  list.Rows(s, m.selected, rows),
+		Empty: "No marks set",
+	}.Render(s, overlayWidth)
 }

@@ -39,7 +39,7 @@ internal/core/          the ports (service interfaces) the TUI calls, and the
                         values the TUI and cmd/slk exchange through them
 internal/ui/            bubbletea App: reducers, mode key handlers, view regions
 internal/ui/<widget>/   self-contained sub-models (messages, thread, sidebar,
-                        compose, and 13 modal packages)
+                        compose, and 14 modal packages)
 internal/bubbles/       self-contained components and the substrate they
                         share (RFC #236), e.g. ansi, scrollbar, selection, and
                         chrome, the substrate every dialog draws through. Never
