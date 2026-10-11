@@ -95,6 +95,18 @@ func (a *App) channelPaneLocation() (Location, bool) {
 	}, true
 }
 
+// departurePosition is what a mark jump or a back-jump leaves, for the
+// back-jump slot: what the user is looking at. In the Threads view that
+// is the selected thread (currentLocation), not the hidden channel pane
+// behind the list that currentPosition reads for history. Where nothing
+// on screen is selected it falls back to currentPosition.
+func (a *App) departurePosition() Location {
+	if loc, ok := a.currentLocation(); ok {
+		return loc
+	}
+	return a.currentPosition()
+}
+
 // currentPosition returns the user's current position as a Location,
 // falling back to a channel-only location when no message is selected.
 // The fallback carries just the workspace and channel so a

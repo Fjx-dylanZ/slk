@@ -69,7 +69,7 @@ func (a *App) jumpToMark(letter string) tea.Cmd {
 		// pointing where it did.
 		return toastWithClear(a, "Upload in progress", 2*time.Second)
 	}
-	departing := a.currentPosition()
+	departing := a.departurePosition()
 	cmd, ok := a.applyLocation(m.Location, false)
 	if !ok {
 		return toastWithClear(a, "Channel for mark "+letter+" is unavailable", 3*time.Second)
@@ -94,7 +94,7 @@ func (a *App) takeBackJump() tea.Cmd {
 	if a.compose.Uploading() || a.threadCompose.Uploading() {
 		return toastWithClear(a, "Upload in progress", 2*time.Second)
 	}
-	departing := a.currentPosition()
+	departing := a.departurePosition()
 	cmd, ok := a.applyLocation(*a.backJump, false)
 	if !ok {
 		// The slot's channel no longer resolves: nothing navigates,

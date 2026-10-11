@@ -879,3 +879,38 @@ func TestJumpMark_SameChannelSurvivesRunningFetch(t *testing.T) {
 		t.Fatalf("after the fetch landed, selected = %+v ok=%v, want the marked 1.0", sel, ok)
 	}
 }
+
+// A jump taken from the Threads list departs the selected thread, not
+// the channel pane hidden behind the list, so the back-jump returns to
+// the thread.
+func TestBackJump_FromThreadsListReturnsToThread(t *testing.T) {
+	app := jumpMarkTestApp(t)
+	app.Update(ChannelSelectedMsg{ID: "C1", Name: "one", Type: "channel"})
+	app.messagepane.SelectByTS("1.0")
+	app.threadsView.SetSummaries([]core.ThreadSummary{{
+		ChannelID:   "C2",
+		ChannelName: "two",
+		ThreadTS:    "5.0",
+		ParentText:  "thread parent",
+	}})
+	app.view = ViewThreads
+	app.focusedPanel = PanelMessages
+	seedMark(t, app, "a", Location{TeamID: "T1", ChannelID: "C3", MessageTS: "20.0"})
+
+	driveJump(app, pressJumpChord(app, 'a'))
+
+	want := Location{TeamID: "T1", ChannelID: "C2", MessageTS: "5.0", ThreadTS: "5.0"}
+	if app.backJump == nil || *app.backJump != want {
+		t.Fatalf("'' slot = %+v, want the thread left in the Threads list %+v", app.backJump, want)
+	}
+	cmd := pressBackJump(app)
+	if cmd == nil {
+		t.Fatal("'' must navigate back")
+	}
+	if cs, ok := cmd().(ChannelSelectedMsg); !ok || cs.ID != "C2" {
+		t.Fatalf("'' sent %T %+v, want a switch to the thread's channel C2", cmd(), cmd())
+	}
+	if p := app.pendingLinkNav; p == nil || p.ThreadTS != "5.0" {
+		t.Fatalf("pending navigation = %+v, want thread 5.0", p)
+	}
+}
