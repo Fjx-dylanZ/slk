@@ -107,10 +107,11 @@ long-/short-timestamp swap stays in the message layer), and is told
 synchronously when a substrate behaviour moves the selection (U1, §5.2).
 
 **Owns its size and styles, per the RFC.** `New(opts ...Option) *Model`;
-`SetSize(w, h)`; a local `Styles` struct (background, spacer, scrollbar track
-and thumb, selection highlight) with `DefaultStyles()` and `SetStyles`.
-`App.applyTheme` pushes styles to every pane, which forwards them, per the
-`AGENTS.md` rule for snapshotting components.
+a local `Styles` struct (background, spacer, scrollbar track
+and thumb, selection highlight) with `DefaultStyles()` and `SetStyles`. *(As
+built, there is no `SetSize` and `App.applyTheme` does not push styles to the
+panes; each owner pulls them every frame. See "Departures from §5" in the
+addenda.)*
 
 **`PlainLine` moves here.** `messages.PlainLine`, `PlainLines`,
 `DisplayWidthOfPlain` and `SliceColumns` (`messages/render.go:1120-1227`)
@@ -489,6 +490,14 @@ is here.
   and a nil cache already disables re-anchoring; the thread's `AddReply` and
   friends all invalidate the same way. `entrylist.ReanchorPolicy` therefore has
   no count gate, only `BottomUsesNewHeight` and `AnchorRefsOnly`.
+- **No `SetSize`; styles are pulled per frame, not pushed (supersedes §3.2).**
+  The list takes its width through `SetEntries` and its height through
+  `SetHeight`. Its owners call `SetStyles(themeListStyles())` (channel) /
+  `SetStyles(messages.ThemeListStyles())` (thread) at the top of every `View`
+  and in `ApplySelectionToBordered`; `App.applyTheme` only invalidates render
+  caches. Pulling means a theme change, in production or in a test that calls
+  `styles.Apply` directly, shows on the next frame without the App having to
+  reach through to each pane, and no pane can render with a stale snapshot.
 - **U3 is a pair of slots, not an option.** `entrylist.Compose(frame, top,
   bottom, applySelection)` takes the top-row override (loading-older hint) and
   the more-below row as arguments. The channel pane passes both; thread passes
@@ -531,7 +540,7 @@ is here.
   behavioural tests; and `thread.ApplySelectionToBordered` now sets the theme
   list styles first, as the channel pane's version already did (a one-line
   parity fix on a `contentPane`-adjacent method).
-- **Two exit criteria not met (§9).** `thread/model.go` is 1,351 lines against
+- **Two exit criteria not met (§9).** `thread/model.go` is 1,353 lines against
   the ≤ 1,000 bar (stretch < 900), down from 2,314. And shared lines < 50: see
   "Achieved" in the tracking document: 491 → 206, not < 50. Also, the literal
   `go test ./... -race -count=5` could not run for `internal/ui` as one process
@@ -571,15 +580,17 @@ is here.
 | U2 | `entrylist.WithPinBottomOnShrink` | `TestPinBottomOnShrink`, `TestChar_MessagesPinsBottomOnShrink`, `TestChar_ThreadDoesNotPinBottomOnShrink` |
 | U3 | `Compose`'s `top` / `bottom` arguments (no option) | `TestComposePadsAndPlacesIndicators`, `TestChar_MessagesMoreBelowRow`, `TestChar_ThreadHasNoMoreBelowRow` |
 | U4 | `entrylist.WithDirtyOnDrag` (thread on) | `TestDirtyOnDrag`, `TestChar_MessagesDragBumpsVersionOnce`, `TestChar_ThreadDragBumpsVersion` |
-| U5 | `entrylist.WithReanchor(ReanchorPolicy{…})`; no count gate | `TestReanchorBottomUsesOldOrNewHeight`, `TestReanchorRefsOnlySkipsLeadingNonRefEntries`, `TestScrollAnchorInsideParentPrefixNotPreservedAcrossWidthResize` (#254) |
+| U5 | `entrylist.WithReanchor(ReanchorPolicy{…})`; no count gate | `TestReanchorBottomUsesOldOrNewHeight`, `TestReanchorRefsOnlySkipsLeadingNonRefEntries`; at pane level `TestChar_MessagesReanchorMeasuresBottomWithNewHeight` (`BottomUsesNewHeight`) and `TestScrollAnchorInsideParentPrefixNotPreservedAcrossWidthResize` (#254; asserts the exact offset, which pins `AnchorRefsOnly`) |
 | U6 | `entrylist.WithEagerClamp` (thread on) | `TestEagerClampMakesOvershootANoOp`, `TestLazyClampAbsorbsOvershoot`, `TestChar_ThreadScrollClampsEagerly`, `TestChar_MessagesScrollClampsLazily` |
 | U7–U9 | `RenderOptions.EditedMark`, `BroadcastLabel`, `Avatar` | goldens; `TestThreadBroadcastLabel` and `TestSelectedTimestamp_EditedMarkCountsTowardWidth` cover the channel-on side |
 
 Gaps, stated plainly:
 
-- The `RenderOptions` fields (9, 15, U7–U9) have no test that fails when a
-  single field is flipped; the goldens, the thread render tests and a 720-input
-  old/new differential run during PR 6 are what guard them.
+- Most `RenderOptions` flips are guarded: the goldens, the thread render tests
+  and a 720-input old/new differential run during PR 6 catch them (flipping the
+  thread's `EditedMark` fails `TestGolden`, for one). The unguarded ones are the
+  thread-side flips of `BroadcastLabel` and `ImageHits`: no test fails when
+  either is flipped.
 - The retired file was the only test that asserted the rendered
   `── new ──` unread-landmark row, and thread's boundary lifecycle (8b). Both are
   pinned again in PR 8, with each test shown to fail under a mutant that

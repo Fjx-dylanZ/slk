@@ -569,7 +569,7 @@ Measured with Task 0.0 step 3 (commands in the plan; baseline in
 | `app.go` mirror pairs | 3 → 0 | **met**: `handleThreadReactionNav`, `openPickerFromThread`, `toggleReactionOnSelectedThread` are gone; the mirror arms in `view_*`, `reducer_mouse.go`, `drag.go`, `mode_normal.go` and `action_prompt.go` go through `contentPane` |
 | `internal/ui/thread` imports `bubbles/viewport` | no | **met** |
 | `contentPane` asserted against both models | yes | **met** (`internal/ui/content_pane.go`) |
-| `thread/model.go` | ≤ 1,000 lines (stretch < 900) | **not met: 1,351 lines** (2,314 at the PR 0 baseline; 2,072 at the tracking doc's original baseline). `messages/model.go` went 3,795 → 2,217 |
+| `thread/model.go` | ≤ 1,000 lines (stretch < 900) | **not met: 1,353 lines** (2,314 at the PR 0 baseline; 2,072 at the tracking doc's original baseline). `messages/model.go` went 3,795 → 2,218 |
 | Verbatim shared thread→messages lines (≥ 16 chars, spec A.2) | < 50 | **not met: 206 of 540** (491 of 986 at baseline; 233 after Task 6.2). The remainder is per-pane setters, selection wrappers and chrome that no Phase 3 task unified. Unifying the setters overlaps RFC #236's directory/pull stage, so it was left out of scope rather than expanded here |
 | Benchmarks vs the PR 0 baseline (medians of 10, same VM) | within ±10% | **met**: thread `BenchmarkViewScroll` 3.85 ms → 0.50 ms (−87%, allocs 29,814 → 2,092); messages `BenchmarkViewScroll` −0.5%, `BenchmarkBuildCache` −0.4%, `BenchmarkViewFocusFlip` −4.9% (the baseline is noisy on this VM: ±14–15% between runs on the last two) |
 | Goldens | byte-identical except the §6.3 re-bless | **met**: `thread_open`, `wide`, `narrow` and (decision P4) `thread_parent_selected` were re-blessed once, in PR 2+3, cell-identical by `cellDiff`; no other golden changed |
@@ -750,7 +750,7 @@ dupl -t 75 -plumbing $(find . -name '*.go' \
 | 0 | Test safety net | — | [spec](../specs/2026-09-06-phase0-test-safety-net-design.md) | [plan](2026-09-06-phase0-test-safety-net.md) | **complete** |
 | 1 | `main.go` topical splits | — | [spec](../specs/2026-09-22-phase1-main-go-splits-design.md) | [plan](2026-09-22-phase1-main-go-splits.md) | **complete** |
 | 2 | `main.go` structural | 1 | — | — | not started |
-| 3 | Collapse `messages`/`thread` fork | 0 | [spec](../specs/2026-10-10-phase3-messages-thread-fork-design.md) | [plan](2026-10-11-phase3-messages-thread-fork.md) | **complete** (two exit criteria unmet: shared lines 206 vs < 50, and `thread/model.go` 1,351 lines vs ≤ 1,000; see Phase 3 "Achieved") |
+| 3 | Collapse `messages`/`thread` fork | 0 | [spec](../specs/2026-10-10-phase3-messages-thread-fork-design.md) | [plan](2026-10-11-phase3-messages-thread-fork.md) | **complete** (two exit criteria unmet: shared lines 206 vs < 50, and `thread/model.go` 1,353 lines vs ≤ 1,000; see Phase 3 "Achieved") |
 | 4 | Modal chrome substrate | 0, 3 | — | — | not started |
 | 5 | Finish `App` decomposition | 0b | — | — | not started |
 | 6 | Opportunistic cleanup | 3, 4 | — | — | not started |
@@ -768,7 +768,7 @@ at a phase boundary.
 | `internal/ui/app.go` | 3,454 lines | < 2,000 |
 | `App` struct fields | 107 | < 60 |
 | `App` `Set*` methods | 45 | < 25 |
-| `internal/ui/thread/model.go` | 2,072 lines | < 900 — **1,351 after Phase 3** (the spec's ≤ 1,000 bar and this stretch target both missed; see Phase 3 "Achieved") |
+| `internal/ui/thread/model.go` | 2,072 lines | < 900 — **1,353 after Phase 3** (the spec's ≤ 1,000 bar and this stretch target both missed; see Phase 3 "Achieved") |
 | Modal-widget cluster (13 pkgs) | 5,295 lines | < 3,000 |
 | `renderBox` implementations | 11 | 1 |
 | `visibleWindow` implementations | 7 | 1 |
