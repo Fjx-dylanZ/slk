@@ -1652,6 +1652,7 @@ func (m *Model) buildCache(width int, keepPosition bool) {
 // Postcondition: m.staleEntries is empty.
 func (m *Model) partialRebuild(width int) {
 	cs := m.buildCacheStyles(width)
+	updates := make(map[int]entrylist.Entry, len(m.staleEntries))
 	for ts := range m.staleEntries {
 		idx, ok := m.list.IndexOf(ts)
 		if !ok {
@@ -1669,12 +1670,13 @@ func (m *Model) partialRebuild(width int) {
 			continue
 		}
 		e, p := m.renderMessageEntry(old.Ref, width, cs, nil)
-		// ReplaceEntry recomputes offsets: heights may have changed (a
-		// placeholder swapped for a real image). No render work for the
-		// siblings.
-		m.list.ReplaceEntry(idx, e)
+		updates[idx] = e
 		m.cache[idx] = p
 	}
+	// One offset pass for the whole batch: heights may have changed (a
+	// placeholder swapped for a real image). No render work for the
+	// siblings.
+	m.list.ReplaceEntries(updates)
 	for k := range m.staleEntries {
 		delete(m.staleEntries, k)
 	}

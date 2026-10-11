@@ -317,18 +317,21 @@ func (m *Model) lookupLen() int {
 	return m.live
 }
 
-// ReplaceEntry swaps entry i for e, keeping every other entry (a partial
-// rebuild). Offsets are recomputed; the position is not re-anchored.
-func (m *Model) ReplaceEntry(i int, e Entry) {
-	if old := m.entries[i].ID; old != e.ID {
-		if old != "" && m.ids[old] == i {
-			delete(m.ids, old)
+// ReplaceEntries swaps the entries at the given indexes, keeping every
+// other entry (a partial rebuild). Offsets are recomputed once, after all
+// of them; the position is not re-anchored.
+func (m *Model) ReplaceEntries(updates map[int]Entry) {
+	for i, e := range updates {
+		if old := m.entries[i].ID; old != e.ID {
+			if old != "" && m.ids[old] == i {
+				delete(m.ids, old)
+			}
+			if e.ID != "" {
+				m.ids[e.ID] = i
+			}
 		}
-		if e.ID != "" {
-			m.ids[e.ID] = i
-		}
+		m.entries[i] = e
 	}
-	m.entries[i] = e
 	m.recomputeOffsets()
 }
 
