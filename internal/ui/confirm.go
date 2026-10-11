@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/bubbles/confirmprompt"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
@@ -69,11 +70,11 @@ func (a *App) confirmPromptOverlay(background string) string {
 	return out
 }
 
-// confirmPromptBox adapts the size-owning prompt to the boxedOverlay
+// confirmPromptBox adapts the size-owning prompt to chrome.Boxed, the
 // interface the modal click router shares with the other modals.
 type confirmPromptBox struct{ m *confirmprompt.Model }
 
-var _ boxedOverlay = confirmPromptBox{}
+var _ chrome.Boxed = confirmPromptBox{}
 
 // BoxSize returns the rendered box's outer size, or (0, 0) when hidden, like
 // the other modals. lipgloss.Height("") is 1, so the guard is needed.
