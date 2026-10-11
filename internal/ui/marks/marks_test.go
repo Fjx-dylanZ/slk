@@ -65,7 +65,7 @@ func TestView_RendersSnapshot(t *testing.T) {
 		{Letter: "a", ChannelName: "general", AuthorName: "alice", Excerpt: "hello world"},
 	})
 	m.Open()
-	view := m.View(80)
+	view := m.View(80, 24)
 	for _, want := range []string{"a", "#general", "alice: hello world"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view missing %q:\n%s", want, view)
@@ -76,8 +76,8 @@ func TestView_RendersSnapshot(t *testing.T) {
 func TestView_EmptyState(t *testing.T) {
 	m := New()
 	m.Open()
-	if !strings.Contains(m.View(80), "No marks set") {
-		t.Fatalf("empty overlay must report no marks set:\n%s", m.View(80))
+	if !strings.Contains(m.View(80, 24), "No marks set") {
+		t.Fatalf("empty overlay must report no marks set:\n%s", m.View(80, 24))
 	}
 }
 
@@ -97,7 +97,7 @@ func TestView_TruncatesWideExcerptsToWidth(t *testing.T) {
 	}
 	m.SetRows(rows)
 	m.Open()
-	view := m.View(60)
+	view := m.View(60, 24)
 	boxWidth := 30 // boxWidth(60) == 60/2
 	for _, line := range strings.Split(view, "\n") {
 		if w := lipgloss.Width(line); w > boxWidth {

@@ -157,23 +157,32 @@ func boxWidth(termWidth int) int {
 	return w
 }
 
+// boxChromeRows is the box's height without its list: the border and
+// padding above, the title and the blank line under it, then the
+// padding and border below.
+const boxChromeRows = 6
+
+// listRows is how many list rows the window shows in a terminal
+// termHeight rows tall: maxVisibleRows, fewer when the box would not
+// fit, and at least one.
+func listRows(termHeight int) int {
+	return max(min(maxVisibleRows, termHeight-boxChromeRows), 1)
+}
+
 // visibleWindow returns the [start, end) slice of rows currently
 // shown in the list.
-func (m *Model) visibleWindow() (int, int) {
-	return chrome.Window(m.selected, len(m.rows), maxVisibleRows)
+func (m *Model) visibleWindow(termHeight int) (int, int) {
+	return chrome.Window(m.selected, len(m.rows), listRows(termHeight))
 }
 
 // listTopOffset is the box-local row of the first list row.
 func listTopOffset() int { return chrome.BodyTop(messages.ChromeStyles(), false) }
 
-// BoxSize returns the outer size of the rendered box. termHeight is
-// unused: the height depends only on the row count.
+// BoxSize returns the outer size of the rendered box.
 func (m *Model) BoxSize(termWidth, termHeight int) (int, int) {
-	start, end := m.visibleWindow()
+	start, end := m.visibleWindow(termHeight)
 	nRows := max(end-start, 1) // the empty list still draws "No marks set"
-	// top border + top padding + title + blank + rows + bottom padding +
-	// bottom border.
-	return boxWidth(termWidth), nRows + 6
+	return boxWidth(termWidth), nRows + boxChromeRows
 }
 
 // ClickRow moves the selection to the list row at box-local localY
@@ -183,7 +192,7 @@ func (m *Model) ClickRow(termWidth, termHeight, localY int) bool {
 	if row < 0 {
 		return false
 	}
-	start, end := m.visibleWindow()
+	start, end := m.visibleWindow(termHeight)
 	if row >= end-start {
 		return false
 	}
@@ -192,8 +201,8 @@ func (m *Model) ClickRow(termWidth, termHeight, localY int) bool {
 }
 
 // View renders just the overlay box (no backdrop). Used by tests.
-func (m Model) View(termWidth int) string {
-	return m.renderBox(termWidth)
+func (m Model) View(termWidth, termHeight int) string {
+	return m.renderBox(termWidth, termHeight)
 }
 
 // ViewOverlay renders the overlay as a centered modal with a dimmed
@@ -202,14 +211,14 @@ func (m Model) ViewOverlay(termWidth, termHeight int, background string) string 
 	if !m.visible {
 		return background
 	}
-	box := m.renderBox(termWidth)
+	box := m.renderBox(termWidth, termHeight)
 	if box == "" {
 		return background
 	}
 	return overlay.DimmedOverlay(termWidth, termHeight, background, box, 0.5)
 }
 
-func (m Model) renderBox(termWidth int) string {
+func (m Model) renderBox(termWidth, termHeight int) string {
 	if !m.visible {
 		return ""
 	}
@@ -217,7 +226,7 @@ func (m Model) renderBox(termWidth int) string {
 	overlayWidth := boxWidth(termWidth)
 	innerWidth := overlayWidth - 4 // border + padding
 
-	start, end := m.visibleWindow()
+	start, end := m.visibleWindow(termHeight)
 	list := chrome.List{Start: start, End: end, Total: len(m.rows)}
 	contentWidth := list.ContentWidth(innerWidth)
 

@@ -258,6 +258,17 @@ func dialogGoldens() []dialogGolden {
 			},
 		},
 		{
+			// Too short for ten rows: the window shrinks so the box and
+			// the selected row stay on screen.
+			name: "dialog_marks_short", w: 80, h: 12, want: "Marks", shown: marksShown,
+			open: func(t *testing.T, a *App) {
+				a.marksOverlay.SetRows(scrollingMarkRows())
+				a.marksOverlay.Open()
+				repeat(11, func() { a.marksOverlay.HandleKey("down") })
+				a.SetMode(ModeMarks)
+			},
+		},
+		{
 			name: "dialog_marks_empty", want: "No marks set", shown: marksShown,
 			open: func(t *testing.T, a *App) {
 				a.marksOverlay.SetRows(nil)

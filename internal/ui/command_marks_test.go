@@ -44,8 +44,8 @@ func TestCmdMarks_RendersStoredMarks(t *testing.T) {
 	if got := len(mustListMarks(t, app.marks, "T1")); got != 1 {
 		t.Fatalf("overlay holds %d rows, want 1", got)
 	}
-	if !strings.Contains(app.marksOverlay.View(80), "alice: hello world") {
-		t.Fatalf("overlay must render the stored snapshot:\n%s", app.marksOverlay.View(80))
+	if !strings.Contains(app.marksOverlay.View(80, 24), "alice: hello world") {
+		t.Fatalf("overlay must render the stored snapshot:\n%s", app.marksOverlay.View(80, 24))
 	}
 }
 

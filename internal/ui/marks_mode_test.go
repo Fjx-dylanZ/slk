@@ -86,7 +86,7 @@ func TestMarksOverlay_DeleteRemovesRowAndKeepsRest(t *testing.T) {
 	if !app.marksOverlay.IsVisible() || app.mode != ModeMarks {
 		t.Fatal("the overlay must stay open after a delete")
 	}
-	view := app.marksOverlay.View(80)
+	view := app.marksOverlay.View(80, 24)
 	if !strings.Contains(view, "b") || strings.Contains(view, "No marks set") {
 		t.Fatalf("overlay must show the remaining mark:\n%s", view)
 	}
@@ -95,8 +95,8 @@ func TestMarksOverlay_DeleteRemovesRowAndKeepsRest(t *testing.T) {
 func TestMarksOverlay_EmptyState(t *testing.T) {
 	app := jumpMarkTestApp(t)
 	app.Update(tea.KeyPressMsg{Code: '\'', Text: "'"})
-	if !strings.Contains(app.marksOverlay.View(80), "No marks set") {
-		t.Fatalf("overlay with no marks must report that:\n%s", app.marksOverlay.View(80))
+	if !strings.Contains(app.marksOverlay.View(80, 24), "No marks set") {
+		t.Fatalf("overlay with no marks must report that:\n%s", app.marksOverlay.View(80, 24))
 	}
 }
 
@@ -120,7 +120,7 @@ func TestMarksOverlay_RendersFromSnapshotWithoutServiceCalls(t *testing.T) {
 	}
 
 	app.Update(tea.KeyPressMsg{Code: '\'', Text: "'"})
-	view := app.marksOverlay.View(80)
+	view := app.marksOverlay.View(80, 24)
 
 	if lookups != 0 {
 		t.Fatalf("opening/rendering the overlay made %d channel lookups, want 0 (snapshot only)", lookups)
