@@ -953,24 +953,8 @@ func (m *Model) selectedLines(i int) []string {
 		return e.Lines
 	}
 	return m.cache[e.Ref].SelectedLines(e, m.list.HasSelection(), func(src string) []string {
-		return m.selectedVariant(src, m.cacheWidth, m.borderSelectStyle())
+		return messages.NewWrapStyles(m.focused).SelectedVariant(src, m.cacheWidth)
 	})
-}
-
-// borderSelectStyle is the thick, tinted left border of the selected reply.
-func (m *Model) borderSelectStyle() lipgloss.Style {
-	return lipgloss.NewStyle().BorderStyle(thickLeftBorder).BorderLeft(true).
-		BorderForeground(styles.SelectionBorderColor(m.focused)).
-		BorderBackground(styles.SelectionTintColor(m.focused)).
-		Background(styles.SelectionTintColor(m.focused))
-}
-
-// selectedVariant renders content r as the selected reply: the selection
-// tint repainted over inner spans, filled to the row width, then the
-// selection border. Split on "\n". Mirrors messages.Model.selectedVariant.
-func (m *Model) selectedVariant(r string, width int, borderSelect lipgloss.Style) []string {
-	fill := lipgloss.NewStyle().Background(styles.SelectionTintColor(m.focused)).Width(width - 1)
-	return strings.Split(borderSelect.Render(fill.Render(messages.RepaintBgToSelectionTint(r, m.focused))), "\n")
 }
 
 // ScrollHintForDrag returns -1 if the cursor is within 1 row of the top
@@ -1174,48 +1158,30 @@ func (m *Model) View(height, width int) string {
 		} else {
 			clear(m.replyIDToIdx)
 		}
-		// Pre-build border styles ONCE (don't allocate per reply): the
+		// Pre-build the wrap styles ONCE (don't allocate per reply): the
 		// thick left border ▌ is applied at cache-build time so View()
 		// picks a slice (normal vs selected) instead of running lipgloss
 		// for every visible reply on every j/k.
-		borderFill := lipgloss.NewStyle().Background(styles.Background)
-		borderInvis := lipgloss.NewStyle().BorderStyle(thickLeftBorder).BorderLeft(true).
-			BorderForeground(styles.Background).BorderBackground(styles.Background)
-		borderSelect := m.borderSelectStyle()
+		wrap := messages.NewWrapStyles(m.focused)
 		for i, reply := range m.replies {
 			// renderMessage's last arg ("isSelected") drives reaction-
 			// nav pill highlighting, so it MUST be i == m.selected.
 			r := m.renderMessage(reply, width, i == m.selected)
-			rendered, header, headerBudget := r.Content, r.Header, r.HeaderBudget
 			// The thread pane's kitty upload order: body, blocks,
 			// reactions, then attachments.
 			flushes := slices.Concat(r.BodyFlushes, r.BlockFlushes, r.ReactionFlushes, r.AttachmentFlushes)
-			// Selected variant only; Lines / Plain keep the short form.
-			renderedSel := messages.SelectedHeader(rendered, header, reply.TS, reply.Timestamp, headerBudget)
-			// Two filled variants, so the trailing whitespace of every
-			// wrapped line carries the right background and the tint
-			// reaches the end of the row. Plain mirrors the untinted
-			// filledNormal, so clipboard text never carries the tint.
-			filledNormal := borderFill.Width(width - 1).Render(rendered)
-			linesN := strings.Split(borderInvis.Render(filledNormal), "\n")
-			linesS := m.selectedVariant(renderedSel, width, borderSelect)
-			// The short-timestamp selected variant is built on demand
-			// from shortSrc (see selectedLines).
-			var shortSrc string
-			if renderedSel != rendered {
-				shortSrc = rendered
-			}
+			w := messages.WrapRows(reply, r, width, wrap)
 			m.replyEntries = append(m.replyEntries, entrylist.Entry{
 				ID:         reply.TS,
 				Ref:        i,
 				Selectable: true,
-				Lines:      linesN,
-				Selected:   linesS,
-				Plain:      messages.PlainLines(filledNormal),
+				Lines:      w.Lines,
+				Selected:   w.Selected,
+				Plain:      w.Plain,
 				ColOffset:  1,
 				Hits:       r.Hits,
 			})
-			m.cache = append(m.cache, messages.EntryPayload{ShortSrc: shortSrc, Flushes: flushes})
+			m.cache = append(m.cache, messages.EntryPayload{ShortSrc: w.ShortSrc, Flushes: flushes})
 			m.replyIDToIdx[reply.TS] = i
 		}
 		m.cacheWidth = width

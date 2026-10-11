@@ -193,7 +193,7 @@ type Model struct {
 	// false, the selected-message "▌" border dims from Accent to
 	// TextMuted (via styles.SelectionBorderColor) so the unfocused
 	// selection doesn't compete visually with the focused panel. The
-	// color is baked into the entry payload during buildCache, so
+	// color is baked into the entry rows during buildCache, so
 	// SetFocused must invalidate the cache.
 	focused bool
 
@@ -1352,27 +1352,8 @@ func (m *Model) OldestTS() string {
 // (width, theme) avoids re-allocating identical lipgloss styles per
 // message during the per-message render loop.
 type cacheStyles struct {
-	borderFill   lipgloss.Style
-	borderInvis  lipgloss.Style
-	borderSelect lipgloss.Style
-	spacerLines  []string
-}
-
-// borderSelectStyle is the thick, tinted left border of the selected row.
-func (m *Model) borderSelectStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		BorderStyle(thickLeftBorder).BorderLeft(true).
-		BorderForeground(styles.SelectionBorderColor(m.focused)).
-		BorderBackground(styles.SelectionTintColor(m.focused)).
-		Background(styles.SelectionTintColor(m.focused))
-}
-
-// selectedVariant renders content r as the selected row: the selection
-// tint repainted over inner spans, filled to the row width, then the
-// selection border. Split on "\n".
-func (m *Model) selectedVariant(r string, width int, borderSelect lipgloss.Style) []string {
-	fill := lipgloss.NewStyle().Background(styles.SelectionTintColor(m.focused)).Width(width - 1)
-	return strings.Split(borderSelect.Render(fill.Render(RepaintBgToSelectionTint(r, m.focused))), "\n")
+	wrap        WrapStyles
+	spacerLines []string
 }
 
 // buildCacheStyles materializes the shared styles for a given width.
@@ -1388,9 +1369,6 @@ func (m *Model) selectedVariant(r string, width int, borderSelect lipgloss.Style
 // when the cache last rebuilt. View() composes the hint fresh from
 // renderLoadingOlderHint(width) on every frame instead.
 func (m *Model) buildCacheStyles(width int) cacheStyles {
-	borderFill := lipgloss.NewStyle().Background(styles.Background)
-	borderInvis := lipgloss.NewStyle().BorderStyle(thickLeftBorder).BorderLeft(true).BorderForeground(styles.Background).BorderBackground(styles.Background)
-	borderSelect := m.borderSelectStyle()
 	spacerBg := lipgloss.NewStyle().Background(styles.Background)
 	m.cacheSpacer = spacerBg.Width(width).Render("")
 	hintStyle := lipgloss.NewStyle().Background(styles.Background).Foreground(styles.TextMuted)
@@ -1402,10 +1380,8 @@ func (m *Model) buildCacheStyles(width int) cacheStyles {
 	// the scrollbar pass and break TestSelection_HighlightDoesNotCorrupt...
 	m.cacheMoreBelow = hintStyle.Render("  -- more below --")
 	return cacheStyles{
-		borderFill:   borderFill,
-		borderInvis:  borderInvis,
-		borderSelect: borderSelect,
-		spacerLines:  []string{m.cacheSpacer},
+		wrap:        NewWrapStyles(m.focused),
+		spacerLines: []string{m.cacheSpacer},
 	}
 }
 
@@ -1528,56 +1504,13 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		opt.Avatar = m.avatarFn(msg.UserID)
 	}
 	r := RenderMessage(msg, width, m.renderContext(), opt)
-	rendered, header, headerBudget := r.Content, r.Header, r.HeaderBudget
 	// The channel pane's kitty upload order: blocks, attachments, then
 	// body and reaction emoji.
 	flushes := slices.Concat(r.BlockFlushes, r.AttachmentFlushes, r.BodyFlushes, r.ReactionFlushes)
-	// The selected variant carries the date-qualified timestamp. Only
-	// it: linesNormal and linesPlain keep the short form, so clipboard
-	// text and mouse->column mapping are unchanged.
-	renderedSel := SelectedHeader(rendered, header, msg.TS, msg.Timestamp, headerBudget)
-	// Two filled variants: borderFill (Background) for the unselected
-	// pre-render, and the SelectionTintColor for the selected pre-render.
-	// Without per-variant fills, the trailing whitespace of every wrapped
-	// line shows the WRONG background and the tint stops at the last
-	// character of content.
-	//
-	// For the selected variant we also substitute every theme-bg ANSI
-	// escape inside `rendered` with the tint-bg escape. Inner spans
-	// (Username, Timestamp, MessageText, the reset-reapplications
-	// emitted by RenderSlackMarkdown) explicitly paint Background, and
-	// without this substitution they show through as dark patches on
-	// the tinted row.
-	var bwT0 time.Time
+	cs.wrap.stats = stats
+	w := WrapRows(msg, r, width, cs.wrap)
+	linesN, linesS, linesP := w.Lines, w.Selected, w.Plain
 	if stats != nil {
-		bwT0 = time.Now()
-	}
-	filledNormal := cs.borderFill.Width(width - 1).Render(rendered)
-	normal := cs.borderInvis.Render(filledNormal)
-	linesS := m.selectedVariant(renderedSel, width, cs.borderSelect)
-	// The short-timestamp selected variant is built on demand from
-	// shortSrc (see selectedLines); building it here for every entry
-	// would double the fill+border cost of every cache build.
-	var shortSrc string
-	if renderedSel != rendered {
-		shortSrc = rendered
-	}
-	if stats != nil {
-		stats.borderWrapTotal += time.Since(bwT0)
-	}
-
-	linesN := strings.Split(normal, "\n")
-	// linesPlain mirrors the UNBORDERED content (filled) so that the
-	// thick left-border column is NOT present in plain text and never
-	// bleeds into clipboard output via SelectionText. The mouse-column
-	// to plain-column mapping happens in the substrate via Entry.ColOffset.
-	var plT0 time.Time
-	if stats != nil {
-		plT0 = time.Now()
-	}
-	linesP := plainLines(filledNormal)
-	if stats != nil {
-		stats.plainLinesTotal += time.Since(plT0)
 		stats.count++
 	}
 	// Append a trailing spacer line after every message except the last.
@@ -1603,7 +1536,7 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 		Trail:      trail,
 		Hits:       r.Hits,
 	}
-	return entry, EntryPayload{ShortSrc: shortSrc, Flushes: flushes, sixelRows: r.SixelRows}
+	return entry, EntryPayload{ShortSrc: w.ShortSrc, Flushes: flushes, sixelRows: r.SixelRows}
 }
 
 // buildCache pre-renders all messages and day separators, splitting each
@@ -1903,7 +1836,7 @@ func (m *Model) ScrollHintForDrag(viewportY int) int {
 func (m *Model) selectedLines(i int) []string {
 	e := &m.list.Entries()[i]
 	return m.cache[i].SelectedLines(e, m.list.HasSelection(), func(src string) []string {
-		return m.selectedVariant(src, m.cacheWidth, m.borderSelectStyle())
+		return NewWrapStyles(m.focused).SelectedVariant(src, m.cacheWidth)
 	})
 }
 

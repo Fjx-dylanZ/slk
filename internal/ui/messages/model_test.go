@@ -1141,7 +1141,7 @@ func fmtRGBBg(r, g, b uint8) string {
 // TestSelectedRowContainsTintBackground asserts that the rendered output
 // for the selected message includes the SelectionTintColor as an ANSI
 // background, while a non-selected row does not. Guards against
-// regressions in cacheStyles' borderSelect construction.
+// regressions in WrapStyles' selected-border construction.
 func TestSelectedRowContainsTintBackground(t *testing.T) {
 	styles.Apply("dark", config.Theme{})
 	t.Cleanup(func() { styles.Apply("dark", config.Theme{}) })
