@@ -2106,7 +2106,7 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 		bkInteractive = bkInteractive || res.Interactive
 	}
 	if bkInteractive {
-		bkLines = append(bkLines, styles.Timestamp.Render("↗ open in Slack to interact"))
+		bkLines = append(bkLines, styles.Timestamp.Render(messages.InteractiveHint(msg)))
 	}
 	bkBlock := ""
 	bkLineCount := len(bkLines)

@@ -68,6 +68,12 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		return a.handleThreadReactionNav(msg)
 	}
 
+	if a.isMessageOpKey(msg) {
+		if cmd, blocked := a.ephemeralSelectionGuard(); blocked {
+			return cmd
+		}
+	}
+
 	switch {
 	case key.Matches(msg, a.keys.InsertMode):
 		a.SetMode(ModeInsert)
@@ -296,6 +302,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.SaveThread):
 		return a.saveThreadToFile()
+
+	case key.Matches(msg, a.keys.RespondButtons):
+		return a.respondToSelected()
 
 	case key.Matches(msg, a.keys.CopyMessage):
 		return a.copyMessageOfSelected()

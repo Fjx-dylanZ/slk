@@ -21,6 +21,7 @@ import (
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/core/blocks"
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/editor"
 	emojiwidth "github.com/gammons/slk/internal/emoji"
@@ -1322,6 +1323,19 @@ func run() error {
 				_ = db.RecordEmojiUse(emojiName)
 			},
 		))
+
+		app.SetInteractionService(core.NewInteractionService(core.InteractionServiceFuncs{
+			PressAttachmentAction: func(channelID ids.ChannelID, messageTS ids.MessageTS,
+				attachmentID int, callbackID, serviceID string, action blocks.LegacyAction, ephemeral bool) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return errors.New("no active workspace")
+				}
+				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				defer cancel()
+				return pressAttachmentAction(ctx, wctx.Client, channelID, messageTS, attachmentID, callbackID, serviceID, action, ephemeral)
+			},
+		}))
 
 		sendTyping := func(channelID string) {
 			wctx := router.Active()
