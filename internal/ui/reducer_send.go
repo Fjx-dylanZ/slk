@@ -325,7 +325,7 @@ func reduceNewMessage(a *App, m NewMessageMsg) tea.Cmd {
 		debuglog.Cache("NewMessageMsg: channel=%s ts=%s decision=ephemeral_display_only",
 			m.ChannelID, m.Message.TS)
 		onScreen := inOpenThreadPanel ||
-			(m.ChannelID == a.activeChannelID && (m.Message.ThreadTS == "" || m.Message.ThreadTS == m.Message.TS))
+			(a.view == ViewChannels && m.ChannelID == a.activeChannelID && (m.Message.ThreadTS == "" || m.Message.ThreadTS == m.Message.TS))
 		if onScreen && messages.HasButtonActions(m.Message) {
 			return a.enqueueActionPrompt(actionPromptRef{
 				channelID: m.ChannelID, ts: m.Message.TS, threadTS: m.Message.ThreadTS,

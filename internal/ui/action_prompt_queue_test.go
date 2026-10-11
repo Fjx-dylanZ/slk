@@ -306,3 +306,27 @@ func TestDialogOpensWhenHelpCloses(t *testing.T) {
 		t.Errorf("mode = %v; closing Help should open the waiting dialog", a.mode)
 	}
 }
+
+// In the Activity and Threads views the channel pane is hidden though
+// activeChannelID is kept: an ephemeral for that channel opens nothing, and
+// b finds nothing.
+func TestEphemeralForChannelHiddenBehindViewOpensNothing(t *testing.T) {
+	for name, view := range map[string]View{"activity": ViewActivity, "threads": ViewThreads} {
+		t.Run(name, func(t *testing.T) {
+			a, _ := actionApp(t, nil)
+			a.view = view
+			if got := toastText(arrive(t, a, mentionEphemeral(ephTS))); got != "" {
+				t.Errorf("toast = %q; a hidden channel's ephemeral must not announce itself", got)
+			}
+			if a.confirmPrompt.IsVisible() || a.mode == ModeConfirm {
+				t.Error("no dialog for a channel the user cannot see")
+			}
+			if len(a.actionQueue) != 0 {
+				t.Errorf("queue = %v, want empty", a.actionQueue)
+			}
+			if got := toastText(drainBatch(a.respondToSelected())); got != "No buttons on this message" {
+				t.Errorf("b toast = %q", got)
+			}
+		})
+	}
+}
