@@ -104,23 +104,23 @@ no `internal/ui` import, no `slack-go`, no I/O. It does not read `styles.*`.
 ```go
 package chrome
 
-// Styles is everything chrome draws with.
+// Styles is everything chrome draws with. None sets a Width; chrome
+// applies widths itself.
 type Styles struct {
 	Box         lipgloss.Style // centered dialog: border, padding, background
 	Popup       lipgloss.Style // composer popup box
 	Title       lipgloss.Style
 	Input       lipgloss.Style // the ▌-bordered filter line
 	Placeholder lipgloss.Style
-	Row         lipgloss.Style
-	RowSelected lipgloss.Style
+	Row         lipgloss.Style // a row's content
+	RowSelected lipgloss.Style // the selected row's content
 	Marker      lipgloss.Style // the ▌ before the selected row
 	PopupMarker lipgloss.Style // the "▌ " before a popup's selected row
-	Empty       lipgloss.Style // "No matching …"
-	Footer      lipgloss.Style
-	Background  color.Color
-	ScrollTrack color.Color
-	ScrollThumb color.Color
-	BaseANSI    string // re-asserted after every SGR reset inside Box
+	Empty       lipgloss.Style // "No matching …", and other italic muted lines
+	Footer      lipgloss.Style // footer hints, and other muted lines
+	Thumb       lipgloss.Style // the scrollbar thumb █
+	Track       lipgloss.Style // the scrollbar track │
+	BaseANSI    string         // re-asserted after every SGR reset inside Box
 }
 
 // Window returns the [start, end) slice of a list of total rows that keeps
@@ -131,54 +131,63 @@ func Window(selected, total, maxRows int) (start, end int)
 // empty, query+"█" otherwise.
 func FilterInput(s Styles, query, placeholder string) string
 
-// List draws the visible window of a list. Rows are the pre-rendered
-// contents of rows [Start, Start+len(Rows)), each RowHeight lines (default
-// 1) joined by "\n". Render prefixes the marker (selected) or a space,
-// pads each line to the content width, and appends a scrollbar gutter
-// when Total exceeds the window. The thumb is computed in row units and
-// painted on every line of a row (searchresults' 4-line rows).
-type List struct {
-	Rows      []string
-	Start     int // index of Rows[0] in the full list
-	Selected  int // absolute index; outside the window means none
-	Total     int
-	Width     int // inner box width the rows occupy
-	RowHeight int
-}
-func (l List) Render(s Styles) []string
-func (l List) ContentWidth() int // width a row's own content gets
-func (l List) Scrolls() bool     // Total > len(Rows)
+// Marker is the selected-row marker column: "▌" in s.Marker, or a space.
+func Marker(s Styles, selected bool) string
+
+// List is a list's visible window, [Start, End) of Total rows. The
+// dialog renders each row's content at ContentWidth; List adds the
+// marker column and, when the list scrolls, the scrollbar gutter. The
+// thumb is computed in row units, so a multi-line row (searchresults)
+// calls Gutter once per line with the same row index.
+type List struct{ Start, End, Total int }
+func (l List) Scrolls() bool                 // Total > End-Start
+func (l List) ContentWidth(inner int) int    // inner - marker - gutter
+func (l List) Gutter(s Styles, i int) string // "" when not scrolling
+func (l List) Rows(s Styles, selected int, rows []string) []string
 
 // Box is the one renderBox: content, with s.BaseANSI re-asserted after
-// every SGR reset, inside box at the given outer width. Dialogs whose
-// layout is not a list (confirmprompt, userprofile, presencemenu's
-// CustomSnoozeView) call it directly with their own content and, for
-// userprofile, their own box style.
-func Box(s Styles, box lipgloss.Style, content string, width int) string
+// every SGR reset, inside s.Box at the given outer width.
+// confirmprompt calls it directly; everything else goes through Frame.
+func Box(s Styles, content string, width int) string
 
-// Frame is the list-dialog layout on top of Box: title, input, a blank
-// line, the body, an optional footer, inside s.Box. Input "" omits the
-// input line (linkpicker, reactionsview); Empty is drawn in place of an
-// empty Body.
+// Frame is the dialog layout on top of Box: the title, the input line
+// (omitted when ""), a blank line, the body, and the footer after a
+// blank line (omitted when ""). Title and Empty are plain text drawn
+// in s.Title and s.Empty; Input, Body and Footer are already rendered.
+// Empty is drawn in place of an empty Body.
 type Frame struct {
-	Title  string
-	Input  string
-	Body   []string
-	Empty  string
-	Footer []string
+	Title, Input string
+	Body         []string
+	Empty        string
+	Footer       string
 }
 func (f Frame) Render(s Styles, width int) string
-func (f Frame) BodyTop(s Styles) int // box row of Body[0], for ClickRow
-func (f Frame) Height(s Styles) int  // rendered height, for BoxSize
 
-// Popup draws a composer popup: rows (marker applied by List or by the
-// caller) inside s.Popup at width. Returns "" for no rows.
+// BodyTop is the box-local row of a Frame's first body line, for
+// ClickRow: border and padding, the title, the input line when
+// hasInput, and the blank line. 5 with an input, 4 without.
+func BodyTop(s Styles, hasInput bool) int
+
+// Popup draws a composer popup: rows inside s.Popup at width-2.
+// Returns "" for no rows. PopupMarker is its "▌ " / "  " column.
 func Popup(s Styles, rows []string, width int) string
+func PopupMarker(s Styles, selected bool) string
+
+// The contract dialogs assert at compile time (§3.2).
+type Dialog interface{ IsVisible() bool; Close() }
+type Boxed interface{ BoxSize(termWidth, termHeight int) (int, int) }
+type Clickable interface {
+	Boxed
+	ClickRow(termWidth, termHeight, localY int) bool
+}
 ```
 
-The exact field set is settled during implementation against the goldens:
-a field the migrations do not need is dropped, and a per-dialog quirk that
-cannot be expressed is handled in the dialog, not by adding a knob (§3.3).
+Every style in `messages.ChromeStyles()` is built exactly as the dialogs
+build it inline today, so a migrated dialog renders the same bytes. A test
+in `messages` pins each one against the inline expression it replaces.
+
+A per-dialog quirk that cannot be expressed is handled in the dialog, not
+by adding a knob (§3.3).
 
 ### 3.2 The declared contract
 
@@ -227,20 +236,21 @@ Known per-dialog differences and where they live:
 | help's tri-state input line and two-line footer | help builds `Frame.Input` / `Frame.Footer` |
 | newmessagepicker's pill bar | newmessagepicker builds `Frame.Input` |
 | userprofile's `Padding(0,1)` card and section dropping | userprofile, with its own `Styles.Box` |
-| `BoxSize` measured by rendering (help, newmessagepicker) | unchanged; `Frame.Height` may replace the render where it is exact |
+| `BoxSize` (`rows + 7`, or measured by rendering in help and newmessagepicker) | unchanged |
+| `listTopOffset` | becomes `func listTopOffset() int { return chrome.BodyTop(messages.ChromeStyles(), true) }`; package tests change `listTopOffset` to `listTopOffset()` |
 
 ### 3.4 Where the outliers land
 
-- **confirmprompt** gains `Chrome chrome.Styles` in place of its `Box` and
-  `BaseANSI` fields; `View` keeps its own title/body/buttons layout and calls
-  `chrome.Box`. `Title`, `Body`, `Button`, `ButtonActive`, `Footer` stay its
-  own. Its exported `Styles` changes shape; the only constructor outside its
-  tests is `confirmPromptStyles()` in `internal/ui/confirm.go`.
-- **userprofile** calls `chrome.Box` with its own `Padding(0,1)` style.
+- **confirmprompt** keeps its exported `Styles` unchanged; `View` keeps its
+  own title/body/buttons layout and calls
+  `chrome.Box(chrome.Styles{Box: m.styles.Box, BaseANSI: m.styles.BaseANSI}, …)`.
+- **userprofile** uses `Frame` (no input) with `s.Box.Padding(0, 1)`, and
+  `BodyTop` for the copy icon's row.
 - **linkpicker, reactionsview** use `Frame` with no input, and `List`.
 - **presencemenu** uses `Frame` and `List` with every row visible (no
-  `Window`). `CustomSnoozeView` (title, blank, input, blank, hint) calls
-  `chrome.Box` and `FilterInput`.
+  `Window`). `CustomSnoozeView` (title, blank, input, blank, hint) is a
+  `Frame` with no input, the input line as its one body line and the hint
+  as its footer.
 - **Popups** use `List` (no scrollbar: their lists are already cut to 5 or
   7) and `Popup`. They keep cutting, not scrolling.
 
@@ -259,11 +269,18 @@ existing snapshot-and-push stays as it is.
 
 **`chrome` package** (stdlib `testing`, white-box, as the repo does):
 `Window` at the edges (empty, `total < max`, selection at both ends,
-`maxRows ≤ 0`); `Box` re-asserting `BaseANSI` after a reset; `List` with and without a scrollbar, with `RowHeight > 1`,
-with the selection outside the window; `Frame` with and without input, empty
-body, footer; `BodyTop`/`Height` equal to the row and line count of
-`Render`'s output for each shape; `Popup` empty and non-empty. A thumb test
-pins `List`'s thumb to `scrollbar`'s formula.
+`maxRows ≤ 0`); `Box` re-asserting `BaseANSI` after a reset; `List` with and
+without a scrollbar and with the selection outside the window; `Frame` with
+and without input, empty body, footer; `BodyTop` equal to the row of the
+first body line in `Frame.Render`'s output, with and without input;
+`Popup` empty and non-empty. A thumb test pins `List`'s gutter to
+`scrollbar.Thumb`.
+
+**`messages.ChromeStyles`**: each style renders byte-identically to the
+inline expression the dialogs used, and the styles follow a theme change.
+
+**Package tests** that read `listTopOffset` change to `listTopOffset()`.
+That is the only planned test edit.
 
 **`bubbles/scrollbar`** gains `Thumb(total, offset, visible) (start, end int)`,
 extracted from `Overlay` (which calls it), so `List` and `Overlay` share one
@@ -342,13 +359,21 @@ The tracking doc is updated to say so in step 17.
 - **Silent visual drift.** Most dialogs have no golden today. Step 0 exists
   for this; no migration commit lands before its dialog has a golden.
 - **Hit-testing drift.** `ClickRow` depends on `listTopOffset` matching the
-  render. `Frame.BodyTop` replaces the constant and is tested against
-  `Render`, and the existing click tests (`reducer_modal_click` tests,
+  render. `chrome.BodyTop` replaces the constant and is tested against
+  `Frame.Render`, and the existing click tests (`reducer_modal_click` tests,
   `clickConfirmText`) must stay green.
 - **Over-fitting `Frame`.** If a dialog needs a knob only it uses, the
   dialog keeps that piece of rendering instead (§3.3).
 - **Bugs found in flight** are recorded here as addenda and raised as issues,
   not fixed in a migration commit.
+
+### 8.1 Found while planning
+
+- **workspacefinder can wrap a row.** It truncates a row at `rowWidth` but
+  draws it in `Width(rowWidth-1)` without `MaxWidth`, so a workspace name
+  exactly one column too wide wraps onto a second line and pushes the box
+  out of shape. reactionpicker has the same off-by-one but adds `MaxWidth`,
+  which hides it. Preserved by the migration; to be raised separately.
 
 ## 9. Follow-ups (not in this phase)
 
