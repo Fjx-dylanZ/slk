@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -24,6 +25,7 @@ func (m *Model) ViewOverlay(termWidth, termHeight int, background string) string
 }
 
 func (m *Model) renderBox(termWidth int) string {
+	s := messages.ChromeStyles()
 	overlayWidth := termWidth * 6 / 10
 	if overlayWidth < 40 {
 		overlayWidth = 40
@@ -36,16 +38,10 @@ func (m *Model) renderBox(termWidth int) string {
 	}
 	innerWidth := overlayWidth - 4 // border + padding
 
-	bg := styles.Background
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Background(bg).
-		Foreground(styles.Primary).
-		Render(m.title)
+	list := chrome.List{Start: 0, End: len(m.items), Total: len(m.items)}
+	badgeStyle := s.Row.Foreground(styles.Accent)
 
-	badgeStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent)
-
-	var rows []string
+	rows := make([]string, 0, len(m.items))
 	for i, it := range m.items {
 		var parts []string
 		if it.Label != "" {
@@ -62,48 +58,23 @@ func (m *Model) renderBox(termWidth int) string {
 		if it.InApp {
 			badge = " [slk]"
 		}
-		budget := innerWidth - 1 - lipgloss.Width(badge) // 1 = indicator column
+		budget := list.ContentWidth(innerWidth) - lipgloss.Width(badge)
 		if budget < 1 {
 			budget = 1
 		}
 		if lipgloss.Width(text) > budget {
 			text = truncate.StringWithTail(text, uint(budget), "\u2026")
 		}
-		var row string
+		style := s.Row
 		if i == m.selected {
-			indicator := lipgloss.NewStyle().Background(bg).Foreground(styles.Accent).Render("\u258c")
-			body := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.Primary).
-				Bold(true).
-				Width(budget).
-				Render(text)
-			row = indicator + body + badgeStyle.Render(badge)
-		} else {
-			body := lipgloss.NewStyle().
-				Background(bg).
-				Foreground(styles.TextPrimary).
-				Width(budget).
-				Render(text)
-			row = " " + body + badgeStyle.Render(badge)
+			style = s.RowSelected
 		}
-		rows = append(rows, row)
+		rows = append(rows, style.Width(budget).Render(text)+badgeStyle.Render(badge))
 	}
 
-	footer := lipgloss.NewStyle().
-		Background(bg).
-		Foreground(styles.TextMuted).
-		Render("j/k move   enter select   esc/q close")
-
-	content := title + "\n\n" + strings.Join(rows, "\n") + "\n\n" + footer
-	content = messages.ReapplyBgAfterResets(content, messages.BgANSI()+messages.FgANSI())
-
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Primary).
-		BorderBackground(bg).
-		Background(bg).
-		Padding(1, 1).
-		Width(overlayWidth).
-		Render(content)
+	return chrome.Frame{
+		Title:  m.title,
+		Body:   list.Rows(s, m.selected, rows),
+		Footer: s.Footer.Render("j/k move   enter select   esc/q close"),
+	}.Render(s, overlayWidth)
 }
