@@ -988,6 +988,7 @@ func (m *Model) ViewBare(height, width int) string { return m.viewInternal(heigh
 // ApplySelectionToBordered paints the selection onto a cached bordered
 // render; see messages.Model.ApplySelectionToBordered.
 func (m *Model) ApplySelectionToBordered(bordered string, topBorderRows, leftBorderCols int) string {
+	m.list.SetStyles(messages.ThemeListStyles())
 	return m.list.ApplySelectionToBordered(bordered, topBorderRows+m.chromeHeight, leftBorderCols)
 }
 
