@@ -1,11 +1,13 @@
 package confirmprompt
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -337,4 +339,96 @@ func TestEmptyBodyOmitsBodyBlock(t *testing.T) {
 	if _, ok := m.ButtonAt(x, y-1); ok {
 		t.Error("the blank separator row is not a hit")
 	}
+}
+
+func tallBodyChoice() Choice {
+	c := slackChoice()
+	lines := make([]string, 30)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("body line %d", i+1)
+	}
+	c.Body = strings.Join(lines, "\n")
+	return c
+}
+
+func assertButtonsHit(t *testing.T, m Model) {
+	t.Helper()
+	for i, text := range []string{"[1] Add Them", "[2] Dismiss", "[3] Don't Show Again"} {
+		x, y := cellOf(t, m, text)
+		for _, dx := range []int{0, len(text) - 1} {
+			if got, ok := m.ButtonAt(x+dx, y); !ok || got != i {
+				t.Errorf("ButtonAt(%d,%d) on %q = %d,%v; want %d,true", x+dx, y, text, got, ok, i)
+			}
+		}
+	}
+}
+
+// A body that would push the buttons past the terminal's bottom edge is
+// trimmed to fit.
+func TestBodyFitsTerminalHeight(t *testing.T) {
+	t.Parallel()
+	m := New(WithWidth(80), WithHeight(12))
+	m.OpenChoice(tallBodyChoice())
+	if h := lipgloss.Height(m.View()); h > 12 {
+		t.Errorf("height = %d, want <= 12:\n%s", h, m.View())
+	}
+	view := ansi.Strip(m.View())
+	if !strings.Contains(view, "body line 1") || !strings.Contains(view, "…") {
+		t.Errorf("want a trimmed body ending in an ellipsis:\n%s", view)
+	}
+	assertButtonsHit(t, m)
+}
+
+func TestSetHeightRefitsBody(t *testing.T) {
+	t.Parallel()
+	m := New(WithWidth(80))
+	m.OpenChoice(tallBodyChoice())
+	m.SetHeight(12)
+	if h := lipgloss.Height(m.View()); h > 12 {
+		t.Errorf("height = %d, want <= 12", h)
+	}
+}
+
+// Height 0 is unknown: only the 8-line cap applies.
+func TestUnknownHeightKeepsBodyCap(t *testing.T) {
+	t.Parallel()
+	m := New(WithWidth(80))
+	m.OpenChoice(tallBodyChoice())
+	rows := 0
+	for _, l := range plainLines(m.View()) {
+		if strings.Contains(l, "body line") {
+			rows++
+		}
+	}
+	if rows != maxBodyLines {
+		t.Errorf("body rows = %d, want %d", rows, maxBodyLines)
+	}
+}
+
+// With room for the title and buttons but no body, the body is dropped
+// whole, separator included, and the buttons stay hittable.
+func TestNoRoomForBodyKeepsButtons(t *testing.T) {
+	t.Parallel()
+	probe := New(WithWidth(80))
+	probe.OpenChoice(tallBodyChoice())
+	l := probe.layoutAt(boxWidth(80) - chrome)
+	frame := 2 + 2 // border + padding, top and bottom
+	h := frame + len(l.title) + 1 + buttonRowCount(l)
+	m := New(WithWidth(80), WithHeight(h))
+	m.OpenChoice(tallBodyChoice())
+	if strings.Contains(ansi.Strip(m.View()), "body line") {
+		t.Errorf("no room for a body, but one is shown:\n%s", m.View())
+	}
+	if got := lipgloss.Height(m.View()); got > h {
+		t.Errorf("height = %d, want <= %d", got, h)
+	}
+	assertButtonsHit(t, m)
+}
+
+func buttonRowCount(l layout) int {
+	rows := 0
+	for _, p := range l.buttons {
+		rows = max(rows, p.Row+1)
+	}
+	return rows
 }

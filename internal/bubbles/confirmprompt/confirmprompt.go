@@ -18,6 +18,7 @@ type Model struct {
 
 	styles    Styles
 	width     int
+	height    int // terminal height; 0 = unknown
 	visible   bool
 	choice    Choice
 	preset    bool // opened with Open: keys and labels follow KeyMap
@@ -35,6 +36,9 @@ func WithKeyMap(k KeyMap) Option { return func(m *Model) { m.KeyMap = k } }
 
 // WithWidth sets the terminal width the box is sized against.
 func WithWidth(width int) Option { return func(m *Model) { m.width = width } }
+
+// WithHeight sets the terminal height the body is fitted to; 0 means unknown.
+func WithHeight(height int) Option { return func(m *Model) { m.height = height } }
 
 // New returns a hidden prompt with default keys and styles, then applies opts.
 // It is the only usable constructor.
@@ -99,9 +103,13 @@ func (m Model) Highlighted() int { return m.highlight }
 // IsVisible reports whether the prompt is showing.
 func (m Model) IsVisible() bool { return m.visible }
 
-// SetWidth sets the terminal width the box is sized against. Height follows
-// the content, so there is no SetHeight.
+// SetWidth sets the terminal width the box is sized against.
 func (m *Model) SetWidth(width int) { m.width = width }
+
+// SetHeight sets the terminal height. A body that would push the buttons
+// past it is trimmed (or dropped); 0 means unknown, which limits the body
+// to maxBodyLines only.
+func (m *Model) SetHeight(height int) { m.height = height }
 
 // Styles returns the prompt's current styles.
 func (m Model) Styles() Styles { return m.styles }

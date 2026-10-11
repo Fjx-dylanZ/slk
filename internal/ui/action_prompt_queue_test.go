@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/gammons/slk/internal/ui/help"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -328,5 +329,21 @@ func TestEphemeralForChannelHiddenBehindViewOpensNothing(t *testing.T) {
 				t.Errorf("b toast = %q", got)
 			}
 		})
+	}
+}
+
+// The dialog is fitted to the terminal: on a short one the buttons are not
+// clipped by the overlay.
+func TestActionDialogFitsShortTerminal(t *testing.T) {
+	a, _ := actionApp(t, nil)
+	a.width, a.height = 120, 12
+	msg := mentionEphemeral(ephTS)
+	msg.Text = strings.Repeat("line\n", 30)
+	arrive(t, a, msg)
+	if !dialogShows(a, "[3] Don't Show Again") {
+		t.Fatalf("dialog buttons missing:\n%s", a.confirmPrompt.View())
+	}
+	if h := lipgloss.Height(a.confirmPrompt.View()); h > 12 {
+		t.Errorf("dialog height = %d on a 12-row terminal", h)
 	}
 }

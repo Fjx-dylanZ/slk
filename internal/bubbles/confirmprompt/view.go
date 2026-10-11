@@ -40,19 +40,37 @@ func (l layout) buttonRow() int {
 }
 
 func (m Model) layoutAt(width int) layout {
-	var body []string
-	if m.choice.Body != "" {
-		body = wrapLines(m.choice.Body, width, maxBodyLines)
-	}
 	labels := make([]string, len(m.choice.Buttons))
 	for i := range labels {
 		labels[i] = m.label(i)
 	}
-	return layout{
+	l := layout{
 		title:   wrapLines(m.choice.Title, width, 0),
-		body:    body,
 		buttons: buttonrow.Layout(labels, width, buttonGap),
 	}
+	if m.choice.Body != "" {
+		if limit := m.bodyLimit(l); limit > 0 {
+			l.body = wrapLines(m.choice.Body, width, limit)
+		}
+	}
+	return l
+}
+
+// bodyLimit is how many body lines fit beside l's title and buttons: the
+// box frame, the title, the button rows and the two blank separators come
+// off the terminal height first. With the height unknown only maxBodyLines
+// applies; a result <= 0 means no room for any body.
+func (m Model) bodyLimit(l layout) int {
+	if m.height <= 0 {
+		return maxBodyLines
+	}
+	box := m.styles.Box
+	frame := box.GetBorderTopSize() + box.GetBorderBottomSize() + box.GetPaddingTop() + box.GetPaddingBottom()
+	buttonRows := 0
+	for _, p := range l.buttons {
+		buttonRows = max(buttonRows, p.Row+1)
+	}
+	return min(maxBodyLines, m.height-frame-len(l.title)-buttonRows-2)
 }
 
 // View renders the prompt box, or "" when hidden: the title, a blank line,
