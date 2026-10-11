@@ -84,7 +84,7 @@ type sixelEntry struct {
 	fallback []string // halfblock-equivalent text for partial-visibility frames
 	height   int      // image height in rows
 	width    int      // image width in cells; the erase footprint
-	col      int      // display column within linesNormal where the image starts
+	col      int      // display column within the entry's rows where the image starts
 }
 
 // OpenImagePreviewMsg requests opening the full-screen preview overlay
@@ -208,13 +208,12 @@ type Model struct {
 // and arranges for the selected-message border to re-render with the
 // appropriate color (Accent when focused, TextMuted when not).
 //
-// Perf: m.focused only affects the SELECTED row's cached `linesSelected`
-// (via cs.borderSelect, the selectedFill background, RepaintBgToSelectionTint,
-// and RenderMessage's IsSelected option -- see buildCacheStyles at
-// model.go:1292 and renderMessageEntry at model.go:1338). Every other
-// row's `linesNormal` is focus-independent and the flatten loop at
-// model.go:2548 picks linesSelected ONLY for the entry where
-// e.msgIdx == m.selected.
+// Perf: m.focused only affects the SELECTED entry's cached Selected rows
+// (via the focused border colour, the selected fill background,
+// RepaintBgToSelectionTint, and RenderMessage's IsSelected option -- see
+// buildCacheStyles and renderMessageEntry). Every other entry's Lines are
+// focus-independent, and View draws an entry's Selected rows ONLY for the
+// entry whose Ref is m.selected.
 //
 // So instead of dropping the entire cache (which forced a full per-message
 // re-render of every loaded message -- ~600ms for 50 msgs in real traces,
@@ -225,7 +224,8 @@ type Model struct {
 //
 // If there is no current selection (m.selected out of range -- e.g. an
 // empty channel), there is nothing to invalidate -- the next render will
-// pick up the new m.focused value naturally because no row uses linesSelected.
+// pick up the new m.focused value naturally because no entry draws its
+// Selected rows.
 func (m *Model) SetFocused(focused bool) {
 	if m.focused == focused {
 		return
@@ -1048,7 +1048,7 @@ func (m *Model) RemoveMessageByTS(ts string) bool {
 func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool) {
 	// Capture pre-mutation viewport state so we can preserve "anchored at
 	// bottom" across the reaction's height change. Without this, adding
-	// the first reaction to the last visible message grows totalLines by
+	// the first reaction to the last visible message grows the list total by
 	// 1 while yOffset stays put -- the bottom message gets pushed below
 	// the fold and a "-- more below --" hint replaces it. We want the
 	// reaction to push content *up* (yOffset++) instead, keeping the
@@ -1068,7 +1068,7 @@ func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool)
 				m.ClampReactionNav()
 			}
 			// Re-anchor the viewport bottom if it was at the bottom before.
-			// We need the new totalLines, which only buildCache computes;
+			// We need the new list total, which only buildCache computes;
 			// rebuild now (cheap, and the next View() would do it anyway).
 			if wasAnchoredAtBottom && m.cacheWidth > 0 {
 				m.buildCache(m.cacheWidth, false)
@@ -1122,6 +1122,7 @@ func (m *Model) ResolveUserName(userID string) string {
 // SetUserNames sets the user ID -> display name map used to resolve @mentions.
 func (m *Model) SetUserNames(names map[string]string) {
 	m.userNames = names
+	// Drop the cache so mentions re-render with the new names.
 	m.dropCache()
 	m.dirty()
 }
@@ -1449,7 +1450,7 @@ type entryPerfStats struct {
 	attachmentsCount          int
 
 	// renderMessageEntry sub-steps (post RenderMessage)
-	borderWrapTotal time.Duration // borderFill/borderInvis/borderSelect renders + RepaintBgToSelectionTint
+	borderWrapTotal time.Duration // WrapRows: border/fill renders + RepaintBgToSelectionTint
 	plainLinesTotal time.Duration // ANSI-stripping for the plain-text mirror
 }
 
