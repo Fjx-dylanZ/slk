@@ -244,6 +244,7 @@ greppable by name; no line numbers, because these files move.
 | Feed a jump's `ChannelSelectedMsg` back through `Update` | `driveJump(app, cmd)` (`internal/ui/jump_mark_test.go`) |
 | A marks table backed by an in-memory cache, or one whose every call fails | `marksPersistForTest(t)` (`internal/ui/marks_test.go`), `failingMarksPersist()` (`internal/ui/command_marks_test.go`) |
 | List a workspace's marks, failing the test on a read error | `mustListMarks(t, store, teamID)` (`internal/ui/marks_test.go`) |
+| An 80x24 `App` with the marks list open over marks a (C2) and b (C3), and the box's top-left screen cell | `marksClickApp(t)` (`internal/ui/marks_mode_test.go`) |
 | An `App` with given per-channel caches and an optional fetch-around, for history tests | `navFixtureApp(t, caches, fetchAround)` (`internal/ui/navhistory_test.go`) |
 | Drive a history walk through the whole pipeline | `walkAndUpdate(t, app, cmd)`; `walkToCompletion(t, app, cmd)` also returns the selection and toasts (same file) |
 | A nav stack's entries as channel IDs | `navEntryChannelIDs(entries)` (`internal/ui/app_test.go`) |

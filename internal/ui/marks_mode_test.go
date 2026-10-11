@@ -184,3 +184,58 @@ func TestMarksOverlay_ClosesWhenQuitPromptInterrupts(t *testing.T) {
 		t.Fatalf("after cancelling the prompt: mode=%v list visible=%v, want normal and closed", app.mode, app.marksOverlay.IsVisible())
 	}
 }
+
+// marksClickApp opens the marks list over an 80x24 App with marks a
+// (C2) and b (C3), and returns the box's top-left screen cell.
+func marksClickApp(t *testing.T) (*App, int, int) {
+	t.Helper()
+	app := jumpMarkTestApp(t)
+	app.width, app.height = 80, 24
+	seedMark(t, app, "a", Location{TeamID: "T1", ChannelID: "C2", MessageTS: "10.0"})
+	seedMark(t, app, "b", Location{TeamID: "T1", ChannelID: "C3", MessageTS: "20.0"})
+	app.Update(tea.KeyPressMsg{Code: '\'', Text: "'"})
+	if app.mode != ModeMarks {
+		t.Fatalf("mode = %v, want ModeMarks", app.mode)
+	}
+	w, h := app.marksOverlay.BoxSize(app.width, app.height)
+	return app, max((app.width-w)/2, 0), max((app.height-h)/2, 0)
+}
+
+func TestMarksOverlay_ClickRowJumps(t *testing.T) {
+	app, x, y := marksClickApp(t)
+	// The list starts at box-local row 4: border, padding, title, blank.
+	_, cmd := app.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: x + 3, Y: y + 4 + 1})
+	if cmd == nil {
+		t.Fatal("clicking a row must jump to its mark")
+	}
+	cs, ok := cmd().(ChannelSelectedMsg)
+	if !ok || cs.ID != "C3" {
+		t.Fatalf("clicked the second row, got %T %+v, want a jump to C3", cmd(), cmd())
+	}
+	if app.mode != ModeNormal || app.marksOverlay.IsVisible() {
+		t.Errorf("the jump must close the list: mode=%v visible=%v", app.mode, app.marksOverlay.IsVisible())
+	}
+}
+
+func TestMarksOverlay_ClickInsideOffRowKeepsListOpen(t *testing.T) {
+	app, x, y := marksClickApp(t)
+	// Box-local row 2 is the title.
+	if _, cmd := app.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: x + 3, Y: y + 2}); cmd != nil {
+		t.Errorf("clicking the title returned a cmd: %v", cmd)
+	}
+	if app.mode != ModeMarks || !app.marksOverlay.IsVisible() {
+		t.Errorf("the list must stay open: mode=%v visible=%v", app.mode, app.marksOverlay.IsVisible())
+	}
+}
+
+func TestMarksOverlay_ClickOutsideCloses(t *testing.T) {
+	app, _, _ := marksClickApp(t)
+	if _, cmd := app.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 0, Y: 0}); cmd != nil {
+		if _, ok := cmd().(ChannelSelectedMsg); ok {
+			t.Fatal("an outside click must not jump")
+		}
+	}
+	if app.mode != ModeNormal || app.marksOverlay.IsVisible() {
+		t.Errorf("an outside click must close the list: mode=%v visible=%v", app.mode, app.marksOverlay.IsVisible())
+	}
+}
