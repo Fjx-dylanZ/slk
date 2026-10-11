@@ -185,6 +185,7 @@ greppable by name; no line numbers, because these files move.
 | Populate `a.layout` bands / pane caches (needed for mouse hit-testing) | `withRender()` |
 | N plain message fixtures | `testMessageItems(n)` |
 | Compare or bless a full-screen frame against `testdata/golden/<name>.ansi` | `compareGolden(t, name, got)` (`internal/ui/golden_test.go`) |
+| Prove two ANSI screens look identical even when their bytes differ (re-encoded SGR), or that every golden is cell-identical to a baseline directory | `cellDiff(want, got)` and `SLK_GOLDEN_BASELINE=<dir> go test ./internal/ui -run TestGoldenCellsMatchBaseline` (`internal/ui/goldencells_test.go`) |
 | Re-bless goldens | the package-local `-update` flag: `go test ./internal/ui -run TestGolden -update`. It is not defined repo-wide, so `go test ./... -update` fails |
 | An `App` with every render nondeterminism pinned (theme, emoji mode, clock) | `newGoldenApp(t, opts...)`, with `goldenMessages()` / `goldenChannels()` as the fixtures |
 | Drive a message through the real `Update` chain and render one frame | `updateAndRender(t, a, msg)` (`internal/ui/thread_breadcrumb_test.go`) |
