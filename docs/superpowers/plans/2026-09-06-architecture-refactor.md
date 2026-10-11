@@ -638,12 +638,13 @@ duplication.
 
 **Exit:** modal cluster line count measured, not gated (see the Phase 4 spec
 §7); one `renderBox`; one `visibleWindow`; every modal package satisfying a
-declared chrome interface with a compile-time assertion; all 8 goldens
-byte-identical except `overlay_finder`, which is re-blessed once with a reviewed
-diff.
+declared chrome interface with a compile-time assertion; all goldens
+cell-identical to the step-0 baseline (as built: byte-identical, no re-bless;
+originally planned: all 8 byte-identical except `overlay_finder`, re-blessed once
+with a reviewed diff).
 
-**Risk:** medium-high. Touches 13 packages and the `overlay_finder` golden is
-expected to change. Consolidate incrementally — one modal migrated per commit,
+**Risk:** medium-high. Touches 13 packages and the `overlay_finder` golden was
+expected to change (as built, it did not). Consolidate incrementally — one modal migrated per commit,
 goldens green between each.
 
 > **As built:** the substrate is `internal/bubbles/chrome`, drawn with

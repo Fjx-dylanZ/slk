@@ -15,8 +15,10 @@ import (
 	"github.com/gammons/slk/internal/bubbles/ansi"
 )
 
-// Styles is everything chrome draws with. None of them sets a Width;
-// chrome applies widths itself.
+// Styles is the dialog palette: what chrome draws with, plus Row,
+// RowSelected and Footer, which dialogs use for the row content and
+// footers they render themselves. None of them sets a Width; chrome
+// applies widths itself.
 type Styles struct {
 	Box         lipgloss.Style // a centered dialog's border, padding and background
 	Popup       lipgloss.Style // a composer popup's border and background

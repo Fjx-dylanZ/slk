@@ -115,7 +115,9 @@ func (m Model) renderResultRows(s chrome.Styles, innerWidth int, bg color.Color)
 	return list.Rows(s, m.highlight, lines)
 }
 
-// renderRow renders a single user row's content, width wide: display name, @handle, [ext] tag if external, and a trailing "✓" if the user is in the pill bar. The marker column is the list's.
+// renderRow renders a single user row's content, width wide: display
+// name, @handle, [ext] tag if external, and a trailing "✓" if the user
+// is in the pill bar. The marker column is the list's.
 func (m Model) renderRow(u User, width int, highlight bool, bg color.Color) string {
 	name := u.DisplayName
 	if u.IsExternal {

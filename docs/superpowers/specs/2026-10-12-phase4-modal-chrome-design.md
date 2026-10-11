@@ -399,6 +399,11 @@ Measured numbers are in the tracking doc's Phase 4 "Achieved".
 - **userprofile's package comment was refreshed** in its migration commit.
 - **§8.1 is still open.** The workspacefinder row wrap is preserved exactly,
   as designed, and is still to be raised as an issue. No finding beyond §8.1.
+- **reactionsview and the popups do not use `List`; §3.3 and §3.4 say they
+  do.** reactionsview has no marker and no gutter, so it passes its `window`
+  straight to `Frame.Body`; `List.Rows` would add a marker column and change
+  the screen. Its persistent `offset` is its own, not a `List.Start`. The
+  popups draw with `PopupMarker` and `Popup`. linkpicker does use `List`.
 - **The cluster shrank less than §7 estimated:** 5,744 → 4,865 lines for the
   13 packages (−879), 5,094 with `chrome`'s 229 lines (−650), against an
   estimated 1,200–1,400 removed. The line count is not a gate.

@@ -405,8 +405,9 @@ func splitAtWidth(s string, w int) (head, tail string) {
 // lines (the second truncated with "…" when more remains, or blank
 // when the snippet fits on one), and a blank separator.
 // When the fetched list overflows the visible window a proportional
-// scrollbar gutter is drawn on the right (chrome.List's gutter), spanning all lines of
-// each row — separator included, for gutter continuity.
+// scrollbar gutter is drawn on the right (chrome.List's gutter),
+// spanning all lines of each row — separator included, for gutter
+// continuity.
 func (m Model) resultRows(innerWidth, termHeight int) []string {
 	s := messages.ChromeStyles()
 	bg := styles.Background
@@ -417,12 +418,12 @@ func (m Model) resultRows(innerWidth, termHeight int) []string {
 	// Highlight open/close SGRs, derived once per render (same guard
 	// as the messages pane's call site). The close carries the theme
 	// bg/fg restore so the highlighter's reset can't bleed
-	// terminal-default colors before renderBox's ReapplyBgAfterResets
-	// pass.
+	// terminal-default colors before chrome.Box re-asserts the base
+	// colours.
 	var hlStart, hlEnd string
 	if len(m.highlightTerms) > 0 {
-		if start, end, ok := messages.SearchHighlightSGR(); ok {
-			hlStart, hlEnd = start, end
+		if sgrOpen, sgrClose, ok := messages.SearchHighlightSGR(); ok {
+			hlStart, hlEnd = sgrOpen, sgrClose
 		}
 	}
 	// highlight wraps term matches in a styled snippet span. Applied
