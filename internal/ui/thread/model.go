@@ -307,7 +307,9 @@ func (m *Model) breadcrumbAuthor() string {
 	return m.userNames[m.parent.UserID]
 }
 
-// LastReadTS returns the current unread-boundary ts.
+// LastReadTS returns the current unread-boundary ts. Only tests call it
+// today; production code reads the field via the SetLastReadTS-driven
+// render.
 func (m *Model) LastReadTS() string {
 	return m.unreadBoundaryTS
 }

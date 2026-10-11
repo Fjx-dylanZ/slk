@@ -573,7 +573,7 @@ Measured with Task 0.0 step 3 (commands in the plan; baseline in
 | Verbatim shared thread→messages lines (≥ 16 chars, spec A.2) | < 50 | **not met: 206 of 540** (491 of 986 at baseline; 233 after Task 6.2). The remainder is per-pane setters, selection wrappers and chrome that no Phase 3 task unified. Unifying the setters overlaps RFC #236's directory/pull stage, so it was left out of scope rather than expanded here |
 | Benchmarks vs the PR 0 baseline (medians of 10, same VM) | within ±10% | **met**: thread `BenchmarkViewScroll` 3.85 ms → 0.50 ms (−87%, allocs 29,814 → 2,092); messages `BenchmarkViewScroll` −0.5%, `BenchmarkBuildCache` −0.4%, `BenchmarkViewFocusFlip` −4.9% (the baseline is noisy on this VM: ±14–15% between runs on the last two) |
 | Goldens | byte-identical except the §6.3 re-bless | **met**: `thread_open`, `wide`, `narrow` and (decision P4) `thread_parent_selected` were re-blessed once, in PR 2+3, cell-identical by `cellDiff`; no other golden changed |
-| `go test ./... -race -count=5` | PASS | **PASS** (see the PR 8 description for the run) |
+| `go test ./... -race -count=5` | PASS | **PASS for every package except `internal/ui`, which could not be run as one `-count=5` process**: it was OOM-killed (`signal: killed`) under the 8 GiB sandbox cgroup, because its race test binary retains about 1.2 GB per iteration (1,247 MB at `-count=1`, 2,426 MB at `-count=2`; the #304 head `23e09abb` grows the same, 2,416 MB at `-count=2`, so it predates Phase 3). Five separate single-iteration `-race` runs of the `internal/ui` test binary all passed. Not the literal bar |
 | `thread.Model` / `messages.Model` white-box test refs | — | 139 refs / 10 members, and 144 / 13 (159 / 24 and 137 / 20 at the baseline): the moved state is reached through `entrylist`'s exported API |
 
 **Test references to unexported `ui.App` members.** The PR 0 baseline measured
@@ -599,8 +599,10 @@ Phase 0 figure came from selectors alone. Neither number was rewritten.
 U1, U2, U3 and 8(c); thread dropping U4 and U6; #254; the P2 stale focused
 border (pinned by `TestChar_ThreadFocusFlipKeepsFocusedBorder`); caching the
 thread parent; whether thread should get search highlighting, a loading state
-or image click-to-preview; and a per-pane render test for the `── new ──`
-landmark row, which only the retired lockstep test asserted.
+or image click-to-preview; and per-setting tests for the `RenderOptions` fields
+(the `── new ──` landmark row and the thread's boundary lifecycle, which only
+the retired lockstep test covered, are pinned again in PR 8 by
+`TestUnreadLandmark_*` and `TestSetThread_ClearsBoundaryOnlyWhenTheThreadChanges`).
 
 ---
 
@@ -748,7 +750,7 @@ dupl -t 75 -plumbing $(find . -name '*.go' \
 | 0 | Test safety net | — | [spec](../specs/2026-09-06-phase0-test-safety-net-design.md) | [plan](2026-09-06-phase0-test-safety-net.md) | **complete** |
 | 1 | `main.go` topical splits | — | [spec](../specs/2026-09-22-phase1-main-go-splits-design.md) | [plan](2026-09-22-phase1-main-go-splits.md) | **complete** |
 | 2 | `main.go` structural | 1 | — | — | not started |
-| 3 | Collapse `messages`/`thread` fork | 0 | [spec](../specs/2026-10-10-phase3-messages-thread-fork-design.md) | [plan](2026-10-11-phase3-messages-thread-fork.md) | **complete** (one exit criterion unmet: shared lines 206, target < 50; see Phase 3 "Achieved") |
+| 3 | Collapse `messages`/`thread` fork | 0 | [spec](../specs/2026-10-10-phase3-messages-thread-fork-design.md) | [plan](2026-10-11-phase3-messages-thread-fork.md) | **complete** (two exit criteria unmet: shared lines 206 vs < 50, and `thread/model.go` 1,351 lines vs ≤ 1,000; see Phase 3 "Achieved") |
 | 4 | Modal chrome substrate | 0, 3 | — | — | not started |
 | 5 | Finish `App` decomposition | 0b | — | — | not started |
 | 6 | Opportunistic cleanup | 3, 4 | — | — | not started |

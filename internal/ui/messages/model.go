@@ -1335,8 +1335,8 @@ func (m *Model) SetLastReadTS(ts string) {
 	m.dirty()
 }
 
-// LastReadTS returns the current "last read" boundary timestamp. Used by
-// tests; production code reads the field via SetLastReadTS-driven render.
+// LastReadTS returns the current "last read" boundary timestamp. The App
+// reads it when it seeds a split window from this pane (windows.go).
 func (m *Model) LastReadTS() string {
 	return m.lastReadTS
 }

@@ -531,8 +531,14 @@ is here.
   behavioural tests; and `thread.ApplySelectionToBordered` now sets the theme
   list styles first, as the channel pane's version already did (a one-line
   parity fix on a `contentPane`-adjacent method).
-- **Exit criterion not met: shared lines < 50.** See "Achieved" in the tracking
-  document: 491 → 206, not < 50. After Task 6.2 it was 233; the remainder is
+- **Two exit criteria not met (§9).** `thread/model.go` is 1,351 lines against
+  the ≤ 1,000 bar (stretch < 900), down from 2,314. And shared lines < 50: see
+  "Achieved" in the tracking document: 491 → 206, not < 50. Also, the literal
+  `go test ./... -race -count=5` could not run for `internal/ui` as one process
+  (OOM-killed under the 8 GiB sandbox cgroup; its race binary retains about
+  1.2 GB per iteration, and the #304 head grows the same); every other package
+  passed, and five separate single-iteration race runs of `internal/ui` passed.
+  On shared lines: after Task 6.2 it was 233; the remainder is
   per-pane setters, selection wrappers and chrome that no Phase 3 task unified.
   Unifying the setters overlaps RFC #236's directory/pull stage and was kept out
   of scope (controller ruling).
@@ -552,7 +558,7 @@ is here.
 | 6 hit-test row frame | converged: content-relative in both; the App subtracts chrome | `TestHitTestReaction_OnPill` (both panes) |
 | 7 scroll mechanism | converged: `bubbles/entrylist` (thread keeps the eager clamp, U6) | `entrylist_test.go` |
 | 8a landmark setter | converged: `SetLastReadTS` / `LastReadTS` on both | App-level boundary tests in `app_test.go`, `reducer_focus_test.go` |
-| 8b landmark lifecycle | thread pane: `SetThread` clears the boundary when the thread identity changes (`thread/model.go`) | no dedicated test |
+| 8b landmark lifecycle | thread pane: `SetThread` clears the boundary when the thread identity changes (`thread/model.go`) | `TestSetThread_ClearsBoundaryOnlyWhenTheThreadChanges` |
 | 8c landmark structure | `entrylist.WithSnapDecorationAnchors` (channel on, thread off) | `TestPressOnDecoration`, `TestChar_MessagesSelectionSnapsFromDivider` |
 | 9 reply count | `RenderOptions.ReplyAffordance` (channel on) | goldens; no per-setting test |
 | 10 search highlight | `RenderContext.SearchTerms` (channel sets, thread leaves nil) | `highlight_test.go`, `TestSetSearchTerms_*` |
@@ -575,11 +581,14 @@ Gaps, stated plainly:
   single field is flipped; the goldens, the thread render tests and a 720-input
   old/new differential run during PR 6 are what guard them.
 - The retired file was the only test that asserted the rendered
-  `── new ──` unread-landmark row (and a day-transition divider row beside a
-  wrapped line and a reaction pill, byte-identical across the panes). The
-  App-level tests check the boundary *state*, and no golden contains a
-  landmark, so a regression in how either pane draws the landmark row would no
-  longer fail a test. A per-pane render test for it is a worthwhile follow-up.
+  `── new ──` unread-landmark row, and thread's boundary lifecycle (8b). Both are
+  pinned again in PR 8, with each test shown to fail under a mutant that
+  changes the text, disables the insertion, or removes/always applies the
+  clear: `TestUnreadLandmark_RendersBetweenReadAndUnread` (channel),
+  `TestUnreadLandmark_RendersBetweenReadAndUnreadReply` (thread) and
+  `TestSetThread_ClearsBoundaryOnlyWhenTheThreadChanges`. The retired file's
+  byte-identical comparison of a day-transition divider row beside a wrapped
+  line and a reaction pill across the two panes is not restored.
 
 The retired file's two cross-pane tests, `TestLockstep_SharedRenderBehaviour`
 and `TestLockstep_ScrolledWindowParity`, go with it: the first compared two
