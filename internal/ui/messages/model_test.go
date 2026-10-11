@@ -313,9 +313,9 @@ func TestCursorFollowsScrollUp(t *testing.T) {
 	if m.SelectedIndex() >= startSel {
 		t.Errorf("cursor did not follow scroll up: before=%d after=%d", startSel, m.SelectedIndex())
 	}
-	if !selectionVisible(&m) {
+	if !selectionVisible(m) {
 		t.Errorf("selection not visible after scroll up: sel=[%d,%d) window=[%d,%d)",
-			cursorStart(&m), cursorEnd(&m), m.list.YOffset(), m.list.YOffset()+m.list.Height())
+			cursorStart(m), cursorEnd(m), m.list.YOffset(), m.list.YOffset()+m.list.Height())
 	}
 }
 
@@ -341,9 +341,9 @@ func TestCursorFollowsScrollDown(t *testing.T) {
 	if m.SelectedIndex() <= startSel {
 		t.Errorf("cursor did not follow scroll down: before=%d after=%d", startSel, m.SelectedIndex())
 	}
-	if !selectionVisible(&m) {
+	if !selectionVisible(m) {
 		t.Errorf("selection not visible after scroll down: sel=[%d,%d) window=[%d,%d)",
-			cursorStart(&m), cursorEnd(&m), m.list.YOffset(), m.list.YOffset()+m.list.Height())
+			cursorStart(m), cursorEnd(m), m.list.YOffset(), m.list.YOffset()+m.list.Height())
 	}
 }
 
@@ -367,7 +367,7 @@ func TestCursorUnchangedWhenScrollKeepsSelectionVisible(t *testing.T) {
 		t.Errorf("cursor moved on a scroll that kept selection visible: before=%d after=%d",
 			startSel, m.SelectedIndex())
 	}
-	if !selectionVisible(&m) {
+	if !selectionVisible(m) {
 		t.Errorf("selection unexpectedly off-screen after 1-line scroll")
 	}
 }
@@ -648,7 +648,7 @@ func setupImageMessageModel(t *testing.T, protocol imgpkg.Protocol) *Model {
 		ctx.KittyRender = imgpkg.NewKittyRenderer(imgpkg.NewRegistry())
 	}
 	m.SetImageContext(ctx)
-	return &m
+	return m
 }
 
 // TestView_SixelFullVisibility_PublishesPlacement asserts that a fully
@@ -1544,8 +1544,6 @@ func TestModel_RenderMessageWithImageEmoji_FlushesThreaded(t *testing.T) {
 }
 
 func TestUpdateReactionMaintainsUserIDs(t *testing.T) {
-	// messages.New(msgs, channelName) returns a value Model; m is addressable
-	// so the pointer-receiver methods below work.
 	m := New([]MessageItem{{TS: "100.0", Text: "hi"}}, "general")
 
 	// Add a reaction by user U1 -> creates the group with U1.

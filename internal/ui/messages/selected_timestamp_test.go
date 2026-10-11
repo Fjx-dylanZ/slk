@@ -25,7 +25,7 @@ func longTSModel(t *testing.T, items []MessageItem, width int) (*Model, string) 
 	pinLongTSClock(t)
 	m := New(items, "general")
 	view := ansi.Strip(m.View(40, width))
-	return &m, view
+	return m, view
 }
 
 // selectedEntry returns the cache entry for the selected message.
@@ -115,11 +115,11 @@ func TestSelectedTimestamp_AvatarNarrowFallsBack(t *testing.T) {
 	}, "general")
 	m.SetAvatarFunc(func(string) string { return "AAAA\nAAAA" })
 	_ = m.View(40, 24)
-	e := selectedEntry(t, &m)
+	e := selectedEntry(t, m)
 	if got := ansi.Strip(strings.Join(e.Selected, "\n")); strings.Contains(got, "Sep 29") {
 		t.Fatalf("avatar-narrow selected row shows long timestamp:\n%s", got)
 	}
-	assertHeightsMatch(t, &m)
+	assertHeightsMatch(t, m)
 }
 
 // Review Focus 3: the (edited) mark is part of the header row.

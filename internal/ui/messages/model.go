@@ -456,12 +456,12 @@ func newChannelList() *entrylist.Model {
 	)
 }
 
-func New(msgs []MessageItem, channelName string) Model {
+func New(msgs []MessageItem, channelName string) *Model {
 	selected := 0
 	if len(msgs) > 0 {
 		selected = len(msgs) - 1
 	}
-	return Model{
+	return &Model{
 		messages:    msgs,
 		selected:    selected,
 		channelName: channelName,

@@ -850,7 +850,7 @@ func NewApp() *App {
 	// empty at construction — main.go's Set* forwarders run later and
 	// reach the root model through the messagepane pointer directly.
 	rootModel := messages.New(nil, "")
-	app.winModels = map[wintree.LeafID]*messages.Model{rootWin: &rootModel}
+	app.winModels = map[wintree.LeafID]*messages.Model{rootWin: rootModel}
 	app.messagepane = app.winModels[rootWin]
 	app.editing = newEditController()
 	// typing tracker is referenced by typingOut so it must exist first;
@@ -2413,7 +2413,7 @@ func (a *App) applyThreadUnreadBoundary(channelID, threadTS string) {
 	if channelID == "" || threadTS == "" {
 		return
 	}
-	a.threadPanel.SetUnreadBoundary(a.threads.ThreadLastRead(
+	a.threadPanel.SetLastReadTS(a.threads.ThreadLastRead(
 		ids.ChannelID(channelID), ids.ThreadTS(threadTS)))
 }
 
@@ -3985,7 +3985,7 @@ func (a *App) applyThreadMark(channelID, threadTS, lastRead string) {
 		a.threadPanel.ThreadTS() == threadTS {
 		// The panel renders its "── new ──" landmark after the boundary
 		// ts, so a fully-caught-up cursor renders no landmark.
-		a.threadPanel.SetUnreadBoundary(lastRead)
+		a.threadPanel.SetLastReadTS(lastRead)
 	}
 	a.applyThreadMarkListState(channelID, threadTS, lastRead)
 }
@@ -4085,7 +4085,7 @@ func (a *App) applyThreadMarkUnread(channelID, threadTS, boundaryTS string) {
 	if a.threadVisible &&
 		a.threadPanel.ChannelID() == channelID &&
 		a.threadPanel.ThreadTS() == threadTS {
-		a.threadPanel.SetUnreadBoundary(boundaryTS)
+		a.threadPanel.SetLastReadTS(boundaryTS)
 	}
 	if a.threadsView.MarkByThreadTSUnread(channelID, threadTS) {
 		a.sidebar.SetThreadsUnreadCount(a.threadsView.UnreadCount())

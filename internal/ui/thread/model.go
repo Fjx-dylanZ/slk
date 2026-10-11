@@ -63,7 +63,7 @@ type Model struct {
 
 	// layoutValid says the previous frame's layout still describes the
 	// screen: a width change then keeps the scroll position (U5). Cleared
-	// by every invalidation, by SetFocused, SetUnreadBoundary and ClickAt
+	// by every invalidation, by SetFocused, SetLastReadTS and ClickAt
 	// (the events that cleared the old view cache).
 	layoutValid bool
 
@@ -112,7 +112,7 @@ type Model struct {
 	// to in this thread. Replies whose TS > unreadBoundaryTS are considered
 	// new; a "── new ──" landmark is inserted between the last read reply
 	// and the first new one. Empty string disables the landmark. Set via
-	// SetUnreadBoundary, typically with the parent channel's last_read_ts
+	// SetLastReadTS, typically with the parent channel's last_read_ts
 	// at the moment the thread is opened.
 	unreadBoundaryTS string
 
@@ -246,7 +246,7 @@ func (m *Model) HandleAvatarReady(userID string) {
 // The cursor starts at the bottom (newest reply). When the channel/thread
 // identity changes (i.e. the user is opening a different thread, not just
 // receiving a refresh of the current one), the unread boundary is cleared
-// so a fresh boundary can be set by the caller via SetUnreadBoundary.
+// so a fresh boundary can be set by the caller via SetLastReadTS.
 func (m *Model) SetThread(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
 	if channelID != m.channelID || threadTS != m.threadTS {
 		m.unreadBoundaryTS = ""
@@ -273,12 +273,12 @@ func (m *Model) SetThread(parent messages.MessageItem, replies []messages.Messag
 	m.InvalidateCache()
 }
 
-// SetUnreadBoundary sets the timestamp the user has already read up to in
+// SetLastReadTS sets the timestamp the user has already read up to in
 // this thread. A "── new ──" landmark is rendered between the last reply
 // with TS <= boundary and the first reply with TS > boundary. Pass "" to
 // clear the boundary. Typically called by the App right after SetThread,
 // using the thread's own last-read cursor from thread_subscriptions.
-func (m *Model) SetUnreadBoundary(ts string) {
+func (m *Model) SetLastReadTS(ts string) {
 	if m.unreadBoundaryTS == ts {
 		return
 	}
@@ -307,8 +307,8 @@ func (m *Model) breadcrumbAuthor() string {
 	return m.userNames[m.parent.UserID]
 }
 
-// UnreadBoundaryTS returns the current unread-boundary ts. Used by tests.
-func (m *Model) UnreadBoundaryTS() string {
+// LastReadTS returns the current unread-boundary ts. Used by tests.
+func (m *Model) LastReadTS() string {
 	return m.unreadBoundaryTS
 }
 
@@ -716,6 +716,15 @@ func (m *Model) SelectedReply() *messages.MessageItem {
 	return &m.replies[m.selected]
 }
 
+// SelectedMessage returns the message under the cursor (the parent when
+// it is selected), the channel pane's accessor.
+func (m *Model) SelectedMessage() (messages.MessageItem, bool) {
+	if r := m.SelectedReply(); r != nil {
+		return *r, true
+	}
+	return messages.MessageItem{}, false
+}
+
 // SelectByIndex moves the selection cursor to i (an index into Replies()).
 // No-op if i is out of range. Used by tests that need a deterministic
 // selection state.
@@ -887,23 +896,26 @@ func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool)
 // in the chrome are ignored. A click below the content lands on the last
 // line (the row is clamped), so it selects the last reply; a click on a
 // separator, a divider or the rule under the parent selects nothing.
-func (m *Model) ClickAt(y int) {
+// It reports whether the click landed on a selectable row (the selection
+// was updated or already there).
+func (m *Model) ClickAt(y int) bool {
 	if y < m.chromeHeight {
-		return
+		return false
 	}
 	i, within, ok := m.list.EntryAt(m.list.AbsLine(y - m.chromeHeight))
 	if !ok {
-		return
+		return false
 	}
 	e := m.list.Entries()[i]
 	if !e.Selectable || within >= len(e.Plain) {
-		return
+		return false
 	}
 	if m.selected != e.Ref {
 		m.selected = e.Ref
 		m.layoutValid = false
 		m.dirty()
 	}
+	return true
 }
 
 // BeginSelectionAt anchors a new selection at the given pane-local
@@ -967,7 +979,19 @@ func (m *Model) ScrollHintForDrag(viewportY int) int {
 
 // View renders the thread panel content without a border.
 // The parent App is responsible for adding the border.
-func (m *Model) View(height, width int) string {
+func (m *Model) View(height, width int) string { return m.viewInternal(height, width, true) }
+
+// ViewBare renders the thread panel WITHOUT the selection-highlight
+// overlay; see messages.Model.ViewBare.
+func (m *Model) ViewBare(height, width int) string { return m.viewInternal(height, width, false) }
+
+// ApplySelectionToBordered paints the selection onto a cached bordered
+// render; see messages.Model.ApplySelectionToBordered.
+func (m *Model) ApplySelectionToBordered(bordered string, topBorderRows, leftBorderCols int) string {
+	return m.list.ApplySelectionToBordered(bordered, topBorderRows+m.chromeHeight, leftBorderCols)
+}
+
+func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	if m.IsEmpty() {
 		return lipgloss.NewStyle().
 			Width(width).
@@ -1266,7 +1290,7 @@ func (m *Model) View(height, width int) string {
 	// reply hits (content-relative), overlay the selection, draw the
 	// scrollbar.
 	frame := m.list.Layout(m.selected, m.selectedLines)
-	rows := m.list.Compose(frame, "", "", true)
+	rows := m.list.Compose(frame, "", "", applySelection)
 	m.layoutValid = true
 	return fitHeight(chrome+"\n"+strings.Join(rows, "\n"), height)
 }
