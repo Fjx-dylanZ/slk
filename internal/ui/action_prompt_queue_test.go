@@ -347,3 +347,52 @@ func TestActionDialogFitsShortTerminal(t *testing.T) {
 		t.Errorf("dialog height = %d on a 12-row terminal", h)
 	}
 }
+
+// An ephemeral that arrives while the channel finder is open belongs to the
+// channel being left. Picking another channel must not open its dialog over
+// the new conversation.
+func TestEphemeralQueuedBehindFinderDoesNotOpenAfterChannelSwitch(t *testing.T) {
+	opts := append(channelFinderOpts(), withSize(120, 40), withActiveChannel("C1"),
+		withMessages(), withMode(ModeChannelFinder))
+	a := newTestApp(t, opts...)
+	assertFinderOpen(t, a)
+
+	if got := toastText(arrive(t, a, mentionEphemeral(ephTS))); got != "Slackbot: press b to respond" {
+		t.Fatalf("toast = %q", got)
+	}
+	if len(a.actionQueue) != 1 {
+		t.Fatalf("queue = %d, want 1", len(a.actionQueue))
+	}
+
+	a.channelFinder.HandleKey("down")
+	a.channelFinder.HandleKey("down")
+	pressKey(t, a, keyCode(tea.KeyEnter))
+
+	if a.activeChannelID != "C2" {
+		t.Fatalf("activeChannelID = %q, want C2", a.activeChannelID)
+	}
+	if a.mode == ModeConfirm || a.confirmPrompt.IsVisible() {
+		t.Errorf("mode = %v; the old channel's dialog must not open over C2", a.mode)
+	}
+	if len(a.actionQueue) != 0 {
+		t.Errorf("queue = %v, want empty", a.actionQueue)
+	}
+}
+
+// A dialog never outlives its message being on screen: switching channel
+// closes it.
+func TestChannelSwitchClosesOpenActionDialog(t *testing.T) {
+	a, _ := actionApp(t, nil, mentionEphemeral(ephTS))
+	if !a.openActionPrompt(actionPromptRef{channelID: "C1", ts: ephTS}) {
+		t.Fatal("openActionPrompt = false")
+	}
+	_, cmd := a.Update(ChannelSelectedMsg{ID: "C2", Name: "random", Type: "channel"})
+	drainBatch(cmd)
+
+	if a.confirmPrompt.IsVisible() || a.mode == ModeConfirm {
+		t.Errorf("mode = %v, visible = %v; the dialog must close with its message", a.mode, a.confirmPrompt.IsVisible())
+	}
+	if a.shownPrompt != nil {
+		t.Errorf("shownPrompt = %+v, want nil", a.shownPrompt)
+	}
+}

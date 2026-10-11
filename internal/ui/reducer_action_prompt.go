@@ -11,6 +11,8 @@ import (
 
 var reduceActionPrompt reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
+	case actionPromptRecheckMsg:
+		return a.tryOpenActionPrompt(), true
 	case actionPressedMsg:
 		if m.err == nil {
 			return nil, true // Slack deletes the ephemeral over the WebSocket

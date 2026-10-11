@@ -31,6 +31,11 @@ type actionPressedMsg struct {
 	err   error
 }
 
+// actionPromptRecheckMsg asks for waiting action dialogs to be reconsidered.
+// dispatchModeKey sends it after the command of a key that closed a modal,
+// so any navigation that command performs has landed first.
+type actionPromptRecheckMsg struct{}
+
 // findActionMessage looks ref's message up in the pane showing it: the
 // open thread for a reply, otherwise any window on the channel.
 func (a *App) findActionMessage(ref actionPromptRef) (messages.MessageItem, bool) {
@@ -193,8 +198,9 @@ func (a *App) enqueueActionPrompt(ref actionPromptRef) tea.Cmd {
 // re-check, the user presses b. Queued
 // messages no longer shown are dropped. Called on enqueue and from the
 // re-check points only: the confirm prompt closing, any other modal
-// closing from a key (dispatchModeKey), leaving insert mode, and a send
-// clearing the composer.
+// closing from a key (dispatchModeKey, via actionPromptRecheckMsg, after
+// the key's command has run), leaving insert mode, and a send clearing the
+// composer.
 func (a *App) tryOpenActionPrompt() tea.Cmd {
 	for len(a.actionQueue) > 0 {
 		ref := a.actionQueue[0]
@@ -255,6 +261,20 @@ func (a *App) dropActionPrompt(channelID, ts string) tea.Cmd {
 		return a.afterConfirmPrompt(nil)
 	}
 	return nil
+}
+
+// closeOffscreenActionPrompt closes the action dialog if its message is no
+// longer shown, as after a channel switch: a dialog never outlives its
+// message being on screen.
+func (a *App) closeOffscreenActionPrompt() tea.Cmd {
+	if a.shownPrompt == nil || a.mode != ModeConfirm {
+		return nil
+	}
+	if _, ok := a.findActionMessage(*a.shownPrompt); ok {
+		return nil
+	}
+	a.confirmPrompt.Close()
+	return a.afterConfirmPrompt(nil)
 }
 
 // toastCmd is a local convenience for this file's toasts.
