@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/ids"
 )
 
 // presenceSlashApp is slashApp with the status setter recorded and the
@@ -72,9 +73,76 @@ func TestSlashAwayUpdatesTheCachedPresence(t *testing.T) {
 // (TestDispatchCommand_*). This is the guard against a built-in being
 // routed to chat.command; extend the list with each new built-in.
 func TestSlashBuiltinsAreLocal(t *testing.T) {
-	for _, name := range []string{"/away", "/active", "/status"} {
+	for _, name := range []string{"/away", "/active", "/status", "/open", "/join"} {
 		if _, ok := slashCommands[name]; !ok {
 			t.Errorf("%s is not in slashCommands, so it would run through chat.command", name)
 		}
+	}
+}
+
+// openSlashApp is slashApp with three channels in the finder (design
+// not joined) and joins recorded.
+func openSlashApp(t *testing.T) (*App, *[]runCall, *[]string) {
+	t.Helper()
+	a, runs := slashApp(t, nil)
+	a.channelFinder.SetItems([]core.ChannelFinderItem{
+		{ID: "C1", Name: "general", Type: "channel", Joined: true},
+		{ID: "C2", Name: "random", Type: "channel", Joined: true},
+		{ID: "C9", Name: "design", Type: "channel", Joined: false},
+	})
+	joins := &[]string{}
+	a.SetChannelService(core.NewChannelService(core.ChannelServiceFuncs{
+		Join: func(id ids.ChannelID, name string) core.Msg {
+			*joins = append(*joins, string(id))
+			return ChannelJoinedMsg{ID: string(id), Name: name}
+		},
+	}))
+	return a, runs, joins
+}
+
+func TestSlashOpen_SelectsAJoinedChannelByName(t *testing.T) {
+	a, runs, _ := openSlashApp(t)
+	a.compose.SetValue("/open #random")
+	sel := deliveredMsgs[ChannelSelectedMsg](t, pressEnter(a))
+	if len(sel) != 1 || sel[0].ID != "C2" {
+		t.Fatalf("ChannelSelectedMsg = %+v, want C2", sel)
+	}
+	if len(*runs) != 0 {
+		t.Errorf("chat.command ran %d times, want 0", len(*runs))
+	}
+}
+
+func TestSlashJoin_SelectsByMentionID(t *testing.T) {
+	a, _, _ := openSlashApp(t)
+	a.compose.SetValue("/join <#C2|random>")
+	sel := deliveredMsgs[ChannelSelectedMsg](t, pressEnter(a))
+	if len(sel) != 1 || sel[0].ID != "C2" {
+		t.Fatalf("ChannelSelectedMsg = %+v, want C2", sel)
+	}
+}
+
+func TestSlashOpen_JoinsAChannelTheUserIsNotIn(t *testing.T) {
+	a, _, joins := openSlashApp(t)
+	a.compose.SetValue("/open #Design")
+	_ = deliveredMsgs[ChannelJoinedMsg](t, pressEnter(a))
+	if len(*joins) != 1 || (*joins)[0] != "C9" {
+		t.Fatalf("joins = %v, want [C9]", *joins)
+	}
+}
+
+func TestSlashOpen_ErrorsToast(t *testing.T) {
+	cases := map[string]string{
+		"/open #nope": "No channel named #nope",
+		"/open":       "Usage: /open #channel",
+	}
+	for typed, want := range cases {
+		t.Run(typed, func(t *testing.T) {
+			a, _, _ := openSlashApp(t)
+			a.compose.SetValue(typed)
+			_ = pressEnter(a)
+			if !strings.Contains(statusbarText(a), want) {
+				t.Errorf("status bar = %q, want %q", statusbarText(a), want)
+			}
+		})
 	}
 }

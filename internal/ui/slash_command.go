@@ -60,6 +60,8 @@ var slashCommands = map[string]commandFunc{
 	"/away":   slashAway,
 	"/active": slashActive,
 	"/status": slashStatus,
+	"/open":   slashOpen,
+	"/join":   slashOpen,
 }
 
 // commandRanMsg is the result of running a slash command through
