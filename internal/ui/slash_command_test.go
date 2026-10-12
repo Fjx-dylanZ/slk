@@ -225,8 +225,11 @@ func TestSlashCommand_PostedResultIsNotSwallowedAsSelfSend(t *testing.T) {
 		TS: "99.000100", UserID: "U0EXAMPLE01", BotID: "B0EXAMPLE01", Text: "cats",
 	}})
 	msgs := a.messagepane.Messages()
-	if len(msgs) == 0 || msgs[len(msgs)-1].TS != "99.000100" {
-		t.Fatalf("last message = %+v, want the posted GIF 99.000100", msgs[len(msgs)-1:])
+	if len(msgs) == 0 {
+		t.Fatal("no messages shown, want the posted GIF 99.000100")
+	}
+	if last := msgs[len(msgs)-1]; last.TS != "99.000100" {
+		t.Fatalf("last message = %+v, want the posted GIF 99.000100", last)
 	}
 }
 

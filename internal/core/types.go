@@ -33,8 +33,9 @@ type MessageItem struct {
 	Attachments []Attachment
 	IsEdited    bool
 	// Subtype mirrors Slack's `subtype` field on a message event.
-	// Currently we only act on "thread_broadcast" (a thread reply that
-	// was also sent to the channel) so we can render a label above it.
+	// We act on "thread_broadcast" (a thread reply that was also sent to
+	// the channel), to render a label above it, and on "me_message" (a
+	// /me line), to render its body in italics.
 	Subtype string
 
 	// Blocks holds parsed Slack Block Kit blocks. Rendered between

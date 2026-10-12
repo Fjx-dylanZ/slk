@@ -6,8 +6,7 @@
 //
 // executeCommand parses a command line (without the leading ':')
 // and dispatches through the commands map — the designated
-// extension point for future :commands. Later phases of the
-// window-management plan register sp / vsp / q / only here.
+// extension point for :commands (ws, marks, sp, vsp, q, only, activity).
 package ui
 
 import (

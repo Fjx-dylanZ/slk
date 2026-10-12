@@ -87,8 +87,8 @@ func TestCommandForm_MatchesCaptures(t *testing.T) {
 	}
 }
 
-// Review Focus 4: a name followed only by whitespace has no arguments,
-// so blocks is omitted exactly as for bare /giphy.
+// A name followed only by whitespace has no arguments, so blocks is
+// omitted exactly as for bare /giphy.
 func TestCommandForm_WhitespaceOnlyArgsOmitBlocks(t *testing.T) {
 	got, err := commandForm(CommandRequest{ChannelID: "C1", Command: "/giphy", Args: "   \n "}, "web-1")
 	if err != nil {

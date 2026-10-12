@@ -551,3 +551,12 @@ Recorded, not fixed here:
 - **`/away` as a toggle** reads slk's cached presence; if that is stale the
   toggle goes the wrong way once, and the next `manual_presence_change`
   corrects the status bar.
+
+## Addenda (implementation, stage 1)
+
+- `_x_reason` for `chat.command` is set with `slackhttp.WithReason(ctx, "executeCommand")` in `RunCommand`, not via `defaultReasons`, because that table is pinned to an older attested capture set by `TestGenericReasonIsAValueTheOfficialClientSends`. Stages 2 and 3 (`blocks.actions`, `client.appCommands`) must do the same; §3.4's and §6's mentions of `defaultReasons` entries are superseded.
+- `/open` falls back to `ChannelService.SearchRemote` when the name is not among the finder's rows (production finder rows hold only the user's own conversations), via `channelLookupMsg`.
+- Refused or failed built-ins (and a failed `/msg` open) give the typed text back, like the remote path.
+- The `me_message` render test asserts the body line, because timestamps are always italic.
+- Built-in tests guard "runs locally" with `TestSlashBuiltinsAreLocal` (table membership), because a remote run happens inside a tea.Cmd the tests do not execute.
+- `/msg` pre-fill text keeps mentions in wire form (`<@U…>`); it still sends correctly.
