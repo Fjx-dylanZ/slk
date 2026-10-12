@@ -608,9 +608,14 @@ func run() error {
 	// thousands of users) wrote ~100MB of kitty graphics APC escape
 	// data to stdout at startup and produced a multi-minute hang on
 	// terminals that decode kitty graphics (kitty, ghostty).
-	app.SetAvatarService(core.NewAvatarService(func(userID string) string {
-		return lazyAvatar(router.Active(), avatarCache, userID)
-	}))
+	//
+	// show_avatars = false leaves the service unwired: no avatar column,
+	// and no lazy fetch is ever started.
+	if cfg.Appearance.ShowAvatars {
+		app.SetAvatarService(core.NewAvatarService(func(userID string) string {
+			return lazyAvatar(router.Active(), avatarCache, userID)
+		}))
+	}
 
 	// Wire theme switcher: dispatch to the appropriate saver based on scope.
 	// A workspace save names its workspace instead of reading

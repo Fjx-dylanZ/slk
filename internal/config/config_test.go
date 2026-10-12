@@ -38,6 +38,17 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
+// show_avatars is a plain bool, so without the Default() entry an unset
+// key would silently turn avatars off for everyone.
+func TestShowAvatars(t *testing.T) {
+	if cfg := loadConfigString(t, "[appearance]\ntheme = \"nord\"\n"); !cfg.Appearance.ShowAvatars {
+		t.Error("unset show_avatars = false; want true")
+	}
+	if cfg := loadConfigString(t, "[appearance]\nshow_avatars = false\n"); cfg.Appearance.ShowAvatars {
+		t.Error("show_avatars = false parsed as true")
+	}
+}
+
 func TestLoadConfigFromFile(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.toml")
