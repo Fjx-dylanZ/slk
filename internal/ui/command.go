@@ -12,6 +12,7 @@ package ui
 import (
 	"strings"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -125,7 +126,7 @@ func dispatchCommand(a *App, table map[string]commandFunc, line string,
 // splitCommandLine splits line into its command name and args. ok is
 // false for an empty line.
 func splitCommandLine(line string) (name string, args commandArgs, ok bool) {
-	trimmed := strings.TrimLeft(line, " \t\r\n")
+	trimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
 	fields := strings.Fields(trimmed)
 	if len(fields) == 0 {
 		return "", commandArgs{}, false
@@ -133,7 +134,7 @@ func splitCommandLine(line string) (name string, args commandArgs, ok bool) {
 	name = fields[0]
 	return name, commandArgs{
 		Fields: fields[1:],
-		Rest:   strings.TrimLeft(trimmed[len(name):], " \t\r\n"),
+		Rest:   strings.TrimLeftFunc(trimmed[len(name):], unicode.IsSpace),
 	}, true
 }
 

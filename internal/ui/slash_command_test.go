@@ -28,6 +28,9 @@ func TestParseSlashCommand(t *testing.T) {
 		{"/giphy\ncats", "/giphy", "cats", true},
 		{"/my-cmd_2 x", "/my-cmd_2", "x", true},
 		{"/remind me  to  stretch", "/remind", "me  to  stretch", true}, // inner spacing kept
+		{"/giphy\u00a0cats", "/giphy", "cats", true},                    // pasted non-breaking space separates too
+		{"/giphy\u3000\u00a0cats", "/giphy", "cats", true},              // any Unicode space, any run of them
+		{"/giphy\u00a0", "/giphy", "", true},                            // only Unicode space after the name: no args
 		{" /giphy cats", "", "", false},                                 // a leading space escapes: sent as text
 		{"/tmp/foo is full", "", "", false},
 		{"/ hello", "", "", false},

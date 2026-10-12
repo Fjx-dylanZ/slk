@@ -80,3 +80,15 @@ func TestDispatchCommand_EmptyIsNoop(t *testing.T) {
 		t.Error("empty line should neither return a cmd nor reach unknown")
 	}
 }
+
+// Rest and Fields agree on what whitespace is: a non-breaking space
+// before the name or after it is skipped like an ASCII one.
+func TestSplitCommandLine_UnicodeSpace(t *testing.T) {
+	name, args, ok := splitCommandLine("\u00a0ws\u00a0a  b")
+	if !ok || name != "ws" {
+		t.Fatalf("splitCommandLine = (%q, %v), want ws", name, ok)
+	}
+	if args.Rest != "a  b" || strings.Join(args.Fields, "|") != "a|b" {
+		t.Errorf("args = %+v, want Rest \"a  b\" and Fields [a b]", args)
+	}
+}

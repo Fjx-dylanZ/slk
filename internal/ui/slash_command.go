@@ -8,6 +8,8 @@ package ui
 import (
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -19,7 +21,9 @@ import (
 // arguments. ok is false for anything that is not a command, which then
 // sends as an ordinary message: text not starting with "/" (a leading
 // space is the escape hatch), "/" alone, or a first token with anything
-// but [A-Za-z0-9_-] after the slash ("/tmp/foo", "/giphy:"). name is
+// but [A-Za-z0-9_-] after the slash ("/tmp/foo", "/giphy:"). Any Unicode
+// space separates the name from its arguments, as in strings.Fields, so a
+// pasted non-breaking space still runs the command. name is
 // lowercased; args keeps inner whitespace and newlines and is "" when
 // only whitespace follows the name.
 func parseSlashCommand(text string) (name, args string, ok bool) {
@@ -33,11 +37,11 @@ func parseSlashCommand(text string) (name, args string, ok bool) {
 	if end == 1 {
 		return "", "", false
 	}
-	if end < len(text) && !isCommandSpace(text[end]) {
+	if r, _ := utf8.DecodeRuneInString(text[end:]); end < len(text) && !unicode.IsSpace(r) {
 		return "", "", false
 	}
 	name = strings.ToLower(text[:end])
-	args = strings.TrimLeft(text[end:], " \t\r\n")
+	args = strings.TrimLeftFunc(text[end:], unicode.IsSpace)
 	if strings.TrimSpace(args) == "" {
 		args = ""
 	}
@@ -46,10 +50,6 @@ func parseSlashCommand(text string) (name, args string, ok bool) {
 
 func isCommandNameByte(b byte) bool {
 	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_' || b == '-'
-}
-
-func isCommandSpace(b byte) bool {
-	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }
 
 // slashCommands are the slash built-ins slk runs itself, because Slack's

@@ -8,6 +8,7 @@ package ui
 
 import (
 	"strings"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -166,7 +167,7 @@ func slashMsg(name string) commandFunc {
 		if a.openingConversation() {
 			return a.refuseCommand(args.Origin, "Still opening a conversation; try again in a moment")
 		}
-		text := strings.TrimLeft(strings.TrimPrefix(args.Rest, first), " \t\r\n")
+		text := strings.TrimLeftFunc(strings.TrimPrefix(args.Rest, first), unicode.IsSpace)
 		return a.openConversation([]string{users[0]}, msgPrefill{text: text, origin: args.Origin})
 	}
 }
