@@ -168,7 +168,12 @@ func RenderMessage(msg MessageItem, width int, rc *RenderContext, opt RenderOpti
 			rendered = HighlightSearchTerms(rendered, rc.SearchTerms, hlStart, hlEnd)
 		}
 	}
-	text := styles.MessageText.Render(WordWrap(rendered, contentWidth))
+	bodyStyle := styles.MessageText
+	if msg.Subtype == "me_message" {
+		// A /me line, italic as in Slack's own clients.
+		bodyStyle = bodyStyle.Italic(true)
+	}
+	text := bodyStyle.Render(WordWrap(rendered, contentWidth))
 	if stats != nil {
 		stats.bodyTotal += time.Since(bodyT0)
 	}
