@@ -1141,8 +1141,9 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 	if len(m.replies) == 0 {
 		// "No replies yet" under the parent. It goes through the list so
 		// a parent taller than the pane still scrolls; the scrollbar
-		// reflects the parent's own height. No snap, no hits, no
-		// selection overlay: as before (plan decision P1 for the totals).
+		// reflects the parent's own height. No snap and no selection
+		// overlay, as before (plan decision P1 for the totals); the
+		// parent's image hits are translated so its image is clickable.
 		emptyHeight := max(replyAreaHeight-len(parent.Lines), 1)
 		empty := lipgloss.NewStyle().
 			Width(width).

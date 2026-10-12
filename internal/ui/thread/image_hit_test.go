@@ -120,6 +120,40 @@ func TestHitTestImage_Parent(t *testing.T) {
 	}
 }
 
+// A parent with no replies (or whose replies are still loading) is drawn
+// through the zero-reply branch; its image is clickable there too.
+func TestHitTestImage_ParentWithNoReplies(t *testing.T) {
+	m := imageThreadModel(t, imgpkg.ProtoHalfBlock)
+	parent := withImage(messages.MessageItem{TS: "100.0", UserName: "alice", Text: "parent", Timestamp: "9:00 AM"})
+	m.SetThread(parent, nil, "C1", parent.TS)
+	_ = m.View(80, 80)
+
+	row, col := imageHitCenter(t, m)
+	ts, attIdx, ok := m.HitTestImage(row, col)
+	if !ok || ts != parent.TS || attIdx != 0 {
+		t.Fatalf("HitTestImage(%d,%d) = (%q, %d, %v), want (%q, 0, true)", row, col, ts, attIdx, ok, parent.TS)
+	}
+}
+
+// Switching to a thread with no replies must not leave the previous
+// thread's image hits answering clicks: they would open the new parent
+// with the old thread's attachment index.
+func TestHitTestImage_NoStaleHitsAfterSwitchingToAZeroReplyThread(t *testing.T) {
+	m := imageThreadModel(t, imgpkg.ProtoHalfBlock)
+	parentA := withImage(messages.MessageItem{TS: "100.0", UserName: "alice", Text: "parent", Timestamp: "9:00 AM"})
+	replyA := messages.MessageItem{TS: "101.0", UserName: "bob", Text: "nice", Timestamp: "9:01 AM"}
+	m.SetThread(parentA, []messages.MessageItem{replyA}, "C1", parentA.TS)
+	_ = m.View(80, 80)
+	row, col := imageHitCenter(t, m)
+
+	parentB := messages.MessageItem{TS: "200.0", UserName: "carol", Text: "no images here", Timestamp: "10:00 AM"}
+	m.SetThread(parentB, nil, "C1", parentB.TS)
+	_ = m.View(80, 80)
+	if ts, attIdx, ok := m.HitTestImage(row, col); ok {
+		t.Fatalf("HitTestImage(%d,%d) = (%q, %d) after switching threads; want no hit", row, col, ts, attIdx)
+	}
+}
+
 // The thread pane records image hits but still captures no sixel rows
 // (v1 scope: sixel renders its placeholder only in the thread pane).
 func TestHitTestImage_ThreadStillCapturesNoSixelRows(t *testing.T) {
