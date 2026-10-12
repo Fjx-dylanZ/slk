@@ -20,6 +20,15 @@ var reduceSlashCommand reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	if m.err == nil {
 		return nil, true
 	}
+	// Put the command back where it was typed, unless that conversation
+	// has a draft again by now. A thread command goes back to the
+	// thread composer, keyed by its thread; anything else to the
+	// channel composer.
+	c := &a.compose
+	if m.threadTS != "" {
+		c = &a.threadCompose
+	}
+	c.OfferDraft(m.teamID, m.channelID, m.threadTS, m.text)
 	return toastWithClear(a, commandFailureText(m.name, m.err), 4*time.Second), true
 }
 

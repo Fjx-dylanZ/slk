@@ -9,6 +9,7 @@ import (
 
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
+	"github.com/gammons/slk/internal/ui/mentionpicker"
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
@@ -20,14 +21,14 @@ func TestParseSlashCommand(t *testing.T) {
 	}{
 		{"/giphy cats", "/giphy", "cats", true},
 		{"/giphy", "/giphy", "", true},
-		{"/GIPHY cats", "/giphy", "cats", true},                             // Review Focus 3
-		{"/giphy   ", "/giphy", "", true},                                   // Review Focus 4
+		{"/GIPHY cats", "/giphy", "cats", true},                             // name is lowercased
+		{"/giphy   ", "/giphy", "", true},                                   // trailing spaces: no args
 		{"/giphy \t\n ", "/giphy", "", true},                                // whitespace-only args
-		{"/shrug line one\nline two", "/shrug", "line one\nline two", true}, // Review Focus 2
+		{"/shrug line one\nline two", "/shrug", "line one\nline two", true}, // newline kept in args
 		{"/giphy\ncats", "/giphy", "cats", true},
 		{"/my-cmd_2 x", "/my-cmd_2", "x", true},
 		{"/remind me  to  stretch", "/remind", "me  to  stretch", true}, // inner spacing kept
-		{" /giphy cats", "", "", false},                                 // Review Focus 1: leading space escapes
+		{" /giphy cats", "", "", false},                                 // a leading space escapes: sent as text
 		{"/tmp/foo is full", "", "", false},
 		{"/ hello", "", "", false},
 		{"/", "", "", false},
@@ -239,5 +240,74 @@ func TestSlashCommand_SuccessIsSilent(t *testing.T) {
 	a.Update(ran[0])
 	if out := statusbarText(a); strings.Contains(out, "/giphy") {
 		t.Errorf("status bar = %q, want no toast on success", out)
+	}
+}
+
+func TestSlashCommand_FailurePutsTextBack(t *testing.T) {
+	a, _ := slashApp(t, &core.CommandError{Code: "unknown_command"})
+	a.compose.SetValue("/notarealcommand hi")
+	ran := deliveredMsgs[commandRanMsg](t, pressEnter(a))
+	a.Update(ran[0])
+	if got := a.compose.Value(); got != "/notarealcommand hi" {
+		t.Errorf("compose = %q, want the command put back", got)
+	}
+}
+
+func TestSlashCommand_FailurePutsTypedFormBack(t *testing.T) {
+	// The composer shows what the user typed (@alice), not the wire
+	// form (<@U9>) the command was run with.
+	a, calls := slashApp(t, &core.CommandError{Code: "restricted_action"})
+	a.compose.SetUsers([]mentionpicker.User{{ID: "U9", DisplayName: "alice", Username: "alice", InChannel: true}})
+	a.compose.SetValue("/invite @alice")
+	ran := deliveredMsgs[commandRanMsg](t, pressEnter(a))
+	if (*calls)[0].args != "<@U9>" {
+		t.Fatalf("args = %q, want the wire form <@U9>", (*calls)[0].args)
+	}
+	a.Update(ran[0])
+	if got := a.compose.Value(); got != "/invite @alice" {
+		t.Errorf("compose = %q, want the typed form", got)
+	}
+}
+
+func TestSlashCommand_FailureKeepsNewerText(t *testing.T) {
+	a, _ := slashApp(t, &core.CommandError{Code: "unknown_command"})
+	a.compose.SetValue("/notarealcommand")
+	ran := deliveredMsgs[commandRanMsg](t, pressEnter(a))
+	a.compose.SetValue("typed while it ran")
+	a.Update(ran[0])
+	if got := a.compose.Value(); got != "typed while it ran" {
+		t.Errorf("compose = %q, want the newer text kept", got)
+	}
+}
+
+// The user moved to another conversation before the failure landed. The
+// command becomes C1's stored draft; C2's composer is untouched.
+func TestSlashCommand_FailureAfterMovingAwayStoresTheDraft(t *testing.T) {
+	a, _ := slashApp(t, &core.CommandError{Code: "unknown_command"})
+	a.compose.SetValue("/notarealcommand")
+	ran := deliveredMsgs[commandRanMsg](t, pressEnter(a))
+	a.compose.SetDraftContext("T1", "C2", "")
+	a.Update(ran[0])
+	if got := a.compose.Value(); got != "" {
+		t.Errorf("C2 compose = %q, want untouched", got)
+	}
+	a.compose.SetDraftContext("T1", "C1", "")
+	if got := a.compose.Value(); got != "/notarealcommand" {
+		t.Errorf("back in C1: compose = %q, want the stored command", got)
+	}
+}
+
+func TestSlashCommand_ThreadFailurePutsTextBackInThread(t *testing.T) {
+	a, _ := slashApp(t, &core.CommandError{Code: "unknown_command"})
+	showThread(t, a)
+	a.threadCompose.SetDraftContext("T1", "C1", "10.0")
+	a.threadCompose.SetValue("/notarealcommand")
+	ran := deliveredMsgs[commandRanMsg](t, pressEnter(a))
+	a.Update(ran[0])
+	if got := a.threadCompose.Value(); got != "/notarealcommand" {
+		t.Errorf("thread compose = %q, want the command put back", got)
+	}
+	if got := a.compose.Value(); got != "" {
+		t.Errorf("channel compose = %q, want untouched", got)
 	}
 }

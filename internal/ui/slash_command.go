@@ -54,8 +54,8 @@ func isCommandSpace(b byte) bool {
 
 // commandRanMsg is the result of running a slash command through
 // CommandService. text is the composer text as typed, kept so a failure
-// can put it back (Task 4); teamID/channelID/threadTS identify the
-// conversation it was typed in.
+// can put it back; teamID/channelID/threadTS identify the conversation
+// it was typed in.
 type commandRanMsg struct {
 	teamID, channelID, threadTS string
 	name                        string
