@@ -560,3 +560,6 @@ Recorded, not fixed here:
 - The `me_message` render test asserts the body line, because timestamps are always italic.
 - Built-in tests guard "runs locally" with `TestSlashBuiltinsAreLocal` (table membership), because a remote run happens inside a tea.Cmd the tests do not execute.
 - `/msg` pre-fill text keeps mentions in wire form (`<@U…>`); it still sends correctly.
+- Review (Greptile, PR #309): `CommandService.Run` takes the `teamID` the command was typed in, and `cmd/slk` resolves that workspace's client with `router.ByID`, as `MessageService.Forward` does; §3.4's `Run` signature is superseded. Stage 2's `PressBlockAction` should do the same.
+- Review: `conversations.open` request IDs come from a counter that never resets. A `/msg` pre-fill whose open is superseded by a picker submit or cancelled by Esc in the picker is given back like a failed one, and a second `/msg` while one is opening is refused.
+- Review: any Unicode space (as in `strings.Fields`) separates a command's name from its arguments, so a pasted non-breaking space still runs the command; §3.1's ASCII wording is superseded.
