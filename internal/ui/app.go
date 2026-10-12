@@ -486,11 +486,13 @@ type App struct {
 	// internal/ui/edit.go.
 	editing *editController
 
-	// newMessageInFlightID is the monotonic counter for in-flight
-	// OpenConversation requests dispatched from the new-message
-	// picker. 0 means no submit is in flight. The reducer drops late
-	// results whose RequestID doesn't match.
+	// newMessageInFlightID is the ID of the in-flight OpenConversation
+	// request (new-message picker or /msg); 0 means none. The reducer
+	// drops late results whose RequestID doesn't match. IDs come from
+	// newMessageSeq, which never resets, so a late result of an old
+	// request can never match a newer one.
 	newMessageInFlightID uint64
+	newMessageSeq        uint64
 	// newMessageCancelled is set to true when the user Escs the
 	// modal while a submit is in flight. A subsequent
 	// NewMessageOpenedMsg with the matching RequestID is dropped

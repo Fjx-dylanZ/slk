@@ -534,3 +534,80 @@ func TestSlashUnsupportedBuiltins(t *testing.T) {
 		})
 	}
 }
+
+// A second /msg while the first conversation is still opening is
+// refused and given back, rather than overwriting the first's text; the
+// first still opens with its own text.
+func TestSlashMsg_SecondWhileOpeningIsRefused(t *testing.T) {
+	a, _, opens := msgSlashApp(t)
+	a.compose.SetValue("/msg <@U9> one")
+	first := pressEnter(a)
+
+	a.SetMode(ModeInsert)
+	_ = a.compose.Focus()
+	a.compose.SetValue("/msg <@U8> two")
+	_ = pressEnter(a)
+	if len(*opens) != 1 {
+		t.Fatalf("OpenConversation calls = %v, want only the first", *opens)
+	}
+	if got := a.compose.Value(); got != "/msg <@U8> two" {
+		t.Errorf("compose = %q, want the refused command back", got)
+	}
+	if out := statusbarText(a); !strings.Contains(out, "Still opening a conversation") {
+		t.Errorf("status bar = %q, want the still-opening toast", out)
+	}
+
+	opened := deliveredMsgs[NewMessageOpenedMsg](t, first)
+	a.Update(opened[0])
+	if got := draftIn(a, "D9"); got != "one" {
+		t.Errorf("D9 draft = %q, want the first command's text", got)
+	}
+}
+
+// A /msg whose open the new-message picker supersedes gets its text back.
+func TestSlashMsg_SupersededByThePickerGivesTheTextBack(t *testing.T) {
+	a, _, _ := msgSlashApp(t)
+	a.compose.SetValue("/msg <@U9> hi")
+	_ = pressEnter(a)
+	_ = a.openConversation([]string{"U2"}, msgPrefill{})
+	if got := a.compose.Value(); got != "/msg <@U9> hi" {
+		t.Errorf("compose = %q, want the superseded command back", got)
+	}
+}
+
+// Esc in the new-message picker cancels whatever open is in flight; a
+// /msg's text comes back rather than vanishing with its dropped result.
+func TestSlashMsg_PickerEscGivesTheTextBack(t *testing.T) {
+	a, _, _ := msgSlashApp(t)
+	a.compose.SetValue("/msg <@U9> hi")
+	_ = pressEnter(a)
+	a.newMessagePicker.Open()
+	a.SetMode(ModeNewMessage)
+	_ = handleNewMessageMode(a, keyCode(tea.KeyEscape))
+	if got := a.compose.Value(); got != "/msg <@U9> hi" {
+		t.Errorf("compose = %q, want the cancelled command back", got)
+	}
+}
+
+// Request IDs are never reused: a late result of an old request must
+// not pass as the current one after the counter would have reset.
+func TestOpenConversation_RequestIDsAreNeverReused(t *testing.T) {
+	a, _, _ := msgSlashApp(t)
+	var reqs []uint64
+	wireOpenConversation(a, func(userIDs []string, reqID uint64) tea.Cmd {
+		reqs = append(reqs, reqID)
+		return func() tea.Msg {
+			return NewMessageOpenedMsg{ChannelID: "D9", UserIDs: userIDs, RequestID: reqID, AlreadyOpen: true}
+		}
+	})
+	_ = a.openConversation([]string{"U1"}, msgPrefill{})
+	b := a.openConversation([]string{"U2"}, msgPrefill{})
+	a.Update(deliveredMsgs[NewMessageOpenedMsg](t, b)[0])
+	_ = a.openConversation([]string{"U3"}, msgPrefill{})
+	if reqs[2] == reqs[0] {
+		t.Fatalf("request IDs %v: the third reuses the first's", reqs)
+	}
+	if newMessageResultIsCurrent(a, reqs[0]) {
+		t.Errorf("a late result of request %d passes as current", reqs[0])
+	}
+}

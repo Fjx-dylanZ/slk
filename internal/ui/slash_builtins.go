@@ -161,6 +161,11 @@ func slashMsg(name string) commandFunc {
 			}
 			return usage()
 		}
+		// One open at a time: a second would supersede the first and
+		// drop its text.
+		if a.openingConversation() {
+			return a.refuseCommand(args.Origin, "Still opening a conversation; try again in a moment")
+		}
 		text := strings.TrimLeft(strings.TrimPrefix(args.Rest, first), " \t\r\n")
 		return a.openConversation([]string{users[0]}, msgPrefill{text: text, origin: args.Origin})
 	}

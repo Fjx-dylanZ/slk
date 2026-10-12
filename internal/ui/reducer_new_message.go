@@ -96,8 +96,7 @@ var reduceNewMessagePicker reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, boo
 		// (the existing app-wide notification channel) so the user
 		// knows the submit didn't go through.
 		a.newMessageInFlightID = 0
-		a.offerTypedBack(a.newMessagePrefill.origin)
-		a.newMessagePrefill = msgPrefill{}
+		a.abandonMsgPrefill()
 		errText := m.Err.Error()
 		return func() tea.Msg { return ToastMsg{Text: "Open DM failed: " + errText} }, true
 	}

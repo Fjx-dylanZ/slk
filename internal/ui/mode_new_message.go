@@ -42,6 +42,7 @@ func handleNewMessageMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	if !a.newMessagePicker.IsVisible() {
 		if a.newMessageInFlightID != 0 {
 			a.newMessageCancelled = true
+			a.abandonMsgPrefill()
 		}
 		a.SetMode(ModeNormal)
 	}
