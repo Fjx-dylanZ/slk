@@ -68,6 +68,7 @@ const activityFeedPageLimit = 50
 // At most one is in flight per item: two concurrent requests could reach
 // Slack in either order and leave it holding the older state.
 type activityRead struct {
+	team      ids.TeamID // the workspace the item belongs to
 	item      core.ActivityItem
 	want      bool // the read state the user asked for last
 	confirmed bool // the read state Slack holds, as far as we know
@@ -97,7 +98,7 @@ func (a *App) setActivityItemRead(it core.ActivityItem, read bool) tea.Cmd {
 		if a.activityReads == nil {
 			a.activityReads = map[string]*activityRead{}
 		}
-		r = &activityRead{item: it, confirmed: !it.IsUnread}
+		r = &activityRead{team: ids.TeamID(a.activeTeamID), item: it, confirmed: !it.IsUnread}
 		a.activityReads[k] = r
 	}
 	r.want = read
@@ -107,12 +108,12 @@ func (a *App) setActivityItemRead(it core.ActivityItem, read bool) tea.Cmd {
 	return a.sendActivityRead(r)
 }
 
-// sendActivityRead starts r's request for its wanted state.
+// sendActivityRead starts r's request for its wanted state, in r's own
+// workspace whichever one is on screen.
 func (a *App) sendActivityRead(r *activityRead) tea.Cmd {
 	r.inFlight = true
 	activity := a.activity
-	team := ids.TeamID(a.activeTeamID)
-	it, read := r.item, r.want
+	team, it, read := r.team, r.item, r.want
 	return func() tea.Msg { return activity.SetRead(team, it, read) }
 }
 
@@ -201,17 +202,21 @@ var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if m.Err == nil {
 			r.confirmed = m.Read
 		}
-		// Another workspace's view is not on screen; its feed reloads
-		// from Slack when the user returns.
-		if m.TeamID != a.activeTeamID || r.want == r.confirmed {
+		if r.want == r.confirmed {
 			delete(a.activityReads, k)
 			return nil, true
 		}
 		if m.Err == nil {
-			// The user changed it again while this was in flight.
+			// The user changed it again while this was in flight. Send
+			// it even if another workspace is on screen now.
 			return a.sendActivityRead(r), true
 		}
 		delete(a.activityReads, k)
+		// Another workspace's view is not on screen, so there is no dot
+		// to undo; its feed reloads from Slack when the user returns.
+		if m.TeamID != a.activeTeamID {
+			return nil, true
+		}
 		a.activityView.SetItemRead(m.Key, r.confirmed)
 		a.sidebar.SetActivityUnreadCount(a.activityView.UnreadCount())
 		state := "unread"

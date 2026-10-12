@@ -337,3 +337,24 @@ func TestActivitySelected_FromOtherWorkspaceIgnored(t *testing.T) {
 		t.Error("a selection from another workspace changed this workspace's item")
 	}
 }
+
+// A change queued behind an in-flight request must still reach Slack if
+// the user switches workspace before that request returns, and it must
+// go to the item's own workspace, not the one now on screen.
+func TestActivityU_QueuedChangeSurvivesWorkspaceSwitch(t *testing.T) {
+	a, calls := activityReadApp(t, nil, unreadMention("k1"))
+	_, first := a.Update(keyPress('U'))
+	a.Update(keyPress('U')) // queued: unread
+	result := deliveredMsgs[ActivityReadSetMsg](t, first)[0]
+	<-calls
+
+	a.activeTeamID = "T2"
+	_, next := a.Update(result)
+	if next == nil {
+		t.Fatal("the queued unread was dropped by the workspace switch")
+	}
+	deliveredMsgs[ActivityReadSetMsg](t, next)
+	if c := <-calls; c != (setReadCall{"T1", "k1", false}) {
+		t.Errorf("queued change sent as %+v, want T1/k1 unread", c)
+	}
+}

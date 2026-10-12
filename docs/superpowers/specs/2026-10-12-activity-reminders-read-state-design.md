@@ -173,11 +173,12 @@ the `activity.SetRead` command. Both entry points below use it.
 At most one request per item is in flight (amended after PR review:
 two concurrent requests could reach Slack in either order and leave it
 holding the older state). The App keeps `activityReads`, keyed by team and
-item key, each entry holding the item, `want` (the state the user asked
+item key, each entry holding the item's workspace, the item, `want` (the state the user asked
 for last), `confirmed` (the state Slack holds as far as we know: the
 item's state when the first change began, then each success) and
 `inFlight`. A change while a request is in flight only moves the dot and
-updates `want`; nothing is sent.
+updates `want`; nothing is sent. Requests always go to the entry's own
+workspace, whichever one is on screen.
 
 **`U` toggles.** In `mode_normal.go`, ahead of the general `MarkUnread`
 arm: when `a.view == ViewActivity && a.focusedPanel == PanelMessages` and
@@ -200,10 +201,11 @@ marks it read.
 
 **Result.** `reduceActivity` handles `ActivityReadSetMsg` for its
 `activityReads` entry: clear `inFlight`; on success set `confirmed`.
-Then, if the team is not the active one or `want == confirmed`, drop the
-entry. Otherwise, on success send `want` (the user changed it
-meanwhile); on error drop the entry, `SetItemRead(Key, confirmed)`,
-refresh the sidebar badge, and `toastWithClear`
+Then, if `want == confirmed`, drop the entry. Otherwise, on success send
+`want` to the entry's workspace (the user changed it meanwhile), even if
+another workspace is now on screen. On error drop the entry; if its
+workspace is the active one, `SetItemRead(Key, confirmed)`, refresh the
+sidebar badge, and `toastWithClear`
 `Couldn't mark activity item read|unread: <err>`. Errors are not retried.
 
 ### Error handling and edge cases
@@ -219,9 +221,10 @@ refresh the sidebar badge, and `toastWithClear`
 - **Unread-only filter on:** marking an item read leaves it in the list
   until the next fetch, so the user can undo with `U`. No client-side
   filtering is added.
-- **Workspace switch mid-request:** the result still ends its entry (so
-  the item can be changed again later) but leaves the view alone; the
-  other workspace's feed reloads from Slack on activation.
+- **Workspace switch mid-request:** a change queued behind the request is
+  still sent, to the item's own workspace. A failure there has no dot on
+  screen to undo, so it only ends the entry; that workspace's feed
+  reloads from Slack on activation.
 
 ## Out of scope
 
