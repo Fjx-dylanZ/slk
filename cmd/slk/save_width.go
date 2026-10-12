@@ -9,9 +9,10 @@ import (
 	"strings"
 )
 
-// saveWorkspaceWidth rewrites or appends a sidebar_width entry in
-// [workspaces.<tomlKey>]. Mirrors saveWorkspaceTheme.
-func saveWorkspaceWidth(configPath, tomlKey, teamID, teamName string, width int) error {
+// saveWorkspaceWidth rewrites or adds the sidebar_width entry in the
+// [workspaces.*] block that configures teamID. Mirrors
+// saveWorkspaceTheme.
+func saveWorkspaceWidth(configPath, teamID, teamName string, width int) error {
 	configWriteMu.Lock()
 	defer configWriteMu.Unlock()
 
@@ -26,14 +27,9 @@ func saveWorkspaceWidth(configPath, tomlKey, teamID, teamName string, width int)
 	}
 	lines := strings.Split(string(data), "\n")
 
-	header := fmt.Sprintf("[workspaces.%s]", tomlKey)
-
-	sectionStart := -1
-	for i, line := range lines {
-		if strings.TrimSpace(line) == header {
-			sectionStart = i
-			break
-		}
+	sectionStart, err := workspaceSectionStart(data, lines, teamID)
+	if err != nil {
+		return err
 	}
 
 	if sectionStart >= 0 {
