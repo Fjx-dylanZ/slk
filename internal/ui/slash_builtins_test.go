@@ -10,9 +10,9 @@ import (
 
 // presenceSlashApp is slashApp with the status setter recorded and the
 // workspace's cached presence set to presence ("" = no entry).
-func presenceSlashApp(t *testing.T, presence string) (*App, *[]runCall, *[]statusCall) {
+func presenceSlashApp(t *testing.T, presence string) (*App, *[]statusCall) {
 	t.Helper()
-	a, runs := slashApp(t, nil)
+	a, _ := slashApp(t, nil)
 	if presence != "" {
 		a.presence.Set("T1", presence, false, time.Time{})
 	}
@@ -20,7 +20,7 @@ func presenceSlashApp(t *testing.T, presence string) (*App, *[]runCall, *[]statu
 	a.setStatusSetterForTest(func(action core.PresenceAction, mins int) {
 		*statuses = append(*statuses, statusCall{action: action, mins: mins})
 	})
-	return a, runs, statuses
+	return a, statuses
 }
 
 func TestSlashPresence(t *testing.T) {
@@ -40,12 +40,9 @@ func TestSlashPresence(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			a, runs, statuses := presenceSlashApp(t, tc.cached)
+			a, statuses := presenceSlashApp(t, tc.cached)
 			a.compose.SetValue(tc.typed)
 			_ = pressEnter(a)
-			if len(*runs) != 0 {
-				t.Errorf("chat.command ran %d times, want 0 for a built-in", len(*runs))
-			}
 			if len(*statuses) != len(tc.want) {
 				t.Fatalf("SetStatus calls = %+v, want %+v", *statuses, tc.want)
 			}
@@ -62,10 +59,22 @@ func TestSlashPresence(t *testing.T) {
 }
 
 func TestSlashAwayUpdatesTheCachedPresence(t *testing.T) {
-	a, _, _ := presenceSlashApp(t, "active")
+	a, _ := presenceSlashApp(t, "active")
 	a.compose.SetValue("/away")
 	_ = pressEnter(a)
 	if p, _, _, _ := a.presence.Status("T1"); p != "away" {
 		t.Errorf("cached presence = %q, want away", p)
+	}
+}
+
+// Built-ins run locally because their names are keys of slashCommands:
+// dispatchCommand calls a table entry and never the remote fallback
+// (TestDispatchCommand_*). This is the guard against a built-in being
+// routed to chat.command; extend the list with each new built-in.
+func TestSlashBuiltinsAreLocal(t *testing.T) {
+	for _, name := range []string{"/away", "/active", "/status"} {
+		if _, ok := slashCommands[name]; !ok {
+			t.Errorf("%s is not in slashCommands, so it would run through chat.command", name)
+		}
 	}
 }

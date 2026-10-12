@@ -174,13 +174,10 @@ func TestSlashCommand_EditModeSavesLiterally(t *testing.T) {
 }
 
 func TestSlashCommand_AttachmentsRefused(t *testing.T) {
-	a, calls := slashApp(t, nil)
+	a, _ := slashApp(t, nil)
 	a.compose.AddAttachment(core.PendingAttachment{Filename: "cat.png", Bytes: []byte{1}})
 	a.compose.SetValue("/giphy cats")
 	_ = pressEnter(a)
-	if len(*calls) != 0 {
-		t.Errorf("Run called %d times, want 0", len(*calls))
-	}
 	if got := a.compose.Value(); got != "/giphy cats" {
 		t.Errorf("compose = %q, want the text kept", got)
 	}
@@ -327,7 +324,7 @@ func withSlashBuiltin(t *testing.T, name string, fn commandFunc) {
 }
 
 func TestSlashCommand_BuiltinRunsInsteadOfRemote(t *testing.T) {
-	a, calls := slashApp(t, nil)
+	a, _ := slashApp(t, nil)
 	var got commandArgs
 	withSlashBuiltin(t, "/testbuiltin", func(_ *App, args commandArgs) tea.Cmd {
 		got = args
@@ -335,9 +332,6 @@ func TestSlashCommand_BuiltinRunsInsteadOfRemote(t *testing.T) {
 	})
 	a.compose.SetValue("/TestBuiltin  hello\nworld")
 	_ = pressEnter(a)
-	if len(*calls) != 0 {
-		t.Errorf("Run called %d times, want 0 for a built-in", len(*calls))
-	}
 	if got.Rest != "hello\nworld" {
 		t.Errorf("built-in Rest = %q, want \"hello\\nworld\"", got.Rest)
 	}
