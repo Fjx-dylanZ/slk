@@ -7,6 +7,7 @@ import (
 
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
+	"github.com/gammons/slk/internal/text"
 )
 
 // presenceSlashApp is slashApp with the status setter recorded and the
@@ -80,28 +81,36 @@ func TestSlashBuiltinsAreLocal(t *testing.T) {
 	}
 }
 
-// openSlashApp is slashApp with three channels in the finder (design
-// not joined) and joins recorded.
-func openSlashApp(t *testing.T) (*App, *[]runCall, *[]string) {
+// openSlashApp is slashApp with the finder holding joined general (C1)
+// and random (C2), a server channel search that answers with unjoined
+// design (C9), and joins and searches recorded.
+func openSlashApp(t *testing.T) (*App, *[]runCall, *[]string, *[]string) {
 	t.Helper()
 	a, runs := slashApp(t, nil)
 	a.channelFinder.SetItems([]core.ChannelFinderItem{
 		{ID: "C1", Name: "general", Type: "channel", Joined: true},
 		{ID: "C2", Name: "random", Type: "channel", Joined: true},
-		{ID: "C9", Name: "design", Type: "channel", Joined: false},
 	})
 	joins := &[]string{}
+	searches := &[]string{}
 	a.SetChannelService(core.NewChannelService(core.ChannelServiceFuncs{
 		Join: func(id ids.ChannelID, name string) core.Msg {
 			*joins = append(*joins, string(id))
 			return ChannelJoinedMsg{ID: string(id), Name: name}
 		},
+		SearchRemote: func(query string) []core.ChannelFinderItem {
+			*searches = append(*searches, query)
+			if text.Fold(query) == "design" {
+				return []core.ChannelFinderItem{{ID: "C9", Name: "design", Type: "channel", Joined: false}}
+			}
+			return nil
+		},
 	}))
-	return a, runs, joins
+	return a, runs, joins, searches
 }
 
 func TestSlashOpen_SelectsAJoinedChannelByName(t *testing.T) {
-	a, runs, _ := openSlashApp(t)
+	a, runs, _, searches := openSlashApp(t)
 	a.compose.SetValue("/open #random")
 	sel := deliveredMsgs[ChannelSelectedMsg](t, pressEnter(a))
 	if len(sel) != 1 || sel[0].ID != "C2" {
@@ -110,10 +119,13 @@ func TestSlashOpen_SelectsAJoinedChannelByName(t *testing.T) {
 	if len(*runs) != 0 {
 		t.Errorf("chat.command ran %d times, want 0", len(*runs))
 	}
+	if len(*searches) != 0 {
+		t.Errorf("server search ran for %v, want none for a local hit", *searches)
+	}
 }
 
 func TestSlashJoin_SelectsByMentionID(t *testing.T) {
-	a, _, _ := openSlashApp(t)
+	a, _, _, _ := openSlashApp(t)
 	a.compose.SetValue("/join <#C2|random>")
 	sel := deliveredMsgs[ChannelSelectedMsg](t, pressEnter(a))
 	if len(sel) != 1 || sel[0].ID != "C2" {
@@ -122,26 +134,94 @@ func TestSlashJoin_SelectsByMentionID(t *testing.T) {
 }
 
 func TestSlashOpen_JoinsAChannelTheUserIsNotIn(t *testing.T) {
-	a, _, joins := openSlashApp(t)
+	a, _, joins, searches := openSlashApp(t)
 	a.compose.SetValue("/open #Design")
-	_ = deliveredMsgs[ChannelJoinedMsg](t, pressEnter(a))
+	lookups := deliveredMsgs[channelLookupMsg](t, pressEnter(a))
+	if len(*searches) != 1 || (*searches)[0] != "Design" {
+		t.Fatalf("searches = %v, want [Design]", *searches)
+	}
+	_, cmd := a.Update(lookups[0])
+	_ = deliveredMsgs[ChannelJoinedMsg](t, cmd)
 	if len(*joins) != 1 || (*joins)[0] != "C9" {
 		t.Fatalf("joins = %v, want [C9]", *joins)
 	}
 }
 
-func TestSlashOpen_ErrorsToast(t *testing.T) {
-	cases := map[string]string{
-		"/open #nope": "No channel named #nope",
-		"/open":       "Usage: /open #channel",
+func TestSlashOpen_LookupForAnotherWorkspaceIsDropped(t *testing.T) {
+	a, _, joins, _ := openSlashApp(t)
+	a.compose.SetValue("/open #Design")
+	lookups := deliveredMsgs[channelLookupMsg](t, pressEnter(a))
+	a.activeTeamID = "T2"
+	cmd, handled := reduceSlashCommand(a, lookups[0])
+	if !handled || cmd != nil {
+		t.Fatalf("reduceSlashCommand = (%v, %v), want a dropped answer (nil, true)", cmd, handled)
 	}
-	for typed, want := range cases {
-		t.Run(typed, func(t *testing.T) {
-			a, _, _ := openSlashApp(t)
-			a.compose.SetValue(typed)
-			_ = pressEnter(a)
-			if !strings.Contains(statusbarText(a), want) {
-				t.Errorf("status bar = %q, want %q", statusbarText(a), want)
+	if len(*joins) != 0 {
+		t.Errorf("joins = %v, want none", *joins)
+	}
+	if strings.Contains(statusbarText(a), "No channel named") {
+		t.Errorf("status bar = %q, want no toast", statusbarText(a))
+	}
+}
+
+func TestSlashOpen_ErrorsToast(t *testing.T) {
+	cases := []struct {
+		typed, want string
+		lookup      bool
+	}{
+		{"/open #nope", "No channel named #nope", true},
+		{"/open", "Usage: /open #channel", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.typed, func(t *testing.T) {
+			a, _, _, _ := openSlashApp(t)
+			a.compose.SetValue(tc.typed)
+			cmd := pressEnter(a)
+			if tc.lookup {
+				lookups := deliveredMsgs[channelLookupMsg](t, cmd)
+				_, cmd = a.Update(lookups[0])
+			}
+			_ = cmd
+			if !strings.Contains(statusbarText(a), tc.want) {
+				t.Errorf("status bar = %q, want %q", statusbarText(a), tc.want)
+			}
+		})
+	}
+}
+
+func TestMatchChannelByName(t *testing.T) {
+	items := []core.ChannelFinderItem{
+		{ID: "D7", Name: "design", Type: "dm"},
+		{ID: "T0", Name: "threads", Type: "channel", Synthetic: true},
+		{ID: "D2", Name: "alice", Type: "dm"},
+		{ID: "G1", Name: "secret", Type: "private"},
+		{ID: "C9", Name: "design", Type: "channel"},
+		{ID: "C1", Name: "general", Type: "channel", Joined: true},
+	}
+	cases := []struct {
+		name, query, wantID string
+	}{
+		{"exact", "general", "C1"},
+		{"case-insensitive", "Design", "C9"},
+		{"accent-insensitive", "Désign", "C9"},
+		{"leading # ignored", "#design", "C9"},
+		{"a DM with the same name is skipped", "design", "C9"},
+		{"private channel matches", "secret", "G1"},
+		{"synthetic destination is skipped", "threads", ""},
+		{"DM-only name is a miss", "alice", ""},
+		{"miss", "nope", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := matchChannelByName(items, tc.query)
+			if tc.wantID == "" {
+				if ok {
+					t.Errorf("matchChannelByName(%q) = %+v, want no match", tc.query, got)
+				}
+				return
+			}
+			if !ok || got.ID != tc.wantID {
+				t.Errorf("matchChannelByName(%q) = (%+v, %v), want %s", tc.query, got, ok, tc.wantID)
 			}
 		})
 	}

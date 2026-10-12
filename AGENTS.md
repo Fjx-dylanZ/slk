@@ -260,6 +260,7 @@ greppable by name; no line numbers, because these files move.
 | An `App` in insert mode on C1/T1 whose slash-command runs are recorded and answered with an error you choose; press Enter through `Update` | `slashApp(t, err)`, `pressEnter(a)`, the `runCall` record (`internal/ui/slash_command_test.go`) |
 | Register a slash built-in for one test (restored on cleanup) | `withSlashBuiltin(t, name, fn)` (`internal/ui/slash_command_test.go`) |
 | A slashApp with the status setter recorded and a cached presence for T1 | `presenceSlashApp(t, presence)`, returning the App and the `*[]statusCall` log (`internal/ui/slash_builtins_test.go`) |
+| A slashApp whose channel finder holds joined general (C1) and random (C2), whose server channel search answers with unjoined design (C9), and whose joins and searches are recorded | `openSlashApp(t)`, returning the App and the `*[]runCall`, joins and searches logs (`internal/ui/slash_builtins_test.go`) |
 | Load a config from a TOML string | `loadConfigString(t, body)` (`internal/config/config_test.go`, `package config`) |
 
 ### Known duplication — do not add to it

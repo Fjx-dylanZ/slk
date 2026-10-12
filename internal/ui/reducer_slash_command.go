@@ -1,6 +1,7 @@
 // internal/ui/reducer_slash_command.go
 //
-// Result of a slash command run through CommandService.
+// Result of a slash command run through CommandService, and the
+// server's answer to a /open lookup.
 package ui
 
 import (
@@ -13,6 +14,16 @@ import (
 )
 
 var reduceSlashCommand reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
+	if lookup, ok := msg.(channelLookupMsg); ok {
+		// An answer for a workspace the user has since left is dropped.
+		if lookup.teamID != a.activeTeamID {
+			return nil, true
+		}
+		if !lookup.found {
+			return toastWithClear(a, "No channel named #"+lookup.name, 3*time.Second), true
+		}
+		return a.openChannel(channelResultOf(lookup.item)), true
+	}
 	m, ok := msg.(commandRanMsg)
 	if !ok {
 		return nil, false
