@@ -311,3 +311,37 @@ func TestSlashCommand_ThreadFailurePutsTextBackInThread(t *testing.T) {
 		t.Errorf("channel compose = %q, want untouched", got)
 	}
 }
+
+// withSlashBuiltin registers fn under name for one test.
+func withSlashBuiltin(t *testing.T, name string, fn commandFunc) {
+	t.Helper()
+	prev, had := slashCommands[name]
+	slashCommands[name] = fn
+	t.Cleanup(func() {
+		if had {
+			slashCommands[name] = prev
+		} else {
+			delete(slashCommands, name)
+		}
+	})
+}
+
+func TestSlashCommand_BuiltinRunsInsteadOfRemote(t *testing.T) {
+	a, calls := slashApp(t, nil)
+	var got commandArgs
+	withSlashBuiltin(t, "/testbuiltin", func(_ *App, args commandArgs) tea.Cmd {
+		got = args
+		return nil
+	})
+	a.compose.SetValue("/TestBuiltin  hello\nworld")
+	_ = pressEnter(a)
+	if len(*calls) != 0 {
+		t.Errorf("Run called %d times, want 0 for a built-in", len(*calls))
+	}
+	if got.Rest != "hello\nworld" {
+		t.Errorf("built-in Rest = %q, want \"hello\\nworld\"", got.Rest)
+	}
+	if a.compose.Value() != "" || a.mode != ModeNormal {
+		t.Errorf("compose = %q, mode = %v; want cleared and ModeNormal", a.compose.Value(), a.mode)
+	}
+}

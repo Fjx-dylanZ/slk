@@ -52,6 +52,12 @@ func isCommandSpace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }
 
+// slashCommands are the slash built-ins slk runs itself, because Slack's
+// web client handles them locally rather than through chat.command
+// (spec §3.3). Keys are lowercased names with their slash. Anything not
+// here runs remotely.
+var slashCommands = map[string]commandFunc{}
+
 // commandRanMsg is the result of running a slash command through
 // CommandService. text is the composer text as typed, kept so a failure
 // can put it back; teamID/channelID/threadTS identify the conversation
@@ -86,7 +92,10 @@ func (a *App) trySlashCommand(panel Panel, c *compose.Model, channelID, threadTS
 	_, args, _ := parseSlashCommand(c.TranslateMentionsForSend(raw))
 	c.Reset()
 	a.exitInsertAfterSend()
-	return tea.Batch(a.runRemoteCommand(channelID, threadTS, name, args, raw), a.tryOpenActionPrompt()), true
+	run := dispatchCommand(a, slashCommands, name+" "+args, func(a *App, name string, args commandArgs) tea.Cmd {
+		return a.runRemoteCommand(channelID, threadTS, name, args.Rest, raw)
+	})
+	return tea.Batch(run, a.tryOpenActionPrompt()), true
 }
 
 // runRemoteCommand runs name through CommandService off the Update

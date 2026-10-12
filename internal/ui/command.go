@@ -1,6 +1,8 @@
 // internal/ui/command.go
 //
-// The vi-style ":" command registry (window-management design §5).
+// The command registries: vi-style ":" commands (window-management
+// design §5) and the shared dispatcher slash built-ins use
+// (slash_command.go).
 //
 // executeCommand parses a command line (without the leading ':')
 // and dispatches through the commands map — the designated
@@ -17,10 +19,18 @@ import (
 	"github.com/gammons/slk/internal/ui/wintree"
 )
 
-// commandFunc executes a named :command. args holds the
-// whitespace-separated tokens after the command name (unused by
-// v1 commands, reserved for e.g. ":sp #channel").
-type commandFunc func(a *App, args []string) tea.Cmd
+// commandArgs is a command line after its name. Fields is the remainder
+// split on whitespace, which most handlers want; Rest is the remainder
+// as typed, inner whitespace and newlines intact, for a handler that
+// passes text on (/msg).
+type commandArgs struct {
+	Fields []string
+	Rest   string
+}
+
+// commandFunc executes a named command. Both registries use it: the
+// vi-style ":" commands below and the slash built-ins (slashCommands).
+type commandFunc func(a *App, args commandArgs) tea.Cmd
 
 // commands maps a command name to its handler. Names are matched
 // exactly (no prefix matching); aliases get their own entries.
@@ -39,28 +49,28 @@ var commands = map[string]commandFunc{
 // cmdActivity opens the Activity view (mentions, thread replies,
 // reactions to your messages, DMs). The sidebar ◉ Activity row is the
 // primary entry point; this command mirrors it for discoverability.
-func cmdActivity(a *App, _ []string) tea.Cmd {
+func cmdActivity(a *App, _ commandArgs) tea.Cmd {
 	a.sidebar.SelectActivityRow()
 	return func() tea.Msg { return ActivityViewActivatedMsg{} }
 }
 
 // cmdSplit / cmdVSplit create a stacked / side-by-side split of the
 // focused window (window-management design §5).
-func cmdSplit(a *App, _ []string) tea.Cmd  { return a.splitWindow(wintree.SplitStacked) }
-func cmdVSplit(a *App, _ []string) tea.Cmd { return a.splitWindow(wintree.SplitSideBySide) }
+func cmdSplit(a *App, _ commandArgs) tea.Cmd  { return a.splitWindow(wintree.SplitStacked) }
+func cmdVSplit(a *App, _ commandArgs) tea.Cmd { return a.splitWindow(wintree.SplitSideBySide) }
 
 // cmdCloseWindow closes the focused window (never quits the app).
-func cmdCloseWindow(a *App, _ []string) tea.Cmd { return a.closeWindow() }
+func cmdCloseWindow(a *App, _ commandArgs) tea.Cmd { return a.closeWindow() }
 
 // cmdOnlyWindow closes all other windows.
-func cmdOnlyWindow(a *App, _ []string) tea.Cmd {
+func cmdOnlyWindow(a *App, _ commandArgs) tea.Cmd {
 	a.onlyWindow()
 	return nil
 }
 
 // cmdWorkspaceFinder opens the workspace finder overlay —
 // the :command replacement for the finder's old ctrl+w binding.
-func cmdWorkspaceFinder(a *App, _ []string) tea.Cmd {
+func cmdWorkspaceFinder(a *App, _ commandArgs) tea.Cmd {
 	a.workspaceFinder.Open()
 	a.SetMode(ModeWorkspaceFinder)
 	return nil
@@ -69,7 +79,7 @@ func cmdWorkspaceFinder(a *App, _ []string) tea.Cmd {
 // cmdMarks opens the marks overlay. Unlike the ' chord it ALWAYS shows
 // the overlay — the show_jump_overlay option suppresses the overlay on
 // the jump key only, never the list-marks command.
-func cmdMarks(a *App, _ []string) tea.Cmd {
+func cmdMarks(a *App, _ commandArgs) tea.Cmd {
 	cmd := a.openMarksOverlay()
 	a.SetMode(ModeMarks)
 	return cmd
@@ -82,9 +92,9 @@ func cmdMarks(a *App, _ []string) tea.Cmd {
 // unset letter is a harmless no-op. Uses the same marksStore.Delete the
 // overlay's row delete action calls, so the two surfaces cannot
 // diverge.
-func cmdDelMarks(a *App, args []string) tea.Cmd {
+func cmdDelMarks(a *App, args commandArgs) tea.Cmd {
 	var failed string
-	for _, arg := range args {
+	for _, arg := range args.Fields {
 		for i := 0; i < len(arg); i++ {
 			if isMarkLetter(arg[i]) {
 				if err := a.marks.Delete(a.activeTeamID, string(arg[i])); err != nil {
@@ -99,17 +109,32 @@ func cmdDelMarks(a *App, args []string) tea.Cmd {
 	return nil
 }
 
-// executeCommand parses and runs one command line (without the
-// leading ':'). Empty input is a no-op; unknown commands show a
-// transient status-bar toast.
-func executeCommand(a *App, line string) tea.Cmd {
-	fields := strings.Fields(line)
+// dispatchCommand runs line's command from table: its first
+// whitespace-separated token names the command, the rest are its args.
+// unknown runs when table has no such name. Empty input is a no-op.
+func dispatchCommand(a *App, table map[string]commandFunc, line string,
+	unknown func(a *App, name string, args commandArgs) tea.Cmd) tea.Cmd {
+	trimmed := strings.TrimLeft(line, " \t\r\n")
+	fields := strings.Fields(trimmed)
 	if len(fields) == 0 {
 		return nil
 	}
-	fn, ok := commands[fields[0]]
-	if !ok {
-		return toastWithClear(a, "Unknown command: "+fields[0], 2*time.Second)
+	name := fields[0]
+	args := commandArgs{
+		Fields: fields[1:],
+		Rest:   strings.TrimLeft(trimmed[len(name):], " \t\r\n"),
 	}
-	return fn(a, fields[1:])
+	if fn, ok := table[name]; ok {
+		return fn(a, args)
+	}
+	return unknown(a, name, args)
+}
+
+// executeCommand parses and runs one ":" command line (without the
+// leading ':'). Empty input is a no-op; unknown commands show a
+// transient status-bar toast.
+func executeCommand(a *App, line string) tea.Cmd {
+	return dispatchCommand(a, commands, line, func(a *App, name string, _ commandArgs) tea.Cmd {
+		return toastWithClear(a, "Unknown command: "+name, 2*time.Second)
+	})
 }
