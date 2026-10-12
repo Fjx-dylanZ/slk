@@ -271,6 +271,11 @@ func TestPreview_KittySameSizeSiblingsGetTheirOwnImage(t *testing.T) {
 	defer func() { KittyOutput = saved }()
 	var out bytes.Buffer
 	KittyOutput = &out
+	// A fresh renderer: the shared one remembers uploads across tests,
+	// so on a repeat run (-count=2) nothing would be uploaded.
+	savedRenderer := kittyRendererInstance
+	defer func() { kittyRendererInstance = savedRenderer }()
+	kittyRendererInstance = NewKittyRenderer(NewRegistry())
 
 	p := NewPreview(PreviewInput{
 		Name: "a.png", FileID: "F199A", Img: makeSolid(720, 515, color.RGBA{255, 0, 0, 255}),
