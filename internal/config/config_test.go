@@ -743,6 +743,31 @@ func TestWorkspaceByTeamID(t *testing.T) {
 	}
 }
 
+func TestWorkspaceKey(t *testing.T) {
+	c := Config{
+		Workspaces: map[string]Workspace{
+			"work":      {TeamID: "T01ABCDEF"},
+			"T02GHIJKL": {TeamID: "T02GHIJKL"},
+			"unset":     {},
+		},
+	}
+	for _, tc := range []struct {
+		teamID  string
+		wantKey string
+		wantOK  bool
+	}{
+		{"T01ABCDEF", "work", true},      // slug-keyed block
+		{"T02GHIJKL", "T02GHIJKL", true}, // legacy block, keyed by its team ID
+		{"T03MNOPQR", "", false},
+		{"", "", false}, // must not match a block with no team_id
+	} {
+		key, ok := c.WorkspaceKey(tc.teamID)
+		if key != tc.wantKey || ok != tc.wantOK {
+			t.Errorf("WorkspaceKey(%q) = %q, %v; want %q, %v", tc.teamID, key, ok, tc.wantKey, tc.wantOK)
+		}
+	}
+}
+
 func TestTeamIDForDefaultWorkspaceSlug(t *testing.T) {
 	c := Config{
 		General: General{DefaultWorkspace: "work"},

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/gammons/slk/internal/config"
 )
 
 // configWriteMu serializes the read-modify-write cycles the save*
@@ -78,6 +80,41 @@ func writeConfigAtomic(configPath string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmp, configPath)
+}
+
+// workspaceSectionStart returns the index in lines (data split on
+// "\n") of the header of the [workspaces.*] block that configures
+// teamID, or -1 if no block does.
+//
+// The block is looked up in data, which the caller read under
+// configWriteMu, never in a Config loaded earlier: a block written
+// since that load would be missed, and the caller would append a
+// second block for the same team_id, which config.Load rejects at the
+// next launch. First-run onboarding writes its [workspaces.<slug>]
+// block after run() has loaded the config, so every first launch did
+// exactly that.
+//
+// It returns an error, and the caller must not write, when config.Load
+// would reject data (appending cannot fix that file, and may add
+// another duplicate) or when the block's header is not a line this
+// textual rewrite can find, such as a quoted key or a header followed
+// by a comment.
+func workspaceSectionStart(data []byte, lines []string, teamID string) (int, error) {
+	cfg, err := config.Parse(data)
+	if err != nil {
+		return -1, fmt.Errorf("config.toml does not load: %w", err)
+	}
+	key, ok := cfg.WorkspaceKey(teamID)
+	if !ok {
+		return -1, nil
+	}
+	header := fmt.Sprintf("[workspaces.%s]", key)
+	for i, line := range lines {
+		if strings.TrimSpace(line) == header {
+			return i, nil
+		}
+	}
+	return -1, fmt.Errorf("config.toml configures team %s as workspace %q, but has no %s line to update", teamID, key, header)
 }
 
 // tomlString returns s as a properly escaped TOML basic string,
@@ -168,14 +205,11 @@ func saveGlobalTheme(configPath, themeName string) error {
 	return writeConfigAtomic(configPath, []byte(strings.Join(lines, "\n")))
 }
 
-// saveWorkspaceTheme rewrites or appends a [workspaces.<tomlKey>]
-// theme entry. tomlKey is the literal TOML key in the config — for
-// slug-keyed blocks that's the slug, for legacy blocks it's the team
-// ID. teamID is the underlying Slack team ID; when we are creating a
-// brand-new slug-keyed block, teamID is written as the team_id =
-// "..." line (currently we only create legacy-keyed blocks here, but
-// slug callers update an existing block).
-func saveWorkspaceTheme(configPath, tomlKey, teamID, teamName, themeName string) error {
+// saveWorkspaceTheme rewrites or adds the theme entry in the
+// [workspaces.*] block that configures teamID (see
+// workspaceSectionStart). Without one, it appends a legacy-keyed
+// [workspaces.<teamID>] block under a comment naming teamName.
+func saveWorkspaceTheme(configPath, teamID, teamName, themeName string) error {
 	configWriteMu.Lock()
 	defer configWriteMu.Unlock()
 
@@ -190,14 +224,9 @@ func saveWorkspaceTheme(configPath, tomlKey, teamID, teamName, themeName string)
 	}
 	lines := strings.Split(string(data), "\n")
 
-	header := fmt.Sprintf("[workspaces.%s]", tomlKey)
-
-	sectionStart := -1
-	for i, line := range lines {
-		if strings.TrimSpace(line) == header {
-			sectionStart = i
-			break
-		}
+	sectionStart, err := workspaceSectionStart(data, lines, teamID)
+	if err != nil {
+		return err
 	}
 
 	if sectionStart >= 0 {
@@ -229,9 +258,8 @@ func saveWorkspaceTheme(configPath, tomlKey, teamID, teamName, themeName string)
 		return writeConfigAtomic(configPath, []byte(strings.Join(lines, "\n")))
 	}
 
-	// No existing section — append at end. We only get here when no
-	// block exists for either the slug or the team ID, which means we
-	// fall back to a legacy-keyed [workspaces.<teamID>] block.
+	// No block configures teamID: append a legacy-keyed
+	// [workspaces.<teamID>] block.
 	if len(lines) > 0 && lines[len(lines)-1] != "" {
 		lines = append(lines, "")
 	}

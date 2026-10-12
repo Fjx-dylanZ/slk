@@ -61,8 +61,7 @@ func connectWorkspace(ctx context.Context, token slackclient.Token, db *cache.DB
 		if env := client.Envelope(); env != nil {
 			env.SetVersionTS(ts)
 		}
-		tomlKey := workspaceTOMLKey(cfg, client.TeamID())
-		if err := saveWorkspaceVersionTS(configPath, tomlKey, client.TeamID(), token.TeamName, ts); err != nil {
+		if err := saveWorkspaceVersionTS(configPath, client.TeamID(), token.TeamName, ts); err != nil {
 			debuglog.General("saving version_ts: %v", err)
 		}
 	}()
