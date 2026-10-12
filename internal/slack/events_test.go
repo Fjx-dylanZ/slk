@@ -55,6 +55,7 @@ type mockEventHandler struct {
 	userInvalidated   []string
 	dndInvalidated    []string
 	userDNDChanges    []userDNDRecord
+	viewsOpened       []string
 }
 
 type userStatusRecord struct {
@@ -106,6 +107,10 @@ func (m *mockEventHandler) OnMessage(channelID, userID, ts, text, threadTS, subt
 
 func (m *mockEventHandler) OnEphemeralMessage(msg EphemeralMessage) {
 	m.ephemerals = append(m.ephemerals, msg)
+}
+
+func (m *mockEventHandler) OnViewOpened(title string) {
+	m.viewsOpened = append(m.viewsOpened, title)
 }
 
 func (m *mockEventHandler) OnMessageDeleted(channelID, ts string) {
@@ -953,5 +958,25 @@ func TestDispatchEphemeralMessageChanged_IsDropped(t *testing.T) {
 				t.Errorf("messages=%d ephemerals=%d, want both 0", len(h.messages), len(h.ephemerals))
 			}
 		})
+	}
+}
+
+func TestDispatchViewOpened_CapturedFrame(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "ws_view_opened.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &mockEventHandler{}
+	dispatchWebSocketEvent(data, h)
+	if len(h.viewsOpened) != 1 || h.viewsOpened[0] != "Giphy" {
+		t.Fatalf("viewsOpened = %v, want [Giphy]", h.viewsOpened)
+	}
+}
+
+func TestDispatchViewOpened_FallsBackToTheViewTitle(t *testing.T) {
+	h := &mockEventHandler{}
+	dispatchWebSocketEvent([]byte(`{"type":"view_opened","view":{"title":{"type":"plain_text","text":"Polly"}}}`), h)
+	if len(h.viewsOpened) != 1 || h.viewsOpened[0] != "Polly" {
+		t.Fatalf("viewsOpened = %v, want [Polly]", h.viewsOpened)
 	}
 }

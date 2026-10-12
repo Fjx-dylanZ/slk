@@ -33,6 +33,11 @@ type EventHandler interface {
 	// app's slash-command reply. Slack never returns these from
 	// history, so receivers must not persist them.
 	OnEphemeralMessage(m EphemeralMessage)
+	// OnViewOpened delivers view_opened: an app opened a modal for the
+	// current user, typically in answer to a slash command (bare
+	// /giphy). title is the modal's title. slk cannot show modals yet;
+	// see docs/superpowers/specs/2026-10-12-app-modals-research.md.
+	OnViewOpened(title string)
 	OnMessageDeleted(channelID, ts string)
 	OnReactionAdded(channelID, ts, userID, emoji string)
 	OnReactionRemoved(channelID, ts, userID, emoji string)
@@ -570,6 +575,27 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 			return
 		}
 		handler.OnSelfPresenceChange(evt.Presence)
+
+	case "view_opened":
+		var evt struct {
+			Title struct {
+				Text string `json:"text"`
+			} `json:"title"`
+			View struct {
+				Title struct {
+					Text string `json:"text"`
+				} `json:"title"`
+			} `json:"view"`
+		}
+		if err := json.Unmarshal(data, &evt); err != nil {
+			return
+		}
+		title := evt.Title.Text
+		if title == "" {
+			title = evt.View.Title.Text
+		}
+		debuglog.WS("view_opened: title=%q", title)
+		handler.OnViewOpened(title)
 
 	case "dnd_updated":
 		var evt wsDNDUpdatedEvent
