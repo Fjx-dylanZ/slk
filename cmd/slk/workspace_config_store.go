@@ -62,10 +62,8 @@ func (s *workspaceConfigStore) tomlKeyFor(teamID string) string {
 	if s.cfg.Workspaces == nil {
 		s.cfg.Workspaces = make(map[string]config.Workspace)
 	}
-	for k, w := range s.cfg.Workspaces {
-		if w.TeamID == teamID {
-			return k
-		}
+	if key, ok := s.cfg.WorkspaceKey(teamID); ok {
+		return key
 	}
 	return teamID
 }
