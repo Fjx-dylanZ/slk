@@ -134,3 +134,30 @@ func matchChannelByName(items []core.ChannelFinderItem, name string) (core.Chann
 func channelResultOf(it core.ChannelFinderItem) channelfinder.ChannelResult {
 	return channelfinder.ChannelResult{ID: it.ID, Name: it.Name, Type: it.Type, Joined: it.Joined}
 }
+
+// slashMsg opens the DM with one user. The web client's /msg resolved
+// the user and posted with chat.postMessage (spec §2); slk pre-fills the
+// message in the DM's composer instead of sending it (spec §3.3). The
+// text is wire form, so a mention inside it shows as <@U…> in the
+// composer; it still sends correctly. /dm is its alias. The toasts are
+// built only on the error paths: building one sets it.
+func slashMsg(name string) commandFunc {
+	return func(a *App, args commandArgs) tea.Cmd {
+		usage := func() tea.Cmd {
+			return toastWithClear(a, "Usage: "+name+" @someone [message]", 3*time.Second)
+		}
+		if len(args.Fields) == 0 {
+			return usage()
+		}
+		first := args.Fields[0]
+		users := slackfmt.MentionedUserIDs(first)
+		if len(users) != 1 || first != "<@"+users[0]+">" {
+			if strings.HasPrefix(first, "@") {
+				return toastWithClear(a, "No one called "+first, 3*time.Second)
+			}
+			return usage()
+		}
+		text := strings.TrimLeft(strings.TrimPrefix(args.Rest, first), " \t\r\n")
+		return a.openConversation([]string{users[0]}, text)
+	}
+}

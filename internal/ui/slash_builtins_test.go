@@ -5,9 +5,12 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/text"
+	"github.com/gammons/slk/internal/ui/mentionpicker"
 )
 
 // presenceSlashApp is slashApp with the status setter recorded and the
@@ -74,7 +77,7 @@ func TestSlashAwayUpdatesTheCachedPresence(t *testing.T) {
 // (TestDispatchCommand_*). This is the guard against a built-in being
 // routed to chat.command; extend the list with each new built-in.
 func TestSlashBuiltinsAreLocal(t *testing.T) {
-	for _, name := range []string{"/away", "/active", "/status", "/open", "/join"} {
+	for _, name := range []string{"/away", "/active", "/status", "/open", "/join", "/msg", "/dm", "/leave", "/close", "/part"} {
 		if _, ok := slashCommands[name]; !ok {
 			t.Errorf("%s is not in slashCommands, so it would run through chat.command", name)
 		}
@@ -222,6 +225,120 @@ func TestMatchChannelByName(t *testing.T) {
 			}
 			if !ok || got.ID != tc.wantID {
 				t.Errorf("matchChannelByName(%q) = (%+v, %v), want %s", tc.query, got, ok, tc.wantID)
+			}
+		})
+	}
+}
+
+// msgSlashApp is slashApp whose conversations.open is recorded and
+// answers with DM D9.
+func msgSlashApp(t *testing.T) (*App, *[]runCall, *[][]string) {
+	t.Helper()
+	a, runs := slashApp(t, nil)
+	opens := &[][]string{}
+	wireOpenConversation(a, func(userIDs []string, reqID uint64) tea.Cmd {
+		*opens = append(*opens, userIDs)
+		return func() tea.Msg {
+			return NewMessageOpenedMsg{ChannelID: "D9", UserIDs: userIDs, RequestID: reqID, AlreadyOpen: true}
+		}
+	})
+	return a, runs, opens
+}
+
+// draftIn returns compose's draft for (T1, channelID) by switching to it.
+func draftIn(a *App, channelID string) string {
+	a.compose.SetDraftContext("T1", channelID, "")
+	return a.compose.Value()
+}
+
+func TestSlashMsg_OpensTheDMAndPrefills(t *testing.T) {
+	a, runs, opens := msgSlashApp(t)
+	a.compose.SetValue("/msg <@U9> are you free\nat 3?")
+	opened := deliveredMsgs[NewMessageOpenedMsg](t, pressEnter(a))
+	if len(*opens) != 1 || strings.Join((*opens)[0], ",") != "U9" {
+		t.Fatalf("OpenConversation calls = %v, want [[U9]]", *opens)
+	}
+	a.Update(opened[0])
+	if got := draftIn(a, "D9"); got != "are you free\nat 3?" {
+		t.Errorf("D9 draft = %q, want the /msg text", got)
+	}
+	if len(*runs) != 0 {
+		t.Errorf("chat.command ran %d times, want 0", len(*runs))
+	}
+}
+
+func TestSlashMsg_TypedMentionIsTranslated(t *testing.T) {
+	a, _, opens := msgSlashApp(t)
+	a.compose.SetUsers([]mentionpicker.User{{ID: "U9", DisplayName: "alice", Username: "alice", InChannel: true}})
+	a.compose.SetValue("/msg @alice hi")
+	_ = deliveredMsgs[NewMessageOpenedMsg](t, pressEnter(a))
+	if len(*opens) != 1 || (*opens)[0][0] != "U9" {
+		t.Fatalf("OpenConversation calls = %v, want [[U9]]", *opens)
+	}
+}
+
+func TestSlashDM_WithoutTextOnlyOpens(t *testing.T) {
+	a, _, opens := msgSlashApp(t)
+	a.compose.SetValue("/dm <@U9>")
+	opened := deliveredMsgs[NewMessageOpenedMsg](t, pressEnter(a))
+	a.Update(opened[0])
+	if len(*opens) != 1 {
+		t.Fatalf("OpenConversation calls = %v, want one", *opens)
+	}
+	if got := draftIn(a, "D9"); got != "" {
+		t.Errorf("D9 draft = %q, want none", got)
+	}
+}
+
+func TestSlashMsg_KeepsAnExistingDraft(t *testing.T) {
+	a, _, _ := msgSlashApp(t)
+	a.compose.SetDraftContext("T1", "D9", "")
+	a.compose.SetValue("older draft")
+	a.compose.SetDraftContext("T1", "C1", "")
+	a.compose.SetValue("/msg <@U9> hi")
+	opened := deliveredMsgs[NewMessageOpenedMsg](t, pressEnter(a))
+	_, cmd := a.Update(opened[0])
+	toasts := deliveredMsgs[ToastMsg](t, cmd)
+	if len(toasts) != 1 || !strings.Contains(toasts[0].Text, "Kept your existing draft") {
+		t.Errorf("toasts = %+v, want the kept-draft notice", toasts)
+	}
+	if got := draftIn(a, "D9"); got != "older draft" {
+		t.Errorf("D9 draft = %q, want the older draft kept", got)
+	}
+}
+
+// A discarded command never runs, so these tests assert only what is
+// set synchronously: the status bar and the OpenConversation calls.
+func TestSlashMsg_UsageErrors(t *testing.T) {
+	cases := map[string]string{
+		"/msg":             "Usage: /msg @someone [message]",
+		"/msg hello there": "Usage: /msg @someone [message]",
+		"/msg @nobody hi":  "No one called @nobody",
+		"/dm <#C2|random>": "Usage: /dm @someone [message]",
+	}
+	for typed, want := range cases {
+		t.Run(typed, func(t *testing.T) {
+			a, _, opens := msgSlashApp(t)
+			a.compose.SetValue(typed)
+			_ = pressEnter(a)
+			if !strings.Contains(statusbarText(a), want) {
+				t.Errorf("status bar = %q, want %q", statusbarText(a), want)
+			}
+			if len(*opens) != 0 {
+				t.Errorf("OpenConversation calls = %v, want none", *opens)
+			}
+		})
+	}
+}
+
+func TestSlashUnsupportedBuiltins(t *testing.T) {
+	for _, name := range []string{"/leave", "/close", "/part"} {
+		t.Run(name, func(t *testing.T) {
+			a, _ := slashApp(t, nil)
+			a.compose.SetValue(name)
+			_ = pressEnter(a)
+			if want := name + " isn't supported in slk yet"; !strings.Contains(statusbarText(a), want) {
+				t.Errorf("status bar = %q, want %q", statusbarText(a), want)
 			}
 		})
 	}
