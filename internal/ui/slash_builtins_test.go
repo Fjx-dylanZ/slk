@@ -151,6 +151,22 @@ func TestSlashOpen_JoinsAChannelTheUserIsNotIn(t *testing.T) {
 	}
 }
 
+// A mention of a channel the finder does not hold resolves by its label,
+// through the server search, like a typed name.
+func TestSlashOpen_MentionOfAnUnknownChannelSearchesByLabel(t *testing.T) {
+	a, _, joins, searches := openSlashApp(t)
+	a.compose.SetValue("/open <#C9|design>")
+	lookups := deliveredMsgs[channelLookupMsg](t, pressEnter(a))
+	if len(*searches) != 1 || (*searches)[0] != "design" {
+		t.Fatalf("searches = %v, want [design]", *searches)
+	}
+	_, cmd := a.Update(lookups[0])
+	_ = deliveredMsgs[ChannelJoinedMsg](t, cmd)
+	if len(*joins) != 1 || (*joins)[0] != "C9" {
+		t.Fatalf("joins = %v, want [C9]", *joins)
+	}
+}
+
 func TestSlashOpen_LookupForAnotherWorkspaceIsDropped(t *testing.T) {
 	a, _, joins, _ := openSlashApp(t)
 	a.compose.SetValue("/open #Design")
@@ -175,6 +191,8 @@ func TestSlashOpen_ErrorsToast(t *testing.T) {
 	}{
 		{"/open #nope", "No channel named #nope", true},
 		{"/open", "Usage: /open #channel", false},
+		{"/join", "Usage: /join #channel", false},
+		{"/open <#C8|nope>", "No channel named #nope", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.typed, func(t *testing.T) {
@@ -435,6 +453,36 @@ func TestSlashRefusalKeepsANewerDraft(t *testing.T) {
 		t.Errorf("compose = %q, want the newer text kept", got)
 	}
 	if !strings.Contains(statusbarText(a), "No channel named #nope") {
+		t.Errorf("status bar = %q, want the toast", statusbarText(a))
+	}
+}
+
+func TestSlashBuiltin_FromTheThreadComposerOpensTheChannel(t *testing.T) {
+	a, _, _, _ := openSlashApp(t)
+	showThread(t, a)
+	a.threadCompose.SetValue("/open #random")
+	sel := deliveredMsgs[ChannelSelectedMsg](t, pressEnter(a))
+	if len(sel) != 1 || sel[0].ID != "C2" {
+		t.Fatalf("ChannelSelectedMsg = %+v, want C2", sel)
+	}
+	if got := a.threadCompose.Value(); got != "" {
+		t.Errorf("thread compose = %q, want cleared", got)
+	}
+}
+
+func TestSlashBuiltin_RefusalFromTheThreadComposerGivesTheTextBackThere(t *testing.T) {
+	a, _, _, _ := openSlashApp(t)
+	showThread(t, a)
+	a.threadCompose.SetDraftContext("T1", "C1", "10.0")
+	a.threadCompose.SetValue("/leave")
+	_ = pressEnter(a)
+	if got := a.threadCompose.Value(); got != "/leave" {
+		t.Errorf("thread compose = %q, want the typed text back", got)
+	}
+	if got := a.compose.Value(); got != "" {
+		t.Errorf("channel compose = %q, want untouched", got)
+	}
+	if !strings.Contains(statusbarText(a), "/leave isn't supported in slk yet") {
 		t.Errorf("status bar = %q, want the toast", statusbarText(a))
 	}
 }

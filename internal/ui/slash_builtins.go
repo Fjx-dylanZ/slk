@@ -63,29 +63,32 @@ func slashUnsupported(name string) commandFunc {
 // web client's /open did (navigation only, no chat.command). /join is
 // its alias (client_app_commands.json: alias_of "/open").
 //
-// A mention resolves by ID against the finder's rows. A name resolves
-// there first; a name the user is not in is looked up on the server,
-// since the finder holds only the user's own conversations until a
-// search runs. The answer comes back as channelLookupMsg.
-func slashOpen(a *App, args commandArgs) tea.Cmd {
-	if strings.TrimSpace(args.Rest) == "" {
-		return a.refuseCommand(args.Origin, "Usage: /open #channel")
-	}
-	if mentioned := slackfmt.MentionedChannelIDs(args.Rest); len(mentioned) > 0 {
-		item, ok := a.findChannelByID(mentioned[0])
-		if !ok {
-			return a.refuseCommand(args.Origin, "No channel named "+strings.TrimSpace(args.Fields[0]))
+// A mention resolves by ID against the finder's rows; one the finder does
+// not hold continues as its label, like a typed name. A name resolves
+// against the finder first; a name the user is not in is looked up on the
+// server, since the finder holds only the user's own conversations until
+// a search runs. The answer comes back as channelLookupMsg. name is the
+// command as typed (/open or /join), for the usage line.
+func slashOpen(name string) commandFunc {
+	return func(a *App, args commandArgs) tea.Cmd {
+		if strings.TrimSpace(args.Rest) == "" {
+			return a.refuseCommand(args.Origin, "Usage: "+name+" #channel")
 		}
-		return a.openChannel(channelResultOf(item))
-	}
-	name := strings.TrimPrefix(args.Fields[0], "#")
-	if item, ok := matchChannelByName(a.channelFinder.Items(), name); ok {
-		return a.openChannel(channelResultOf(item))
-	}
-	channels, teamID, origin := a.channels, a.activeTeamID, args.Origin
-	return func() tea.Msg {
-		item, found := matchChannelByName(channels.SearchRemote(name), name)
-		return channelLookupMsg{teamID: teamID, origin: origin, name: name, item: item, found: found}
+		channel := strings.TrimPrefix(args.Fields[0], "#")
+		if mentioned := slackfmt.MentionedChannels(args.Rest); len(mentioned) > 0 {
+			if item, ok := a.findChannelByID(mentioned[0].ID); ok {
+				return a.openChannel(channelResultOf(item))
+			}
+			channel = mentioned[0].Label
+		}
+		if item, ok := matchChannelByName(a.channelFinder.Items(), channel); ok {
+			return a.openChannel(channelResultOf(item))
+		}
+		channels, teamID, origin := a.channels, a.activeTeamID, args.Origin
+		return func() tea.Msg {
+			item, found := matchChannelByName(channels.SearchRemote(channel), channel)
+			return channelLookupMsg{teamID: teamID, origin: origin, name: channel, item: item, found: found}
+		}
 	}
 }
 

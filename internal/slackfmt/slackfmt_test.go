@@ -17,6 +17,17 @@ func TestMentionedChannelIDs(t *testing.T) {
 	}
 }
 
+func TestMentionedChannels(t *testing.T) {
+	got := MentionedChannels("see <#C0EXAMPLE01|general> and <#G0EXAMPLE02|secret>, not <#bad> or <@U1>")
+	want := []ChannelMention{{ID: "C0EXAMPLE01", Label: "general"}, {ID: "G0EXAMPLE02", Label: "secret"}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("MentionedChannels = %v, want %v", got, want)
+	}
+	if got := MentionedChannels("no mentions"); len(got) != 0 {
+		t.Errorf("MentionedChannels(no mentions) = %v, want empty", got)
+	}
+}
+
 func TestStripMarkup_ResolvesAndStrips(t *testing.T) {
 	names := map[string]string{"U1": "alice"}
 	got := StripMarkup("<@U1> hi <#C1|general> *bold* <!here> <https://x.io|link>", names)

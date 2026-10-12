@@ -149,7 +149,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Usergroup map helpers | `usergroups.Copy`, `usergroups.Equal`, `usergroups.Display` |
 | A workspace's user ID → display name, from any goroutine in `cmd/slk` | `wctx.UserNames` (`*userNameStore`: `Get`/`Set`, `MentionedNames(text)` for one message; `lookupUserCached` / `resolveUserCached` add the SQLite fallback). Just `Set`: hand the UI the map from `SnapshotForUI()` and pass only its version to `NotifyFrom`, which makes every later new or changed name reach the UI as `UserResolvedMsg`. Never keep or read the map you handed over |
 | User IDs mentioned in message text | `slackfmt.MentionedUserIDs(text)` |
-| Channel IDs mentioned in message text (`<#C…\|name>`) | `slackfmt.MentionedChannelIDs(text)` |
+| Channel IDs mentioned in message text (`<#C…\|name>`), or each with its label | `slackfmt.MentionedChannelIDs(text)`; `slackfmt.MentionedChannels(text)` returns `ChannelMention{ID, Label}` |
 | Workspace-relative cached external-user flags | `cache.DB.ExternalUsers(workspaceID)` returns a caller-owned map, derived from `User.HomeTeamID`; the legacy boolean is only a fallback within the row's original workspace |
 | A WebSocket message's author ID and its UI `MessageItem` (bot-ID fallback, display-name resolution, file/block/attachment conversion) | `(*rtmEventHandler).messageAuthor`, `(*rtmEventHandler).messageItemFromEvent` (`cmd/slk/rtm_handler.go`); shared by `OnMessage` and `OnEphemeralMessage` |
 | Legacy attachment action ids slack-go drops | `slackclient.EphemeralMessage.ActionIDs` (decoded from the raw frame), applied with `cmd/slk/applyActionIDs` |

@@ -47,12 +47,29 @@ func MentionedUserIDs(text string) []string {
 // mention in text, in order, duplicates included. This is the form the
 // composer sends (compose.TranslateMentionsForSend).
 func MentionedChannelIDs(text string) []string {
-	matches := channelMentionRe.FindAllStringSubmatch(text, -1)
-	ids := make([]string, 0, len(matches))
-	for _, m := range matches {
-		ids = append(ids, m[1])
+	mentions := MentionedChannels(text)
+	ids := make([]string, 0, len(mentions))
+	for _, m := range mentions {
+		ids = append(ids, m.ID)
 	}
 	return ids
+}
+
+// ChannelMention is one <#C…|label> mention: the channel's ID and the
+// name the text carries for it.
+type ChannelMention struct {
+	ID, Label string
+}
+
+// MentionedChannels returns every <#C…|label> mention in text, in order,
+// duplicates included.
+func MentionedChannels(text string) []ChannelMention {
+	matches := channelMentionRe.FindAllStringSubmatch(text, -1)
+	mentions := make([]ChannelMention, 0, len(matches))
+	for _, m := range matches {
+		mentions = append(mentions, ChannelMention{ID: m[1], Label: m[2]})
+	}
+	return mentions
 }
 
 // StripMarkup converts Slack mrkdwn to plain text, resolving user mentions
