@@ -119,22 +119,97 @@ func TestActivityReadSet_OtherTeamIgnored(t *testing.T) {
 	}
 }
 
-// Review focus 1: U, U quickly; the second (unread) request fails. Slack
-// holds the first request's state (read), and so must the view.
-func TestActivityU_SecondToggleFailsEndsInSlackState(t *testing.T) {
+// Two quick U presses must not race: Slack could apply them in either
+// order. Only one request per item is in flight; the second press only
+// moves the dot, and its state is sent once the first is confirmed.
+func TestActivityU_QuickTogglesAreSentInOrder(t *testing.T) {
 	a, calls := activityReadApp(t, nil, unreadMention("k1"))
 	_, first := a.Update(keyPress('U'))
-
-	a.SetActivityService(core.NewActivityService(core.ActivityServiceFuncs{
-		SetRead: fakeSetRead(calls, errors.New("ratelimited")),
-	}))
 	_, second := a.Update(keyPress('U'))
+	if second != nil {
+		t.Fatal("second U sent a request while the first was still in flight")
+	}
+	if !selectedActivity(t, a).IsUnread {
+		t.Error("second U did not move the dot back to unread at once")
+	}
 
-	results := deliveredMsgs[ActivityReadSetMsg](t, first, second)
-	a.Update(results[0])
-	a.Update(results[1])
+	_, next := a.Update(deliveredMsgs[ActivityReadSetMsg](t, first)[0])
+	if c := <-calls; !c.read {
+		t.Fatalf("first request = %+v, want read", c)
+	}
+	if next == nil {
+		t.Fatal("the confirmed read did not send the newer unread state")
+	}
+	_, done := a.Update(deliveredMsgs[ActivityReadSetMsg](t, next)[0])
+	if c := <-calls; c.read {
+		t.Errorf("follow-up request = %+v, want unread", c)
+	}
+	if done != nil || !selectedActivity(t, a).IsUnread || a.sidebar.ActivityUnreadCount() != 1 {
+		t.Errorf("after both settle: cmd=%v unread=%v badge=%d, want nil/true/1",
+			done != nil, selectedActivity(t, a).IsUnread, a.sidebar.ActivityUnreadCount())
+	}
+}
+
+// U, U, and the one request fails: Slack still holds the original state,
+// which is also what the user asked for last, so nothing is undone.
+func TestActivityU_ToggleBackDuringFailedRequestMatchesSlack(t *testing.T) {
+	a, calls := activityReadApp(t, errors.New("ratelimited"), unreadMention("k1"))
+	_, first := a.Update(keyPress('U'))
+	a.Update(keyPress('U'))
+
+	_, next := a.Update(deliveredMsgs[ActivityReadSetMsg](t, first)[0])
+	<-calls
+	if next != nil {
+		t.Error("a failed request whose state was already toggled back sent another")
+	}
+	if !selectedActivity(t, a).IsUnread || a.sidebar.ActivityUnreadCount() != 1 {
+		t.Errorf("item ended read (badge %d); Slack still has it unread", a.sidebar.ActivityUnreadCount())
+	}
+}
+
+// The follow-up request fails: undo to what Slack confirmed (read), not
+// to the opposite of the failed request's predecessor.
+func TestActivityU_FailedFollowUpRollsBackToConfirmed(t *testing.T) {
+	a, calls := activityReadApp(t, nil, unreadMention("k1"))
+	a.SetActivityService(core.NewActivityService(core.ActivityServiceFuncs{
+		SetRead: func(team ids.TeamID, it core.ActivityItem, read bool) core.Msg {
+			calls <- setReadCall{team, it.Key, read}
+			var err error
+			if !read {
+				err = errors.New("ratelimited")
+			}
+			return ActivityReadSetMsg{TeamID: string(team), Key: it.Key, Read: read, Err: err}
+		},
+	}))
+	_, first := a.Update(keyPress('U'))
+	a.Update(keyPress('U'))
+	_, next := a.Update(deliveredMsgs[ActivityReadSetMsg](t, first)[0])
+	a.Update(deliveredMsgs[ActivityReadSetMsg](t, next)[0])
+	<-calls
+	<-calls
+
 	if selectedActivity(t, a).IsUnread || a.sidebar.ActivityUnreadCount() != 0 {
-		t.Errorf("item ended unread (badge %d); Slack has it read", a.sidebar.ActivityUnreadCount())
+		t.Errorf("item ended unread (badge %d); Slack confirmed read", a.sidebar.ActivityUnreadCount())
+	}
+	if got := statusbarText(a); !strings.Contains(got, "Couldn't mark activity item unread") {
+		t.Errorf("status bar = %q, want the failure toast", got)
+	}
+}
+
+// A result that lands after a workspace switch still ends the request,
+// so the item can be changed again once the user comes back.
+func TestActivityU_ResultAfterWorkspaceSwitchFreesTheItem(t *testing.T) {
+	a, calls := activityReadApp(t, nil, unreadMention("k1"))
+	_, first := a.Update(keyPress('U'))
+	result := deliveredMsgs[ActivityReadSetMsg](t, first)[0]
+	<-calls
+
+	a.activeTeamID = "T2"
+	a.Update(result)
+	a.activeTeamID = "T1"
+
+	if _, cmd := a.Update(keyPress('U')); cmd == nil {
+		t.Error("U after the earlier result landed in another workspace sent nothing")
 	}
 }
 
@@ -246,5 +321,19 @@ func TestActivityEnter_UnknownItemMarksReadAndToasts(t *testing.T) {
 	deliveredMsgs[ActivityReadSetMsg](t, cmd)
 	if c := <-calls; !c.read || c.key != "x1" {
 		t.Errorf("Enter asked Slack for %+v, want x1 marked read", c)
+	}
+}
+
+// A selection made before a workspace switch must not act in the new
+// workspace: its item belongs to the old one.
+func TestActivitySelected_FromOtherWorkspaceIgnored(t *testing.T) {
+	a, calls := activityReadApp(t, nil, reminder(true))
+
+	_, cmd := a.Update(ActivitySelectedMsg{TeamID: "T0", Item: reminder(true)})
+	if cmd != nil {
+		t.Error("a selection from another workspace returned a command")
+	}
+	if len(calls) != 0 || !selectedActivity(t, a).IsUnread {
+		t.Error("a selection from another workspace changed this workspace's item")
 	}
 }

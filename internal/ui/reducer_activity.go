@@ -17,9 +17,10 @@
 //	                            rows show what the activity actually was.
 //	ActivityToggleUnreadMsg   - flip the unread-only filter and re-fetch
 //	                            with the new flag (the server filters).
-//	ActivityReadSetMsg        - Slack answered a read-state change: on
-//	                            error, undo the optimistic change and
-//	                            toast.
+//	ActivityReadSetMsg        - Slack answered a read-state change: send
+//	                            the newest state if the user changed it
+//	                            meanwhile; on error, undo to the state
+//	                            Slack holds and toast.
 //	ActivitySelectedMsg       - user pressed Enter on a row: open the
 //	                            underlying thread (ThreadTS set) or the
 //	                            channel message (jump to TS), reusing
@@ -63,18 +64,55 @@ func activityRefs(items []core.ActivityItem) map[string][]string {
 // activity.feed page. Matches the desktop client's default page size.
 const activityFeedPageLimit = 50
 
+// activityRead tracks one Activity item's read-state requests to Slack.
+// At most one is in flight per item: two concurrent requests could reach
+// Slack in either order and leave it holding the older state.
+type activityRead struct {
+	item      core.ActivityItem
+	want      bool // the read state the user asked for last
+	confirmed bool // the read state Slack holds, as far as we know
+	inFlight  bool
+}
+
+// activityReadKey scopes an Activity item key to its workspace.
+func activityReadKey(teamID, itemKey string) string {
+	return teamID + "\x00" + itemKey
+}
+
 // setActivityItemRead applies an Activity item's new read state at once
 // (its dot and the sidebar badge) and returns the command that asks
-// Slack for it. The ActivityReadSetMsg arm undoes the change if Slack
-// refuses.
+// Slack for it, or nil when a request for the item is already in flight:
+// the ActivityReadSetMsg arm sends the newest state when that returns,
+// and undoes the change if Slack refuses.
 func (a *App) setActivityItemRead(it core.ActivityItem, read bool) tea.Cmd {
 	if a.activeTeamID == "" {
 		return nil
 	}
 	a.activityView.SetItemRead(it.Key, read)
 	a.sidebar.SetActivityUnreadCount(a.activityView.UnreadCount())
+
+	k := activityReadKey(a.activeTeamID, it.Key)
+	r := a.activityReads[k]
+	if r == nil {
+		if a.activityReads == nil {
+			a.activityReads = map[string]*activityRead{}
+		}
+		r = &activityRead{item: it, confirmed: !it.IsUnread}
+		a.activityReads[k] = r
+	}
+	r.want = read
+	if r.inFlight {
+		return nil
+	}
+	return a.sendActivityRead(r)
+}
+
+// sendActivityRead starts r's request for its wanted state.
+func (a *App) sendActivityRead(r *activityRead) tea.Cmd {
+	r.inFlight = true
 	activity := a.activity
 	team := ids.TeamID(a.activeTeamID)
+	it, read := r.item, r.want
 	return func() tea.Msg { return activity.SetRead(team, it, read) }
 }
 
@@ -154,12 +192,27 @@ var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 
 	case ActivityReadSetMsg:
-		if m.TeamID != a.activeTeamID || m.Err == nil {
+		k := activityReadKey(m.TeamID, m.Key)
+		r := a.activityReads[k]
+		if r == nil {
 			return nil, true
 		}
-		// Undo to the opposite of what failed: if an earlier request
-		// for the same item succeeded, that is the state Slack holds.
-		a.activityView.SetItemRead(m.Key, !m.Read)
+		r.inFlight = false
+		if m.Err == nil {
+			r.confirmed = m.Read
+		}
+		// Another workspace's view is not on screen; its feed reloads
+		// from Slack when the user returns.
+		if m.TeamID != a.activeTeamID || r.want == r.confirmed {
+			delete(a.activityReads, k)
+			return nil, true
+		}
+		if m.Err == nil {
+			// The user changed it again while this was in flight.
+			return a.sendActivityRead(r), true
+		}
+		delete(a.activityReads, k)
+		a.activityView.SetItemRead(m.Key, r.confirmed)
 		a.sidebar.SetActivityUnreadCount(a.activityView.UnreadCount())
 		state := "unread"
 		if m.Read {
@@ -168,6 +221,11 @@ var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return toastWithClear(a, "Couldn't mark activity item "+state+": "+m.Err.Error(), 3*time.Second), true
 
 	case ActivitySelectedMsg:
+		// A switch landed between the selection and its delivery: the
+		// item belongs to the workspace no longer on screen.
+		if m.TeamID != a.activeTeamID {
+			return nil, true
+		}
 		it := m.Item
 		if it.ChannelID == "" {
 			return a.activateUnopenableActivity(it), true

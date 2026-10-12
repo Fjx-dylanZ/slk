@@ -170,6 +170,15 @@ applies the change optimistically (`SetItemRead`, then
 `sidebar.SetActivityUnreadCount(activityView.UnreadCount())`) and returns
 the `activity.SetRead` command. Both entry points below use it.
 
+At most one request per item is in flight (amended after PR review:
+two concurrent requests could reach Slack in either order and leave it
+holding the older state). The App keeps `activityReads`, keyed by team and
+item key, each entry holding the item, `want` (the state the user asked
+for last), `confirmed` (the state Slack holds as far as we know: the
+item's state when the first change began, then each success) and
+`inFlight`. A change while a request is in flight only moves the dot and
+updates `want`; nothing is sent.
+
 **`U` toggles.** In `mode_normal.go`, ahead of the general `MarkUnread`
 arm: when `a.view == ViewActivity && a.focusedPanel == PanelMessages` and
 `MarkUnread` matches, take the selected item and call
@@ -184,20 +193,25 @@ when the item has no `ChannelID`:
 - always toast: `Reminder: open Slack to see it` for `saved_reminder`,
   else `slk can't open this activity item yet`.
 
-`ActivitySelectedMsg` gains the item's `Key`, `Type`, `FeedTS` and
-`IsUnread` so the arm can do this without re-reading the selection.
+`ActivitySelectedMsg` carries the whole item, and the `TeamID` it was
+selected in; a selection delivered after a workspace switch is ignored.
 Enter on openable items is unchanged; opening the conversation already
 marks it read.
 
-**Result.** `reduceActivity` handles `ActivityReadSetMsg`: ignore it when
-`TeamID` is not the active team; on success do nothing; on error call
-`SetItemRead(Key, !Read)`, refresh the sidebar badge, and
-`toastWithClear` `Couldn't mark activity item read|unread: <err>`.
+**Result.** `reduceActivity` handles `ActivityReadSetMsg` for its
+`activityReads` entry: clear `inFlight`; on success set `confirmed`.
+Then, if the team is not the active one or `want == confirmed`, drop the
+entry. Otherwise, on success send `want` (the user changed it
+meanwhile); on error drop the entry, `SetItemRead(Key, confirmed)`,
+refresh the sidebar badge, and `toastWithClear`
+`Couldn't mark activity item read|unread: <err>`. Errors are not retried.
 
 ### Error handling and edge cases
 
-- **Failure:** rolled back as above; the user sees the dot return and a
-  toast.
+- **Failure:** rolled back to the state Slack holds; the user sees the
+  dot return and a toast. If the user already toggled back while the
+  failed request was in flight, the dot already matches Slack and
+  nothing is shown.
 - **In-flight fetch:** a fetch already in flight when the user toggles
   can return the pre-toggle state and overwrite it. Fetches happen only
   on view activation and on the unread-only toggle, and the next one
@@ -205,8 +219,9 @@ marks it read.
 - **Unread-only filter on:** marking an item read leaves it in the list
   until the next fetch, so the user can undo with `U`. No client-side
   filtering is added.
-- **Workspace switch mid-request:** the result is team-guarded and
-  dropped; the other workspace's feed reloads from Slack on activation.
+- **Workspace switch mid-request:** the result still ends its entry (so
+  the item can be changed again later) but leaves the view alone; the
+  other workspace's feed reloads from Slack on activation.
 
 ## Out of scope
 
