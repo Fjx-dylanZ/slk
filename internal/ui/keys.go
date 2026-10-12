@@ -44,6 +44,11 @@ type KeyMap struct {
 	OpenLink            key.Binding
 	DownloadFile        key.Binding
 	MarkUnread          key.Binding
+	MarkSet             key.Binding
+	JumpMark            key.Binding
+	MarkBackJump        key.Binding
+	MarksList           key.Binding
+	MarksDelete         key.Binding
 	NextUnread          key.Binding
 	PrevUnread          key.Binding
 	ActivityView        key.Binding
@@ -52,12 +57,15 @@ type KeyMap struct {
 	NewMessage          key.Binding
 	ThemeSwitcher       key.Binding
 	ThemeSwitcherGlobal key.Binding
+	ThemeNext           key.Binding
+	ThemePrev           key.Binding // alt+Y: tmux extended-keys; alt+shift+Y: xterm modifyOtherKeys
 	PresenceMenu        key.Binding
 	ToggleSection       key.Binding
 	NavBack             key.Binding
 	NavForward          key.Binding
 	Help                key.Binding
 	SaveThread          key.Binding
+	RespondButtons      key.Binding
 	ListReactions       key.Binding
 	UserProfile         key.Binding
 	WindowPrefix        key.Binding
@@ -113,10 +121,20 @@ func DefaultKeyMap() KeyMap {
 		OpenLink:        key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open link in message")),
 		DownloadFile:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "download file in message")),
 		MarkUnread:      key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "mark unread")),
-		NextUnread:      key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "next unread channel")),
-		PrevUnread:      key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "prev unread channel")),
-		ActivityView:    key.NewBinding(key.WithKeys("ctrl+a"), key.WithHelp("ctrl+a", "open activity")),
-		ActivityUnread:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "Activity: toggle unread-only")),
+		MarkSet:         key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "set mark")),
+		JumpMark:        key.NewBinding(key.WithKeys("'", "`"), key.WithHelp("'/`", "jump to mark")),
+		// Keyless help-only entries (same trick as WorkspaceFinder
+		// below). The back-jump is the doubled apostrophe consumed
+		// inside the ' chord, and the two commands are dispatched from
+		// the command registry, so none of them is a KeyMap binding —
+		// but all three need to appear in the help overlay.
+		MarkBackJump:   key.NewBinding(key.WithHelp("''", "back-jump to where you jumped from")),
+		MarksList:      key.NewBinding(key.WithHelp(":marks", "list marks")),
+		MarksDelete:    key.NewBinding(key.WithHelp(":delmarks", "delete marks by letter")),
+		NextUnread:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "next unread channel")),
+		PrevUnread:     key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "prev unread channel")),
+		ActivityView:   key.NewBinding(key.WithKeys("ctrl+a"), key.WithHelp("ctrl+a", "open activity")),
+		ActivityUnread: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "Activity: toggle unread-only")),
 		// Keyless: ctrl+w is reserved as the window-command prefix
 		// (window-management design §4). The keyless binding never
 		// matches but keeps the help-overlay entry pointing at :ws
@@ -125,16 +143,19 @@ func DefaultKeyMap() KeyMap {
 		NewMessage:          key.NewBinding(key.WithKeys("ctrl+n"), key.WithHelp("ctrl+n", "new message")),
 		ThemeSwitcher:       key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("ctrl+y", "switch theme (per workspace)")),
 		ThemeSwitcherGlobal: key.NewBinding(key.WithKeys("ctrl+shift+y"), key.WithHelp("ctrl+shift+y", "set default theme")),
+		ThemeNext:           key.NewBinding(key.WithKeys("alt+y"), key.WithHelp("alt+y", "next theme (per workspace)")),
+		ThemePrev:           key.NewBinding(key.WithKeys("alt+shift+y", "alt+Y", "alt+shift+Y"), key.WithHelp("alt+shift+y", "prev theme (per workspace)")),
 		PresenceMenu:        key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "set status")),
 		ToggleSection:       key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "toggle section")),
 		NavBack:             key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "navigate back")),
 		// ctrl+k was the original forward key. It stays bound for
 		// existing users but is left out of the help overlay.
-		NavForward:    key.NewBinding(key.WithKeys("ctrl+l", "ctrl+k"), key.WithHelp("ctrl+l", "navigate forward")),
-		Help:          key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "show keybindings")),
-		SaveThread:    key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "save thread")),
-		ListReactions: key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "list reactions")),
-		UserProfile:   key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "show author's profile")),
+		NavForward:     key.NewBinding(key.WithKeys("ctrl+l", "ctrl+k"), key.WithHelp("ctrl+l", "navigate forward")),
+		Help:           key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "show keybindings")),
+		SaveThread:     key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "save thread")),
+		RespondButtons: key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "respond to message buttons")),
+		ListReactions:  key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "list reactions")),
+		UserProfile:    key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "show author's profile")),
 		// Window commands (design §4). WindowPrefix is the only real
 		// binding; the Win* entries are keyless help-only bindings
 		// (same trick as WorkspaceFinder above) — actual dispatch of

@@ -14,7 +14,7 @@ go build ./...
 go test ./...                 # ~10s
 go test ./... -race           # ~47s; this is what CI runs
 go vet ./...
-golangci-lint run             # v2.13.1, config in .golangci.yml
+golangci-lint run             # v2.14.0, config in .golangci.yml
 gofmt -l .                    # must be empty; enforced in CI
 ```
 
@@ -39,10 +39,11 @@ internal/core/          the ports (service interfaces) the TUI calls, and the
                         values the TUI and cmd/slk exchange through them
 internal/ui/            bubbletea App: reducers, mode key handlers, view regions
 internal/ui/<widget>/   self-contained sub-models (messages, thread, sidebar,
-                        compose, and 13 modal packages)
+                        compose, and 14 modal packages)
 internal/bubbles/       self-contained components and the substrate they
-                        share (RFC #236), e.g. ansi. Never imports
-                        internal/ui; the TUI's I/O ban applies here too.
+                        share (RFC #236), e.g. ansi, scrollbar, selection, and
+                        chrome, the substrate every dialog draws through. Never
+                        imports internal/ui; the TUI's I/O ban applies here too.
                         Widgets move here from internal/ui/<widget>/ one at
                         a time; confirmprompt is the first
 internal/slack/         Slack Web API + browser-protocol WebSocket client
@@ -105,7 +106,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Need | Use |
 |---|---|
 | Word wrap to a width | `messages.WordWrap(s, limit)` |
-| Plain-text line segmentation (grapheme-correct) | `messages.PlainLines`, `messages.DisplayWidthOfPlain`, `messages.SliceColumns` |
+| Plain-text line segmentation (grapheme-correct) | `entrylist.PlainLines`, `entrylist.DisplayWidth`, `entrylist.SliceColumns` (`bubbles/entrylist`; `messages.PlainLines`/`DisplayWidthOfPlain`/`SliceColumns` delegate for existing callers) |
 | Display width of a string (emoji-aware) | `emoji.Width(s)` |
 | Case/accent-insensitive fold for matching | `text.Fold(s)` |
 | Slack mrkdwn → plain text | `messages.FlattenMrkdwn`, `messages.FlattenMrkdwnWithUserGroups` |
@@ -115,18 +116,26 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Every link a message offers to `o` (text links + permalinks of messages it shares, from attachment `from_url`) | `messages.MessageLinks(msg)` |
 | Does message text mention the current user? | `mention.InText(text, selfUserID)` |
 | Reaction pill rendering | `messages.ReactionPillText` |
+| Render one `MessageItem` (author line, body, Block Kit, attachments, reactions, hits) for a content pane | `messages.RenderMessage(msg, width, rc, opt)` with a `RenderContext` the pane builds (`renderContext()` in each pane) and `RenderOptions` for its differences; `messages.BlockkitContext(msg, rc)` for the Block Kit host context. Both panes; the thread pane's options are `thread.(*Model).renderMessage` |
+| Turn a `RenderedMessage` into list rows: fill, invisible/tinted left border, the long-timestamp selected variant, the plain-text mirror (the part of building an `entrylist.Entry` both panes share) | `messages.WrapRows(msg, rendered, width, messages.NewWrapStyles(focused))` returning `WrappedRows` (`Lines`, `Selected`, `Plain`, `ShortSrc`); the panes add ID/Ref/hits and (channel pane) the spacer rows. `WrapStyles.SelectedVariant` builds the short-timestamp variant for `EntryPayload.SelectedLines`. The thread parent row is not wrapped this way: it is re-rendered every frame |
+| Apply a reaction add/remove event idempotently; the reaction-pill cursor | `messages.ApplyReaction`, `messages.ReactionNav` |
+| A content pane's per-entry payload next to its `entrylist.Entry` (short-timestamp selected variant, kitty flushes, sixel rows), and the rows to draw for the cursor entry | `messages.EntryPayload`, `(*EntryPayload).SelectedLines`; the emoji-image context both panes take is `messages.EmojiContext` |
 | Date label from a Slack ts | `messages.DateFromTS`, `messages.FormatDateSeparator`, `messages.FormatShortDate` (compact form for a message header: "Today", "Jan 2") |
 | Date-qualified timestamp for the selected message header | `messages.LongTimestamp(ts, short)`, `messages.SelectedHeader(rendered, header, ts, short, maxWidth)`; any other header timestamp swap that must fit the width budget: `messages.ReplaceHeaderTimestamp(rendered, header, short, replacement, maxWidth)` |
 | mpdm channel name → human name | `slackfmt.FormatMPDMName` |
 | Channel-type glyph (`#` / `◆` / `●`) | `messages.ChannelGlyph(chType)` |
 | Marker row for a message only the current user can see | `messages.EphemeralLabel()` — drawn above the author line in both panes |
+| A message's pressable legacy buttons (selects excluded) | `messages.ButtonActions(msg)`, `messages.HasButtonActions(msg)` |
+| The hint under an interactive message ("b to respond" for an ephemeral with buttons, else "open in Slack") | `messages.InteractiveHint(msg)`; both panes |
+| Open the action dialog for an ephemeral's buttons | `(*App).openActionPrompt(actionPromptRef)` (`internal/ui/action_prompt.go`); queueing and the interruption rule are `enqueueActionPrompt` / `tryOpenActionPrompt` |
 | Replace a pane's list with fetched history without erasing ephemerals already shown | `keepEphemerals(fetched, shown)` (`internal/ui/ephemeral_keep.go`); only for a fetch of the conversation already on screen |
 | Slack permalink parsing | `slackurl.Parse` |
 | Slack ts → `time.Time` (whole seconds, any timezone) | `export.TimeFromTS` |
 | A since/until/overlap date range in a timezone, and "is this ts in it?" | `export.NewWindow`, `export.Window.Contains` |
 | Sleep out a slack-go rate-limit error (ctx-aware) | `slackclient.WaitOutRateLimit` |
 | Page through all channel history in a ts range / a thread's replies in a ts range | `(*slackclient.Client).WalkHistory`, `GetRepliesBetween` |
-| Press a legacy attachment button (`chat.attachmentAction`, payload byte-identical to the web client's) | `(*slackclient.Client).AttachmentAction(ctx, AttachmentActionRequest)` |
+| Press a legacy attachment button (`chat.attachmentAction`, payload byte-identical to the web client's) | `(*slackclient.Client).AttachmentAction(ctx, AttachmentActionRequest)`, with `service_id` = the posting app's bot ID |
+| Press a legacy attachment button from the UI | `core.InteractionService.PressAttachmentAction` (App field `a.interactions`); wired in `cmd/slk` via `pressAttachmentAction` to the active workspace's `Client.AttachmentAction` |
 | Emoji shortcode → glyph | `emoji.Sprint`, `emoji.CodeMap`, `emoji.StripSkinTone` |
 | Does Block Kit already render the message body? | `blockkit.RendersBody(blocks)`, `messages.BlocksCarryBody(msg)` |
 | Current DND state from a Slack API result | `slack.DNDStateFromStatus` |
@@ -152,19 +161,37 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 
 | Need | Use |
 |---|---|
-| Scrollbar gutter on a rendered pane | `ui/scrollbar.Overlay`, `ui/scrollbar.Visible` |
+| Scrollbar gutter on a rendered pane | `bubbles/scrollbar.Overlay`, `bubbles/scrollbar.Visible` |
+| Lay out a wrapping row of labelled controls (buttons, select labels) with positions for hit-testing | `internal/bubbles/buttonrow` (`Layout`, `Rows`, `RowsFunc`); used by Block Kit actions and the confirm prompt |
+| Draw a dialog: its box, title / filter / body / footer layout, filter line, list window, selected-row marker, scrollbar gutter, and the composer popups' box and marker | `bubbles/chrome` (`Frame`, `Box`, `FilterInput`, `Window`, `List`, `Marker`, `BodyTop`, `Popup`, `PopupMarker`), drawn with `messages.ChromeStyles()` called per draw. A dialog keeps its own fields, matching and row content; see the package doc |
+| A scrollbar thumb's rows, for a gutter you draw yourself | `bubbles/scrollbar.Thumb` (the one formula; `Overlay` and `chrome.List` use it) |
 | Centered modal over a dimmed backdrop | `ui/overlay.DimmedOverlay` |
-| Yes/no confirmation modal (title, one-line preview, confirm/cancel keys) | `bubbles/confirmprompt` (`New`, `Open`, `Update`, `View`, `SetStyles`, `SetWidth`; options `WithStyles`/`WithKeyMap`/`WithWidth`; `KeyMap` field). In the App, open it with `App.openConfirmPrompt` (`internal/ui/confirm.go`), which also maps the theme onto its styles and composites it |
-| Text selection ranges and anchors | `ui/selection` (`Range`, `Anchor`, `LessOrEqual`) |
+| Prompt modal with N buttons (title, wrapped body of up to 8 lines, buttons; yes/no is `Open`, any buttons via `OpenChoice(confirmprompt.Choice)`, `Button.Then` for a follow-up step) | `bubbles/confirmprompt` (`New`, `Open`, `OpenChoice`, `Update`, `PressHighlighted`, `View`, `SetStyles`, `SetWidth`; options `WithStyles`/`WithKeyMap`/`WithWidth`; `KeyMap` field). In the App, open it with `App.openConfirmPrompt` (`internal/ui/confirm.go`), which also maps the theme onto its styles and composites it |
+| Text selection ranges and anchors | `bubbles/selection` (`Range`, `Anchor`, `LessOrEqual`) |
+| A scrollable, selectable list of pre-rendered rows: line offsets, scroll offset and snapping, the visible window, text selection and copy, clickable-rect translation, the scrollbar | `bubbles/entrylist` (`New` with options, `SetHeight`, `SetEntries`, `Layout`, `Compose`). The channel and thread panes are its two owners; each divergence between them is an `entrylist` option, documented on the option |
+| The theme mapped onto a content pane's entrylist styles (padding, scrollbar, selection highlight); the thread pane calls it; the channel pane uses the unexported `themeListStyles` it wraps | `messages.ThemeListStyles()` (`internal/ui/messages/pane_list.go`) |
+| Do something to whichever message pane (channel or thread) is focused or named by a panel, without a messages/thread branch | the `contentPane` interface, `(*App).contentPaneFor(panel)` and `(*App).focusedContentPane()` (returns the pane and its channel ID) in `internal/ui/content_pane.go`; both panes are asserted against it at compile time. Built on it: `handleReactionNav`, `openReactionPicker`, `toggleReactionOnSelected` (`app.go`) and the pill-click hit test `toggleReactionAt` (`reducer_mouse.go`), each taking the pane and its channel ID |
 | Theme colors and styles | `ui/styles` (`Username`, `SelectionStyle`, `SearchHighlightStyle`, `MentionBadgeStyle`, `UserColor`) |
-| Change the theme inside the App | `App.applyTheme(name)` (`internal/ui/app.go`): applies it, invalidates render caches and pushes fresh styles to components that snapshot them. A component that holds a style snapshot (anything in `internal/bubbles`) gets its push added there, not at each call site |
+| Change the theme inside the App | `App.applyTheme(name)` (`internal/ui/theme.go`): applies it, invalidates render caches and pushes fresh styles to components that snapshot them. A component that holds a style snapshot (anything in `internal/bubbles`) gets its push added there, not at each call site. `entrylist` is the exception: its owners (the channel and thread panes) call `SetStyles` at the top of every `View`, so `applyTheme` only invalidates for them. `styles.CurrentTheme()` names the applied one |
+| Status-bar toast that clears itself | `toastWithClear(a, text, d)` (`internal/ui/reducer_io.go`); `toastUntilReplaced(a, text)` only for a toast a later one replaces on purpose (upload progress). Set toasts on the Update goroutine, never inside a `tea.Cmd`; `statusbar.ToastSeq()` identifies the toast showing, so a clear tick leaves a newer toast alone. `TestToastsGoThroughToastSetters` fails on a direct `statusbar.SetToast` with text |
 | Window tree geometry | `ui/wintree` |
 | Sidebar selection across item/filter reorders | Capture `sidebar.Model.currentCursorKey()` **before** mutation, then `rebuildNavWithCursor`; `rebuildNavPreserveCursor` is only safe while old nav indices still identify the same items |
-| Modal geometry / row hit-testing | `boxedOverlay`, `clickableOverlay` (list rows), `pointClickable` (a single glyph, e.g. the profile dialog's 📋) in `internal/ui/reducer_modal_click.go` |
+| Modal geometry / row hit-testing | `chrome.Boxed`, `chrome.Clickable` (list rows; declared in `internal/bubbles/chrome`, asserted by each dialog package) and `pointClickable` (a single glyph, e.g. the profile dialog's 📋; `internal/ui/reducer_modal_click.go`) |
 | Channel/DM destination picker for forwarding | `channelfinder.Model.OpenForForwarding()` (joined conversations only); `Open()` restores the normal switcher |
 | Refresh a workspace finder entry without losing visit recency | `rtmEventHandler.upsertFinderItem(item)` on the serialized event owner; returns the stored item and a changed flag, preserves existing `LastVisited`, seeds a new row from `LastVisitedByChannel` |
 | Render a thread from cache on open, before the fetch lands | `cachedThreadRepliesCmd(threads, chID, threadTS)` (`internal/ui/app.go`); yields a `FromCache` `ThreadRepliesLoadedMsg`, which renders but never marks the thread read — only the fetched result does |
 | Bind a composer to the conversation its draft belongs to | `(*compose.Model).SetDraftContext(teamID, channelID, threadTS)` — an empty channel detaches (saves the prior conversation's draft, clears the visible input). `SetActiveChannel` sets only mention context; it does not move draft storage |
+| Name a navigable position (workspace, channel, message, thread reply) | `ui.Location`; `(*App).currentLocation` / `currentPosition` snapshot where the user is |
+| Navigate to a `Location` (history walk, mark jump, permalink) | `(*App).applyLocation(loc, fromHistory)` (`internal/ui/reducer_links.go`); goes through `pendingLinkNav`, so it waits for the channel and thread to load, and refuses while an upload is in flight |
+| Persistent marks in the cache | `(*cache.DB).UpsertMark` / `ListMarks` / `DeleteMark`, keyed by workspace and letter |
+
+### App state and actions
+
+| Need | Use |
+|---|---|
+| Selected message or reply in the focused pane (channel, TS, text, author, panel) | `App.selectedMessageContext()` (`internal/ui/app.go`) |
+| Switch the active workspace from the UI | `App.switchWorkspace(teamID)` (`internal/ui/app.go`). Always use it: it saves a theme a cycle left pending, so a switch back to that workspace reads the new theme |
+| Save a per-workspace theme | `settings.SaveTheme(teamID, name, scope)` with the workspace on screen (`a.activeTeamID`), never the backend's active one: a switch moves that first |
 
 ### Test helpers
 
@@ -184,10 +211,13 @@ greppable by name; no line numbers, because these files move.
 | Seed App-level state | `withMode`, `withView`, `withActiveChannel`, `withActiveTeam`, `withChannelService`, `withWindowSplit`. **`withActiveChannel` assigns only `a.activeChannelID`** — nothing derives a *name* from an ID, so the messages-pane header renders as a bare `#`, the statusbar as `#`, and the compose placeholder as `Message #...`. A test that asserts on any of those must push the name through the production trio itself; `newGoldenApp` does it via `nameGoldenActiveChannel` (`internal/ui/golden_test.go`) |
 | Populate `a.layout` bands / pane caches (needed for mouse hit-testing) | `withRender()` |
 | N plain message fixtures | `testMessageItems(n)` |
+| A golden for a dialog or composer popup over the standard fixture | `dialogGoldens()` / `renderDialogGolden(t, d)` (`internal/ui/golden_dialogs_test.go`); add a scenario there for a new dialog |
 | Compare or bless a full-screen frame against `testdata/golden/<name>.ansi` | `compareGolden(t, name, got)` (`internal/ui/golden_test.go`) |
+| Prove two ANSI screens look identical even when their bytes differ (re-encoded SGR), or that every golden is cell-identical to a baseline directory | `cellDiff(want, got)` and `SLK_GOLDEN_BASELINE=<dir> go test ./internal/ui -run TestGoldenCellsMatchBaseline` (`internal/ui/goldencells_test.go`) |
 | Re-bless goldens | the package-local `-update` flag: `go test ./internal/ui -run TestGolden -update`. It is not defined repo-wide, so `go test ./... -update` fails |
 | An `App` with every render nondeterminism pinned (theme, emoji mode, clock) | `newGoldenApp(t, opts...)`, with `goldenMessages()` / `goldenChannels()` as the fixtures |
 | Drive a message through the real `Update` chain and render one frame | `updateAndRender(t, a, msg)` (`internal/ui/thread_breadcrumb_test.go`) |
+| Run a command the way the runtime does (batch members concurrently, ticks on their real timers) and take the message it delivers | `deliveredMsgs[T](t, cmds...)` (`internal/ui/cmdmsgs_test.go`). Use it, not a hand-built tick message, to show what a real tick carries |
 | An App at a given width, resized via `WindowSizeMsg`, channel focused, for thread-layout tests | `stackedApp(t, w, extra...)` (`internal/ui/thread_stacked_test.go`) |
 | Assert which of channel / thread the last frame drew | `assertFront(t, a, wantChannel, wantThread)` (same file) |
 | Fake one service method on an `App` | `a.setChannelFetcherForTest(fn)` and its siblings, `setUploaderForTest`, `setClipboardReaderForTest`, `setReadStateReaderForTest`, `setDesktopForTest(func(*core.DesktopServiceFuncs))`, `setFilesystemForTest()`, `setEditorForTest()`, `setProfileFetcherForTest(fn)` (`internal/ui/services_helpers_test.go`). Calls for sibling methods of one service compose instead of replacing each other |
@@ -202,37 +232,39 @@ greppable by name; no line numbers, because these files move.
 | Establish a focused pane with an asserted selection | `focusMessages(t, a)`, `focusThreadPanel(t, a)` (same file) |
 | Park the message viewport at an exact `yOffset` | `scrollTo(off)` (same file) |
 | Make nav-history entries resolvable | `navLookupOpt()` (same file) |
-| Run only the first command of a `tea.Batch` (skip a 2s tick) | `firstBatchCmd(t, cmd)` (`internal/ui/mode_insert_keys_test.go`) |
 | An `App` with the main composer mid-upload, a thread open with its own draft, and workspaces T1/T2, counting uploader and workspace-switcher calls | `uploadGuardApp(t)` (`internal/ui/conversation_drafts_safety_test.go`) |
-| Observe a compose cursor position or blur state (no getter exists) | `afterKeyValue(c, r)` (same file) |
+| Observe a compose cursor position or blur state (no getter exists) | `afterKeyValue(c, r)` (`internal/ui/mode_insert_keys_test.go`) |
+| An `App` on `C1` showing given messages, whose attachment-button presses are recorded (and answered with an error you choose) | `actionApp(t, err, msgs...)` (`internal/ui/action_prompt_test.go`), returning the `*[]pressCall` log |
+| Slackbot's "not in this channel" ephemeral with Add Them / Dismiss / Don't Show Again buttons | `mentionEphemeral(ts)` (`internal/ui/action_prompt_test.go`) |
+| Deliver a message to the App through the real `Update` chain and get the messages its commands produced | `arrive(t, a, msg)` (`internal/ui/action_prompt_queue_test.go`) |
+| Send a key and feed every resulting command's message back through `Update` | `pressKey(t, a, k)` (`internal/ui/action_prompt_test.go`) |
+| The toast text among such messages | `toastText(msgs)` (`internal/ui/action_prompt_test.go`) |
+| Is the confirm prompt visible and does its view contain some text? | `dialogShows(a, text)` (`internal/ui/action_prompt_queue_test.go`) |
+| Click the cell where some text is drawn inside the open confirm prompt | `clickConfirmText(t, a, text)` (`internal/ui/confirm_click_test.go`) |
+| An `App` with a normal message and then a given ephemeral in `C1`, the ephemeral selected in a focused messages pane | `selectedEphemeralApp(t, msg)` (`internal/ui/ephemeral_keys_test.go`) |
+| An `App` in T1 for jump tests: every channel resolves, C1–C3 have fresh cached messages | `jumpMarkTestApp(t)` (`internal/ui/jump_mark_test.go`) |
+| An `App` in T1 on C1 for set-mark tests, with no cache wired | `setMarkTestApp(t)` (`internal/ui/set_mark_test.go`) |
+| Record a mark directly in T1's store | `seedMark(t, app, letter, loc)` (`internal/ui/jump_mark_test.go`) |
+| Press a mark chord through `App.Update` | `pressJumpChord(app, letter)`, `pressBackJump(app)` (`internal/ui/jump_mark_test.go`), `pressMarkChord(app, letter)` (`internal/ui/set_mark_test.go`) |
+| Feed a jump's `ChannelSelectedMsg` back through `Update` | `driveJump(app, cmd)` (`internal/ui/jump_mark_test.go`) |
+| A marks table backed by an in-memory cache, or one whose every call fails | `marksPersistForTest(t)` (`internal/ui/marks_test.go`), `failingMarksPersist()` (`internal/ui/command_marks_test.go`) |
+| List a workspace's marks, failing the test on a read error | `mustListMarks(t, store, teamID)` (`internal/ui/marks_test.go`) |
+| An 80x24 `App` with the marks list open over marks a (C2) and b (C3), and the box's top-left screen cell | `marksClickApp(t)` (`internal/ui/marks_mode_test.go`) |
+| An `App` with given per-channel caches and an optional fetch-around, for history tests | `navFixtureApp(t, caches, fetchAround)` (`internal/ui/navhistory_test.go`) |
+| Drive a history walk through the whole pipeline | `walkAndUpdate(t, app, cmd)`; `walkToCompletion(t, app, cmd)` also returns the selection and toasts (same file) |
+| A nav stack's entries as channel IDs | `navEntryChannelIDs(entries)` (`internal/ui/app_test.go`) |
+| Load a config from a TOML string | `loadConfigString(t, body)` (`internal/config/config_test.go`, `package config`) |
 
 ### Known duplication — do not add to it
 
 These are tracked in the refactor plan and are being consolidated. Do not copy
 them as templates:
 
-- **11 `renderBox` implementations** — 10 across the 13 `internal/ui` modal
-  packages, plus confirmprompt's `View` in `internal/bubbles/confirmprompt` —
-  and **7 `visibleWindow`** in the modal packages. If you are building or
-  migrating a modal, expect a shared chrome package in `internal/bubbles` to land
-  first (RFC #236 stages it ahead of the remaining modals); coordinate rather
-  than adding a twelfth copy.
-- **`messages.Model` and `thread.Model`** share 377 verbatim lines and 45
-  identically-named methods. `internal/ui/thread/lockstep_test.go` pins *render*
-  parity in **one static state only**: 80×20 (`lockstepWidth`/`lockstepHeight`),
-  chosen so neither pane scrolls — so no scroll offset, no scrollbar gutter, no
-  search-term highlighting and no loading state is compared. The
-  scroll/viewport/selection math, which is most of the 377 shared lines, is
-  pinned *within* each model (`messages/scrollbar_test.go`,
-  `messages/selection_test.go`, `thread/selection_test.go`,
-  `thread/model_test.go`) but **not across** them: a change that breaks one
-  model's scrolling and not the other's will not fail the lockstep test. Its doc
-  comment enumerates **15 verified
-  divergences** — that list is the specification Phase 3's pane hooks have to
-  satisfy, not a wishlist. If you change one model, change both, and expect the
-  lockstep test to tell you when you forgot — within the limits above. Note that
-  `TestLockstep_ReactionHitTestFrames` is a tripwire that fires on
-  *convergence*: Phase 3 must delete it, not satisfy it.
+- **`messages.Model` and `thread.Model`** share `bubbles/entrylist` (scroll,
+  selection, window, scrollbar) and `messages.RenderMessage` (one message
+  renderer); their differences are `entrylist` options and `RenderOptions`
+  fields, each documented where it is declared. Do not add a pane-specific
+  copy of either.
 - **`convertAndCacheHistory` / `fetchChannelMessages` / `fetchThreadReplies`** in
   `cmd/slk/main.go` have ~85% duplicated bodies.
 
@@ -244,14 +276,18 @@ code is right and this file is a bug — fix it.
 
 **Two implementations that must stay parallel?** Express it as an interface with
 a compile-time assertion (`var _ Chrome = (*Model)(nil)`) or a lockstep test.
-Not a comment. The comment at `internal/ui/thread/model.go:35-36` — "this shape
-mirrors `internal/ui/messages.viewEntry` exactly; keeping them in lockstep
-means…" — was the counter-example: prose asking humans to maintain a 377-line
-invariant by hand. Phase 0 discharged it. The invariant now has a test,
-`internal/ui/thread/lockstep_test.go`, which asserts the shared render
-behaviour in one static state and carries a documented 15-item divergence list.
-Do the same: when
-you find a comment standing in for a check, replace it with the check.
+Not a comment. The comment that used to sit at the top of
+`internal/ui/thread/model.go` — "this shape mirrors
+`internal/ui/messages.viewEntry` exactly; keeping them in lockstep means…" —
+was the counter-example: prose asking humans to maintain a 377-line invariant
+by hand. Phase 0 pinned it with a lockstep test, and Phase 3 replaced both with
+structure. The `contentPane` interface (`internal/ui/content_pane.go`), which
+both panes are asserted against at compile time, covers what the App calls on
+either pane. Every behavioural difference between them is an `entrylist` option
+(`WithEagerClamp`, `WithCursorFollowsScroll`, …) or a `RenderOptions` field,
+documented where it is declared (the `entrylist` options are tested per
+setting in `entrylist_test.go`). Do the same: when you find a comment standing
+in for a check, replace it with the check.
 
 **Extract the substrate, not the widget.** Share the uniform part; leave the
 divergent part alone. Forcing genuinely different behavior into a common shape

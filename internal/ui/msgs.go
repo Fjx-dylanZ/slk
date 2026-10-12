@@ -39,7 +39,7 @@ type EmojiImageReadyMsg = emojiutil.EmojiImageReadyMsg
 // surface. All EmojiImageReadyMsg arrivals during the debounce window
 // collapse to this one invalidation — without coalescing a busy channel
 // with N cold-cache emoji would produce N full rebuilds (a few hundred
-// renderMessagePlain calls each) on the UI thread in rapid succession,
+// RenderMessage calls each) on the UI thread in rapid succession,
 // presenting as a multi-second freeze.
 //
 // Lowercase (unexported) because no other package dispatches this — it
@@ -64,6 +64,12 @@ type (
 		// is unaffected — going back to a channel still updates its
 		// last-visited timestamp.
 		FromHistory bool
+		// TeamID, when set, is the workspace the selection was made
+		// in. applyLocation sets it because its command is queued: a
+		// workspace switch reduced first would otherwise apply one
+		// workspace's channel in another. Empty means "the active
+		// workspace", which is what every other sender means.
+		TeamID string
 	}
 	MessagesLoadedMsg struct {
 		ChannelID  string

@@ -25,6 +25,7 @@ import (
 	"golang.design/x/clipboard"
 
 	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/core/blocks"
 	"github.com/gammons/slk/internal/editor"
 	"github.com/gammons/slk/internal/ids"
 )
@@ -123,7 +124,7 @@ func (a *App) setChannelMembershipFetcherForTest(fn func(channelID ids.ChannelID
 type wiring struct {
 	upload           func(channelID, threadTS, caption string, attachments []core.PendingAttachment) core.Cmd
 	desktop          core.DesktopServiceFuncs
-	saveTheme        func(name string, scope core.ThemeScope)
+	saveTheme        func(teamID, name string, scope core.ThemeScope)
 	saveSidebarWidth func(width int)
 	readStates       func() map[string]core.ReadState
 	unreadWorkspaces func() []string
@@ -200,7 +201,7 @@ func (a *App) setStatusSetterForTest(fn func(action core.PresenceAction, snoozeM
 	a.SetPresenceService(core.NewPresenceService(fn, nil))
 }
 
-func (a *App) setThemeSaverForTest(fn func(name string, scope core.ThemeScope)) {
+func (a *App) setThemeSaverForTest(fn func(teamID, name string, scope core.ThemeScope)) {
 	w := rewire(a, func(w *wiring) { w.saveTheme = fn })
 	a.SetSettingsService(core.NewSettingsService(w.saveTheme, w.saveSidebarWidth))
 }
@@ -228,4 +229,8 @@ func (a *App) setWorkspaceSwitcherForTest(fn func(teamID string) tea.Msg) {
 // the K-opened user-profile dialog.
 func (a *App) setProfileFetcherForTest(fn func(ctx context.Context, teamID, userID string) (core.UserProfile, error)) {
 	a.SetProfileService(core.NewProfileService(core.ProfileServiceFuncs{Profile: fn}))
+}
+
+func (a *App) setInteractionPressForTest(fn func(ids.ChannelID, ids.MessageTS, int, string, string, blocks.LegacyAction, bool) error) {
+	a.SetInteractionService(core.NewInteractionService(core.InteractionServiceFuncs{PressAttachmentAction: fn}))
 }

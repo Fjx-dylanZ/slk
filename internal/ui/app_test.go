@@ -2856,7 +2856,7 @@ func TestMessageMarkedUnreadMsg_ThreadLevel_UpdatesThreadPaneAndThreadsView(t *t
 	}
 
 	// Thread pane unread boundary moved.
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Errorf("expected thread unreadBoundary=R1, got %q", got)
 	}
 
@@ -3066,7 +3066,7 @@ func TestThreadMarkedRemoteMsg_MovesOpenPanelBoundaryToCursor(t *testing.T) {
 		ChannelID: "C1", ThreadTS: "P1", LastRead: "R1",
 	})
 
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Errorf("thread panel unreadBoundary = %q, want R1", got)
 	}
 }
@@ -3089,14 +3089,14 @@ func TestThreadMarkedLocalMsg_LeavesOpenPanelBoundaryInPlace(t *testing.T) {
 			{TS: "R2", UserID: "U1", Text: "r2"},
 		}, "C1", "P1")
 	app.threadVisible = true
-	app.threadPanel.SetUnreadBoundary("R1")
+	app.threadPanel.SetLastReadTS("R1")
 	app.threadsView.SetSummaries([]cache.ThreadSummary{
 		{ChannelID: "C1", ThreadTS: "P1", LastReplyTS: "R2", Unread: true},
 	})
 
 	_, _ = app.Update(ThreadMarkedLocalMsg{ChannelID: "C1", ThreadTS: "P1", TS: "R2"})
 
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Errorf("thread panel unreadBoundary = %q, want the pre-open snapshot R1 held", got)
 	}
 	// The threads-list side of the same mark must still take effect.
@@ -3121,7 +3121,7 @@ func threadPanelOnR1R2(t *testing.T) *App {
 			{TS: "R2", UserID: "U1", Text: "r2"},
 		}, "C1", "P1")
 	app.threadVisible = true
-	app.threadPanel.SetUnreadBoundary("R1")
+	app.threadPanel.SetLastReadTS("R1")
 	return app
 }
 
@@ -3194,7 +3194,7 @@ func TestThreadMarkedRemoteMsg_SelfEchoHoldsPanelBoundary(t *testing.T) {
 	// Slack's echo of that same mark.
 	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R2"})
 
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Errorf("thread panel unreadBoundary = %q, want the pre-open snapshot R1 held against slk's own echo", got)
 	}
 	found := false
@@ -3223,13 +3223,13 @@ func TestThreadMarkedRemoteMsg_SelfEchoBeforeLocalMsgStillHoldsBoundary(t *testi
 
 	// Echo first, before the mark call has even returned.
 	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R2"})
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Fatalf("unreadBoundary = %q, want R1: an echo that beats the HTTP response is still slk's own mark", got)
 	}
 
 	// The response then lands and must not disturb the landmark either.
 	_, _ = app.Update(local)
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Errorf("unreadBoundary = %q after the local completion, want R1", got)
 	}
 }
@@ -3240,12 +3240,12 @@ func TestThreadMarkedRemoteMsg_SelfEchoBeforeLocalMsgStillHoldsBoundary(t *testi
 // outstanding record for a DIFFERENT ts must not shield a foreign one.
 func TestThreadMarkedRemoteMsg_ForeignMarkStillMovesBoundary(t *testing.T) {
 	app := threadPanelOnR1R2(t)
-	app.threadPanel.SetUnreadBoundary("P1")
+	app.threadPanel.SetLastReadTS("P1")
 	app.selfThreadMarks.record(selfMarkKey{channelID: "C1", threadTS: "P1", ts: "R2"})
 
 	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R1"})
 
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Errorf("thread panel unreadBoundary = %q, want R1: a mark slk never issued must move the landmark", got)
 	}
 }
@@ -3259,12 +3259,12 @@ func TestThreadMarkedRemoteMsg_SelfEchoSuppressionIsConsumedOnce(t *testing.T) {
 	_, _ = app.Update(local)
 
 	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R2"})
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R1" {
+	if got := app.threadPanel.LastReadTS(); got != "R1" {
 		t.Fatalf("first echo: unreadBoundary = %q, want R1 held", got)
 	}
 
 	_, _ = app.Update(ThreadMarkedRemoteMsg{ChannelID: "C1", ThreadTS: "P1", LastRead: "R2"})
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R2" {
+	if got := app.threadPanel.LastReadTS(); got != "R2" {
 		t.Errorf("second echo: unreadBoundary = %q, want R2 — the record is consumed by the first echo", got)
 	}
 }
@@ -3843,6 +3843,17 @@ func TestChannelSelectedFromHistoryStillRecordsVisit(t *testing.T) {
 	}
 }
 
+// navEntryChannelIDs projects a nav stack's entries onto their channel
+// IDs so white-box history assertions don't need to touch Location
+// internals.
+func navEntryChannelIDs(entries []Location) []string {
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		out[i] = string(e.ChannelID)
+	}
+	return out
+}
+
 func TestNavStackPushOnChannelSelected(t *testing.T) {
 	app := NewApp()
 	app.activeTeamID = "T1"
@@ -3856,8 +3867,8 @@ func TestNavStackPushOnChannelSelected(t *testing.T) {
 		t.Fatal("expected nav stack for T1 to exist")
 	}
 	want := []string{"C1", "C2", "C3"}
-	if !reflect.DeepEqual(stack.entries, want) {
-		t.Errorf("entries: want %v, got %v", want, stack.entries)
+	if got := navEntryChannelIDs(stack.entries); !reflect.DeepEqual(got, want) {
+		t.Errorf("entries: want %v, got %v", want, got)
 	}
 	if stack.cursor != 2 {
 		t.Errorf("cursor: want 2, got %d", stack.cursor)
@@ -3874,8 +3885,8 @@ func TestNavStackDedupesConsecutive(t *testing.T) {
 
 	stack := app.navHistory.Stack("T1")
 	want := []string{"C1", "C2"}
-	if !reflect.DeepEqual(stack.entries, want) {
-		t.Errorf("entries: want %v, got %v", want, stack.entries)
+	if got := navEntryChannelIDs(stack.entries); !reflect.DeepEqual(got, want) {
+		t.Errorf("entries: want %v, got %v", want, got)
 	}
 	if stack.cursor != 1 {
 		t.Errorf("cursor: want 1, got %d", stack.cursor)
@@ -3899,8 +3910,8 @@ func TestNavStackForwardTruncationOnNewVisit(t *testing.T) {
 
 	stack := app.navHistory.Stack("T1")
 	want := []string{"A", "B", "D"}
-	if !reflect.DeepEqual(stack.entries, want) {
-		t.Errorf("entries: want %v, got %v", want, stack.entries)
+	if got := navEntryChannelIDs(stack.entries); !reflect.DeepEqual(got, want) {
+		t.Errorf("entries: want %v, got %v", want, got)
 	}
 	if stack.cursor != 2 {
 		t.Errorf("cursor: want 2, got %d", stack.cursor)
@@ -3918,11 +3929,11 @@ func TestNavStackCapAt50EvictsOldest(t *testing.T) {
 	if len(stack.entries) != 50 {
 		t.Errorf("len: want 50, got %d", len(stack.entries))
 	}
-	if stack.entries[0] != "C10" {
-		t.Errorf("oldest after eviction: want C10, got %q", stack.entries[0])
+	if stack.entries[0].ChannelID != "C10" {
+		t.Errorf("oldest after eviction: want C10, got %q", stack.entries[0].ChannelID)
 	}
-	if stack.entries[49] != "C59" {
-		t.Errorf("newest: want C59, got %q", stack.entries[49])
+	if stack.entries[49].ChannelID != "C59" {
+		t.Errorf("newest: want C59, got %q", stack.entries[49].ChannelID)
 	}
 	if stack.cursor != 49 {
 		t.Errorf("cursor: want 49, got %d", stack.cursor)
@@ -3942,11 +3953,11 @@ func TestNavStackPerWorkspaceIsolation(t *testing.T) {
 	if t1 == nil || t2 == nil {
 		t.Fatalf("expected both stacks to exist; t1=%v t2=%v", t1, t2)
 	}
-	if !reflect.DeepEqual(t1.entries, []string{"C1"}) {
-		t.Errorf("T1: want [C1], got %v", t1.entries)
+	if got := navEntryChannelIDs(t1.entries); !reflect.DeepEqual(got, []string{"C1"}) {
+		t.Errorf("T1: want [C1], got %v", got)
 	}
-	if !reflect.DeepEqual(t2.entries, []string{"C2"}) {
-		t.Errorf("T2: want [C2], got %v", t2.entries)
+	if got := navEntryChannelIDs(t2.entries); !reflect.DeepEqual(got, []string{"C2"}) {
+		t.Errorf("T2: want [C2], got %v", got)
 	}
 }
 
@@ -3961,8 +3972,8 @@ func TestNavStackFromHistoryDoesNotPush(t *testing.T) {
 	_, _ = app.Update(ChannelSelectedMsg{ID: "C1", Name: "a", Type: "channel", FromHistory: true})
 
 	stack := app.navHistory.Stack("T1")
-	if !reflect.DeepEqual(stack.entries, []string{"C1", "C2"}) {
-		t.Errorf("entries should be unchanged; got %v", stack.entries)
+	if got := navEntryChannelIDs(stack.entries); !reflect.DeepEqual(got, []string{"C1", "C2"}) {
+		t.Errorf("entries should be unchanged; got %v", got)
 	}
 	if stack.cursor != 1 {
 		t.Errorf("cursor should be unchanged at 1, got %d", stack.cursor)
@@ -4091,9 +4102,9 @@ func TestNavigateBackSkipsStaleAndDropsThem(t *testing.T) {
 	}
 	// C2 must have been dropped from entries.
 	stack := app.navHistory.Stack("T1")
-	for _, id := range stack.entries {
-		if id == "C2" {
-			t.Errorf("stale C2 should have been dropped from entries; got %v", stack.entries)
+	for _, e := range stack.entries {
+		if e.ChannelID == "C2" {
+			t.Errorf("stale C2 should have been dropped from entries; got %v", navEntryChannelIDs(stack.entries))
 		}
 	}
 }
@@ -4822,7 +4833,7 @@ func TestOpenThreadPanel_BoundaryUsesThreadCursor(t *testing.T) {
 	if gotChannel != "C1" || gotThread != "P1" {
 		t.Fatalf("ThreadLastRead called with (%q, %q), want (C1, P1)", gotChannel, gotThread)
 	}
-	if got := app.threadPanel.UnreadBoundaryTS(); got != "R7" {
+	if got := app.threadPanel.LastReadTS(); got != "R7" {
 		t.Errorf("thread panel boundary = %q, want the thread cursor R7", got)
 	}
 }

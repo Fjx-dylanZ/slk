@@ -17,14 +17,14 @@ import (
 func renderedFor(t *testing.T, msg MessageItem, width int) string {
 	t.Helper()
 	m := New([]MessageItem{msg}, "general")
-	m.buildCache(width)
+	m.buildCache(width, false)
 	if len(m.cache) == 0 {
 		t.Fatal("buildCache produced no entries")
 	}
 	var lines []string
-	for _, e := range m.cache {
-		if e.msgIdx == 0 {
-			lines = e.linesNormal
+	for _, e := range m.list.Entries() {
+		if e.Ref == 0 {
+			lines = e.Lines
 			break
 		}
 	}
@@ -80,21 +80,21 @@ func TestBuildCache_BlocksCarryBodyReactionHitRow(t *testing.T) {
 		Reactions: []ReactionItem{{Emoji: "tada", Count: 1}},
 	}
 	m := New([]MessageItem{msg}, "general")
-	m.buildCache(100)
-	for _, e := range m.cache {
-		if e.msgIdx != 0 {
+	m.buildCache(100, false)
+	for _, e := range m.list.Entries() {
+		if e.Ref != 0 {
 			continue
 		}
-		if len(e.reactionHits) == 0 {
+		if len(reactionHitsOf(e)) == 0 {
 			t.Fatal("no reaction hits recorded")
 		}
-		row := e.reactionHits[0].rowStartInEntry
-		if row < 0 || row >= len(e.linesNormal) {
-			t.Fatalf("reaction hit row %d outside the entry's %d lines", row, len(e.linesNormal))
+		row := reactionHitsOf(e)[0].RowStart
+		if row < 0 || row >= len(e.Lines) {
+			t.Fatalf("reaction hit row %d outside the entry's %d lines", row, len(e.Lines))
 		}
-		if got := ansi.Strip(e.linesNormal[row]); !strings.Contains(got, "1") || strings.Contains(got, "rollout") {
+		if got := ansi.Strip(e.Lines[row]); !strings.Contains(got, "1") || strings.Contains(got, "rollout") {
 			var all []string
-			for _, l := range e.linesNormal {
+			for _, l := range e.Lines {
 				all = append(all, ansi.Strip(l))
 			}
 			t.Errorf("reaction hit row %d is %q, want the reaction line; entry: %q", row, got, all)
@@ -338,22 +338,40 @@ func TestBuildCache_EphemeralLabelReactionHitRow(t *testing.T) {
 		Reactions: []ReactionItem{{Emoji: "tada", Count: 1}},
 	}
 	m := New([]MessageItem{msg}, "general")
-	m.buildCache(100)
-	for _, e := range m.cache {
-		if e.msgIdx != 0 {
+	m.buildCache(100, false)
+	for _, e := range m.list.Entries() {
+		if e.Ref != 0 {
 			continue
 		}
-		if len(e.reactionHits) == 0 {
+		if len(reactionHitsOf(e)) == 0 {
 			t.Fatal("no reaction hits recorded")
 		}
-		row := e.reactionHits[0].rowStartInEntry
-		if row < 0 || row >= len(e.linesNormal) {
-			t.Fatalf("reaction hit row %d outside the entry's %d lines", row, len(e.linesNormal))
+		row := reactionHitsOf(e)[0].RowStart
+		if row < 0 || row >= len(e.Lines) {
+			t.Fatalf("reaction hit row %d outside the entry's %d lines", row, len(e.Lines))
 		}
-		if got := ansi.Strip(e.linesNormal[row]); !strings.Contains(got, "1") || strings.Contains(got, "not in channel") {
+		if got := ansi.Strip(e.Lines[row]); !strings.Contains(got, "1") || strings.Contains(got, "not in channel") {
 			t.Errorf("reaction hit row %d is %q, want the reaction line", row, got)
 		}
 		return
 	}
 	t.Fatal("no entry with msgIdx 0 in cache")
+}
+
+func TestEphemeralButtonsHintSaysPressB(t *testing.T) {
+	msg := MessageItem{
+		TS: "1700000000.000000", UserName: "Slackbot", Timestamp: "1:23 PM", Ephemeral: true,
+		Text: "not in channel",
+		LegacyAttachments: []blockkit.LegacyAttachment{{
+			Actions: []blockkit.LegacyAction{{Name: "ignore", Text: "Dismiss", Type: "button"}},
+		}},
+	}
+	plain := renderedFor(t, msg, 100)
+	if !strings.Contains(plain, "b to respond") || strings.Contains(plain, "open in Slack") {
+		t.Errorf("want the b hint instead of the Slack one: %q", plain)
+	}
+	msg.Ephemeral = false
+	if plain := renderedFor(t, msg, 100); !strings.Contains(plain, "↗ open in Slack to interact") {
+		t.Errorf("a non-ephemeral keeps the Slack hint: %q", plain)
+	}
 }

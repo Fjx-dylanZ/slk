@@ -236,6 +236,9 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		// otherwise, which would leave live self-reactions unstyled.
 		a.SetCurrentUserID(m.UserID)
 		a.activeTeamID = m.TeamID
+		// The back-jump slot is not per-workspace: it holds the latest
+		// departure, which is meaningless once the workspace changes.
+		a.backJump = nil
 		pres, dndEnabled, dndEnd, _ := a.presence.Status(a.activeTeamID)
 		a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
 		a.workspaceRail.SelectByID(m.TeamID)
@@ -307,7 +310,7 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 // data, restores last-viewed channel).
 func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	if a.compose.Uploading() || a.threadCompose.Uploading() {
-		return a.uploadToastCmd("Upload in progress", 2*time.Second)
+		return toastWithClear(a, "Upload in progress", 2*time.Second)
 	}
 	if a.userProfile.IsVisible() {
 		a.userProfile.Close()
@@ -324,6 +327,10 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	// entry.
 	if a.activeTeamID != "" && a.activeChannelID != "" && a.activeTeamID != m.TeamID {
 		a.lastChannelByTeam[a.activeTeamID] = a.activeChannelID
+		// Leaving the workspace is a departure from its current
+		// history entry; record the position before the teardown
+		// below clears the selections.
+		a.navHistory.UpdateCurrent(a.activeTeamID, a.currentPosition())
 	}
 	a.cancelEdit()
 	// Detach the main composer from the outgoing workspace's channel
@@ -363,6 +370,7 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	// the queued ChannelSelectedMsg below paints it via the
 	// three-tier dispatch. For empty workspaces (no Channels) the
 	// pane's empty state is confirmed in the else branch below.
+	a.resetActionPrompts()
 	a.SetMode(ModeNormal)
 	a.compose.Blur()
 	a.sidebar.SetSectionsProvider(m.SectionsProvider)
@@ -383,6 +391,9 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	// current user (see WorkspaceReadyMsg above).
 	a.SetCurrentUserID(m.UserID)
 	a.activeTeamID = m.TeamID
+	// The back-jump slot is not per-workspace: clear it on switch (see
+	// WorkspaceReadyMsg).
+	a.backJump = nil
 	pres, dndEnabled, dndEnd, _ := a.presence.Status(a.activeTeamID)
 	a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
 	// Apply per-workspace theme. Must run on Update goroutine so

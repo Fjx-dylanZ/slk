@@ -6,9 +6,8 @@
 // compose or thread compose, depending on focusedPanel + thread
 // visibility). It also owns:
 //
-//   - Esc with active upload     -> "Upload in progress" toast (Esc
-//     doesn't cancel an in-flight
-//     upload).
+//   - Any key with active upload -> "Upload in progress" toast (no
+//     draft mutations or sends while an upload is in flight).
 //   - Esc with active edit       -> close any open compose picker
 //     first, else cancel the edit.
 //   - Esc otherwise              -> close any open compose picker
@@ -47,7 +46,7 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		// in-flight caption or send through the other composer. A
 		// single early return covers every key (Esc included),
 		// replacing the former Esc-only guard.
-		return a.uploadToastCmd("Upload in progress", 2*time.Second)
+		return toastWithClear(a, "Upload in progress", 2*time.Second)
 	}
 	if a.editing.IsActive() && key.Matches(msg, a.keys.Escape) {
 		// If a picker is active in the relevant compose, close it
@@ -114,7 +113,7 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.SetMode(ModeNormal)
 		a.compose.Blur()
 		a.threadCompose.Blur()
-		return nil
+		return a.tryOpenActionPrompt()
 	}
 
 	code := msg.Key().Code
@@ -210,7 +209,7 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 				threadTS := a.threadPanel.ThreadTS()
 				channelID := a.threadPanel.ChannelID()
 				a.exitInsertAfterSend()
-				return func() tea.Msg {
+				send := func() tea.Msg {
 					return SendThreadReplyMsg{
 						ChannelID: channelID,
 						ThreadTS:  threadTS,
@@ -218,6 +217,7 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 						Broadcast: broadcast,
 					}
 				}
+				return tea.Batch(send, a.tryOpenActionPrompt())
 			}
 			return nil
 		}
@@ -261,12 +261,13 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			channelID := a.activeChannelID
 			a.compose.Reset()
 			a.exitInsertAfterSend()
-			return func() tea.Msg {
+			send := func() tea.Msg {
 				return SendMessageMsg{
 					ChannelID: channelID,
 					Text:      text,
 				}
 			}
+			return tea.Batch(send, a.tryOpenActionPrompt())
 		}
 		return nil
 	}

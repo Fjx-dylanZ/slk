@@ -18,6 +18,7 @@ import (
 	"errors"
 	"io/fs"
 
+	"github.com/gammons/slk/internal/core/blocks"
 	"github.com/gammons/slk/internal/ids"
 )
 
@@ -73,6 +74,29 @@ func (r reactionAdapter) RecordFrecent(emoji string) {
 		return
 	}
 	r.recordFrecent(emoji)
+}
+
+// InteractionServiceFuncs bundles the closures behind an InteractionService.
+// A nil func makes its method return errors.ErrUnsupported.
+type InteractionServiceFuncs struct {
+	PressAttachmentAction func(channelID ids.ChannelID, messageTS ids.MessageTS,
+		attachmentID int, callbackID, serviceID string, action blocks.LegacyAction, ephemeral bool) error
+}
+
+// NewInteractionService builds an InteractionService from fns. Used by
+// cmd/slk/main.go (production wiring) and tests.
+func NewInteractionService(fns InteractionServiceFuncs) InteractionService {
+	return interactionAdapter{fns: fns}
+}
+
+type interactionAdapter struct{ fns InteractionServiceFuncs }
+
+func (i interactionAdapter) PressAttachmentAction(channelID ids.ChannelID, messageTS ids.MessageTS,
+	attachmentID int, callbackID, serviceID string, action blocks.LegacyAction, ephemeral bool) error {
+	if i.fns.PressAttachmentAction == nil {
+		return errors.ErrUnsupported
+	}
+	return i.fns.PressAttachmentAction(channelID, messageTS, attachmentID, callbackID, serviceID, action, ephemeral)
 }
 
 // ThreadServiceFuncs is the closure bundle accepted by
@@ -522,20 +546,20 @@ func (p presenceAdapter) SendTyping(channelID string) {
 
 // NewSettingsService builds a SettingsService from closures.
 func NewSettingsService(
-	saveTheme func(name string, scope ThemeScope),
+	saveTheme func(teamID, name string, scope ThemeScope),
 	saveSidebarWidth func(width int),
 ) SettingsService {
 	return settingsAdapter{saveTheme: saveTheme, saveSidebarWidth: saveSidebarWidth}
 }
 
 type settingsAdapter struct {
-	saveTheme        func(name string, scope ThemeScope)
+	saveTheme        func(teamID, name string, scope ThemeScope)
 	saveSidebarWidth func(width int)
 }
 
-func (s settingsAdapter) SaveTheme(name string, scope ThemeScope) {
+func (s settingsAdapter) SaveTheme(teamID, name string, scope ThemeScope) {
 	if s.saveTheme != nil {
-		s.saveTheme(name, scope)
+		s.saveTheme(teamID, name, scope)
 	}
 }
 

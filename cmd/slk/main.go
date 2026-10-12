@@ -22,6 +22,7 @@ import (
 	"github.com/gammons/slk/internal/cache"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/core/blocks"
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/editor"
 	emojiwidth "github.com/gammons/slk/internal/emoji"
@@ -613,14 +614,15 @@ func run() error {
 	}))
 
 	// Wire theme switcher: dispatch to the appropriate saver based on scope.
-	saveTheme := func(name string, scope core.ThemeScope) {
+	// A workspace save names its workspace instead of reading
+	// router.Active(): a switch moves router.Active() before the UI shows
+	// the new workspace, and the choice belongs to the one it showed.
+	saveTheme := func(teamID, name string, scope core.ThemeScope) {
 		switch scope {
 		case themeswitcher.ScopeWorkspace:
-			active := router.Active()
-			if active == nil {
-				return // shouldn't happen, but guard against it
+			if teamID == "" {
+				return // no workspace was showing yet
 			}
-			teamID := active.TeamID
 			teamName := teamID
 			if wctx := router.ByID(teamID); wctx != nil && wctx.TeamName != "" {
 				teamName = wctx.TeamName
@@ -1286,6 +1288,49 @@ func run() error {
 			activityHydrateFunc(router),
 		))
 
+		app.SetMarksPersistStore(ui.NewMarksPersistStore(ui.MarksPersistStoreFuncs{
+			Upsert: func(teamID, letter string, m ui.Mark) error {
+				return db.UpsertMark(teamID, letter, cache.Mark{
+					ChannelID:   string(m.ChannelID),
+					MessageTS:   string(m.MessageTS),
+					ThreadTS:    string(m.ThreadTS),
+					ChannelName: m.ChannelName,
+					AuthorName:  m.AuthorName,
+					Excerpt:     m.Excerpt,
+				})
+			},
+			List: func(teamID string) ([]ui.Mark, error) {
+				rows, err := db.ListMarks(teamID)
+				if err != nil {
+					return nil, err
+				}
+				out := make([]ui.Mark, 0, len(rows))
+				for _, r := range rows {
+					out = append(out, ui.Mark{
+						Location: ui.Location{
+							TeamID:    ids.TeamID(r.WorkspaceID),
+							ChannelID: ids.ChannelID(r.ChannelID),
+							MessageTS: ids.MessageTS(r.MessageTS),
+							ThreadTS:  ids.ThreadTS(r.ThreadTS),
+						},
+						Letter:      r.Letter,
+						ChannelName: r.ChannelName,
+						AuthorName:  r.AuthorName,
+						Excerpt:     r.Excerpt,
+					})
+				}
+				return out, nil
+			},
+			Delete: func(teamID, letter string) error {
+				return db.DeleteMark(teamID, letter)
+			},
+		}))
+		// [marks] options: persist_all (default off) and
+		// show_jump_overlay (default on, resolved from the *bool so an
+		// explicit false is distinguishable from unset).
+		app.SetMarksPersistAll(cfg.Marks.PersistAll)
+		app.SetShowJumpOverlay(cfg.EffectiveShowJumpOverlay())
+
 		app.SetReactionService(core.NewReactionService(
 			func(channelID ids.ChannelID, messageTS ids.MessageTS, emojiName string) error {
 				wctx := router.Active()
@@ -1323,6 +1368,19 @@ func run() error {
 				_ = db.RecordEmojiUse(emojiName)
 			},
 		))
+
+		app.SetInteractionService(core.NewInteractionService(core.InteractionServiceFuncs{
+			PressAttachmentAction: func(channelID ids.ChannelID, messageTS ids.MessageTS,
+				attachmentID int, callbackID, serviceID string, action blocks.LegacyAction, ephemeral bool) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return errors.New("no active workspace")
+				}
+				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				defer cancel()
+				return pressAttachmentAction(ctx, wctx.Client, channelID, messageTS, attachmentID, callbackID, serviceID, action, ephemeral)
+			},
+		}))
 
 		sendTyping := func(channelID string) {
 			wctx := router.Active()
@@ -1668,29 +1726,7 @@ func run() error {
 	}).Run(wakeCtx)
 
 	_, err = p.Run()
-
-	// Dump the API request tally before anything else at shutdown.
-	//
-	// Phase 2b's success criteria are call counts -- "a boot issues
-	// <= 10 API calls, with zero users.list and zero per-channel
-	// conversations.history fan-out" -- and nothing in slk could
-	// report them. Reconstructing the numbers from a debug log only
-	// worked at all because triggerBackfill happens to log per
-	// channel; there was no way to see users.list or a total.
-	//
-	// Nobody is testing slk against a real Enterprise Grid account
-	// until the whole grid-parity series lands, so this is the only
-	// feedback loop the work has.
-	if debuglog.Enabled() {
-		debuglog.General("shutdown API request tally:\n%s", slackhttp.DefaultCounter.Report())
-	}
-
-	// Clean up connection managers
-	for _, wctx := range router.All() {
-		if wctx.ConnMgr != nil {
-			wctx.ConnMgr.Stop()
-		}
-	}
+	shutdown(app, router)
 
 	return err
 }
