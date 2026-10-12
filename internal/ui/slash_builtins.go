@@ -8,7 +8,6 @@ package ui
 
 import (
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -55,8 +54,8 @@ func slashStatus(a *App, args commandArgs) tea.Cmd {
 // slashUnsupported is a built-in the web client handles locally that slk
 // does not do yet: it says so rather than sending it to chat.command.
 func slashUnsupported(name string) commandFunc {
-	return func(a *App, _ commandArgs) tea.Cmd {
-		return toastWithClear(a, name+" isn't supported in slk yet", 3*time.Second)
+	return func(a *App, args commandArgs) tea.Cmd {
+		return a.refuseCommand(args.Origin, name+" isn't supported in slk yet")
 	}
 }
 
@@ -70,12 +69,12 @@ func slashUnsupported(name string) commandFunc {
 // search runs. The answer comes back as channelLookupMsg.
 func slashOpen(a *App, args commandArgs) tea.Cmd {
 	if strings.TrimSpace(args.Rest) == "" {
-		return toastWithClear(a, "Usage: /open #channel", 3*time.Second)
+		return a.refuseCommand(args.Origin, "Usage: /open #channel")
 	}
 	if mentioned := slackfmt.MentionedChannelIDs(args.Rest); len(mentioned) > 0 {
 		item, ok := a.findChannelByID(mentioned[0])
 		if !ok {
-			return toastWithClear(a, "No channel named "+strings.TrimSpace(args.Fields[0]), 3*time.Second)
+			return a.refuseCommand(args.Origin, "No channel named "+strings.TrimSpace(args.Fields[0]))
 		}
 		return a.openChannel(channelResultOf(item))
 	}
@@ -83,19 +82,21 @@ func slashOpen(a *App, args commandArgs) tea.Cmd {
 	if item, ok := matchChannelByName(a.channelFinder.Items(), name); ok {
 		return a.openChannel(channelResultOf(item))
 	}
-	channels, teamID := a.channels, a.activeTeamID
+	channels, teamID, origin := a.channels, a.activeTeamID, args.Origin
 	return func() tea.Msg {
 		item, found := matchChannelByName(channels.SearchRemote(name), name)
-		return channelLookupMsg{teamID: teamID, name: name, item: item, found: found}
+		return channelLookupMsg{teamID: teamID, origin: origin, name: name, item: item, found: found}
 	}
 }
 
 // channelLookupMsg is the server's answer to a /open name the finder did
 // not hold. name is as the user typed it, without the "#"; teamID is the
 // workspace the lookup ran in, so an answer that arrives after a switch
-// is dropped.
+// is dropped; origin is where /open was typed, to give the text back when
+// nothing matches.
 type channelLookupMsg struct {
 	teamID string
+	origin commandOrigin
 	name   string
 	item   core.ChannelFinderItem
 	found  bool
@@ -144,7 +145,7 @@ func channelResultOf(it core.ChannelFinderItem) channelfinder.ChannelResult {
 func slashMsg(name string) commandFunc {
 	return func(a *App, args commandArgs) tea.Cmd {
 		usage := func() tea.Cmd {
-			return toastWithClear(a, "Usage: "+name+" @someone [message]", 3*time.Second)
+			return a.refuseCommand(args.Origin, "Usage: "+name+" @someone [message]")
 		}
 		if len(args.Fields) == 0 {
 			return usage()
@@ -153,11 +154,11 @@ func slashMsg(name string) commandFunc {
 		users := slackfmt.MentionedUserIDs(first)
 		if len(users) != 1 || first != "<@"+users[0]+">" {
 			if strings.HasPrefix(first, "@") {
-				return toastWithClear(a, "No one called "+first, 3*time.Second)
+				return a.refuseCommand(args.Origin, "No one called "+first)
 			}
 			return usage()
 		}
 		text := strings.TrimLeft(strings.TrimPrefix(args.Rest, first), " \t\r\n")
-		return a.openConversation([]string{users[0]}, text)
+		return a.openConversation([]string{users[0]}, msgPrefill{text: text, origin: args.Origin})
 	}
 }

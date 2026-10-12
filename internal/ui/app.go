@@ -496,10 +496,11 @@ type App struct {
 	// NewMessageOpenedMsg with the matching RequestID is dropped
 	// rather than switching channels behind the user's back.
 	newMessageCancelled bool
-	// newMessagePrefill is the text /msg offers as the opened
-	// conversation's draft; "" for the new-message picker. Consumed by
-	// NewMessageOpenedMsg, cleared by NewMessageFailedMsg.
-	newMessagePrefill string
+	// newMessagePrefill is what /msg asked of the in-flight open: the
+	// text to offer as the opened conversation's draft and where /msg
+	// was typed; zero for the new-message picker. Consumed by
+	// NewMessageOpenedMsg, given back and cleared by NewMessageFailedMsg.
+	newMessagePrefill msgPrefill
 
 	// Workspace switching
 	workspaceSvc   core.WorkspaceService

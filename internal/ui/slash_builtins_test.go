@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -328,6 +329,113 @@ func TestSlashMsg_UsageErrors(t *testing.T) {
 				t.Errorf("OpenConversation calls = %v, want none", *opens)
 			}
 		})
+	}
+}
+
+// failOpenConversation makes the App's conversations.open fail.
+func failOpenConversation(a *App) {
+	wireOpenConversation(a, func(_ []string, reqID uint64) tea.Cmd {
+		return func() tea.Msg {
+			return NewMessageFailedMsg{RequestID: reqID, Err: errors.New("rate_limited")}
+		}
+	})
+}
+
+func TestSlashMsg_FailedOpenGivesTheTextBack(t *testing.T) {
+	a, _, _ := msgSlashApp(t)
+	failOpenConversation(a)
+	a.compose.SetValue("/msg <@U9> are you free")
+	failed := deliveredMsgs[NewMessageFailedMsg](t, pressEnter(a))
+	if len(failed) != 1 {
+		t.Fatalf("NewMessageFailedMsg delivered %d times, want 1", len(failed))
+	}
+	_, cmd := a.Update(failed[0])
+	if got := a.compose.Value(); got != "/msg <@U9> are you free" {
+		t.Errorf("compose = %q, want the typed command back", got)
+	}
+	toasts := deliveredMsgs[ToastMsg](t, cmd)
+	if len(toasts) != 1 || !strings.Contains(toasts[0].Text, "Open DM failed") {
+		t.Errorf("toasts = %+v, want the open-failed notice", toasts)
+	}
+}
+
+func TestSlashMsg_FailedOpenKeepsNewerText(t *testing.T) {
+	a, _, _ := msgSlashApp(t)
+	failOpenConversation(a)
+	a.compose.SetValue("/msg <@U9> hi")
+	failed := deliveredMsgs[NewMessageFailedMsg](t, pressEnter(a))
+	a.compose.SetValue("typed while it opened")
+	a.Update(failed[0])
+	if got := a.compose.Value(); got != "typed while it opened" {
+		t.Errorf("compose = %q, want the newer text kept", got)
+	}
+}
+
+// A failed /msg must not leave its pre-fill behind for the next
+// conversation the new-message picker opens.
+func TestSlashMsg_FailedOpenDoesNotPrefillThePickersNextOpen(t *testing.T) {
+	a, _, _ := msgSlashApp(t)
+	failOpenConversation(a)
+	a.compose.SetValue("/msg <@U9> are you free")
+	failed := deliveredMsgs[NewMessageFailedMsg](t, pressEnter(a))
+	a.Update(failed[0])
+
+	wireOpenConversation(a, func(userIDs []string, reqID uint64) tea.Cmd {
+		return func() tea.Msg {
+			return NewMessageOpenedMsg{ChannelID: "D9", UserIDs: userIDs, RequestID: reqID, AlreadyOpen: true}
+		}
+	})
+	opened := deliveredMsgs[NewMessageOpenedMsg](t, a.openConversation([]string{"U9"}, msgPrefill{}))
+	a.Update(opened[0])
+	if got := draftIn(a, "D9"); got != "" {
+		t.Errorf("D9 draft = %q, want none", got)
+	}
+}
+
+// A built-in that does not run gives the text as typed back to the
+// composer it came from, with the toast.
+func TestSlashRefusalsGiveTheTextBack(t *testing.T) {
+	cases := []struct {
+		typed, toast string
+		lookup       bool
+	}{
+		{"/msg hello there", "Usage: /msg @someone [message]", false},
+		{"/msg @nobody hi", "No one called @nobody", false},
+		{"/leave", "/leave isn't supported in slk yet", false},
+		{"/status :palm_tree: on holiday", "/status isn't supported in slk yet", false},
+		{"/open", "Usage: /open #channel", false},
+		{"/open #nope", "No channel named #nope", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.typed, func(t *testing.T) {
+			a, _, _, _ := openSlashApp(t)
+			a.compose.SetValue(tc.typed)
+			cmd := pressEnter(a)
+			if tc.lookup {
+				lookups := deliveredMsgs[channelLookupMsg](t, cmd)
+				a.Update(lookups[0])
+			}
+			if got := a.compose.Value(); got != tc.typed {
+				t.Errorf("compose = %q, want the typed text back", got)
+			}
+			if !strings.Contains(statusbarText(a), tc.toast) {
+				t.Errorf("status bar = %q, want %q", statusbarText(a), tc.toast)
+			}
+		})
+	}
+}
+
+func TestSlashRefusalKeepsANewerDraft(t *testing.T) {
+	a, _, _, _ := openSlashApp(t)
+	a.compose.SetValue("/open #nope")
+	lookups := deliveredMsgs[channelLookupMsg](t, pressEnter(a))
+	a.compose.SetValue("typed while it looked")
+	a.Update(lookups[0])
+	if got := a.compose.Value(); got != "typed while it looked" {
+		t.Errorf("compose = %q, want the newer text kept", got)
+	}
+	if !strings.Contains(statusbarText(a), "No channel named #nope") {
+		t.Errorf("status bar = %q, want the toast", statusbarText(a))
 	}
 }
 

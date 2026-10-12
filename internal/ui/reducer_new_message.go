@@ -50,8 +50,8 @@ var reduceNewMessagePicker reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, boo
 		a.newMessagePicker.Close()
 		a.newMessageInFlightID = 0
 		a.newMessageCancelled = false
-		prefill := a.newMessagePrefill
-		a.newMessagePrefill = ""
+		prefill := a.newMessagePrefill.text
+		a.newMessagePrefill = msgPrefill{}
 		var keptDraft tea.Cmd
 		if prefill != "" && !a.compose.OfferDraft(a.activeTeamID, m.ChannelID, "", prefill) {
 			keptDraft = func() tea.Msg {
@@ -79,12 +79,15 @@ var reduceNewMessagePicker reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, boo
 			return nil, true
 		}
 		debuglog.General("new-message: OpenConversation failed: %v", m.Err)
-		// Stay in ModeNewMessage; modal stays visible; clear the
-		// in-flight so a follow-up submit gets a fresh ID. Surface
-		// the error via a toast (the existing app-wide notification
-		// channel) so the user knows the submit didn't go through.
+		// Clear the in-flight so a follow-up submit gets a fresh ID.
+		// From the picker, stay in ModeNewMessage with the modal
+		// visible; from /msg there is no modal, so give the typed
+		// command back to its composer. Surface the error via a toast
+		// (the existing app-wide notification channel) so the user
+		// knows the submit didn't go through.
 		a.newMessageInFlightID = 0
-		a.newMessagePrefill = ""
+		a.offerTypedBack(a.newMessagePrefill.origin)
+		a.newMessagePrefill = msgPrefill{}
 		errText := m.Err.Error()
 		return func() tea.Msg { return ToastMsg{Text: "Open DM failed: " + errText} }, true
 	}

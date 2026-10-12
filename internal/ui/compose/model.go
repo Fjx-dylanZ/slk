@@ -981,7 +981,7 @@ func (m *Model) restoreDraft(d draft) {
 // conversation it is bound to, otherwise the stored inactive draft — but
 // only when that conversation has no draft (no text, no attachments), so
 // it never overwrites something newer. Reports whether it wrote. Puts a
-// failed slash command back, and pre-fills /msg's text.
+// slash command that did not run back, and pre-fills /msg's text.
 func (m *Model) OfferDraft(teamID, channelID, threadTS, text string) bool {
 	if channelID == "" || text == "" {
 		return false

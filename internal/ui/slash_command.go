@@ -69,6 +69,14 @@ var slashCommands = map[string]commandFunc{
 	"/part":   slashUnsupported("/part"),
 }
 
+// commandOrigin says where a slash command was typed: the conversation
+// (workspace, channel, and thread if it was the thread composer) and the
+// composer text as typed, which a command that does not run gives back.
+type commandOrigin struct {
+	teamID, channelID, threadTS string
+	typed                       string
+}
+
 // commandRanMsg is the result of running a slash command through
 // CommandService. text is the composer text as typed, kept so a failure
 // can put it back; teamID/channelID/threadTS identify the conversation
@@ -103,10 +111,31 @@ func (a *App) trySlashCommand(panel Panel, c *compose.Model, channelID, threadTS
 	_, args, _ := parseSlashCommand(c.TranslateMentionsForSend(raw))
 	c.Reset()
 	a.exitInsertAfterSend()
-	run := dispatchCommand(a, slashCommands, name+" "+args, func(a *App, name string, args commandArgs) tea.Cmd {
+	_, cargs, _ := splitCommandLine(name + " " + args)
+	cargs.Origin = commandOrigin{teamID: a.activeTeamID, channelID: channelID, threadTS: threadTS, typed: raw}
+	run := runCommand(a, slashCommands, name, cargs, func(a *App, name string, args commandArgs) tea.Cmd {
 		return a.runRemoteCommand(channelID, threadTS, name, args.Rest, raw)
 	})
 	return tea.Batch(run, a.tryOpenActionPrompt()), true
+}
+
+// offerTypedBack puts the command as typed back into the composer it
+// came from, unless that conversation has a draft by now. A thread
+// command goes back to the thread composer, keyed by its thread;
+// anything else to the channel composer. Reports whether it wrote.
+func (a *App) offerTypedBack(o commandOrigin) bool {
+	c := &a.compose
+	if o.threadTS != "" {
+		c = &a.threadCompose
+	}
+	return c.OfferDraft(o.teamID, o.channelID, o.threadTS, o.typed)
+}
+
+// refuseCommand is a slash command that did not run: it gives the typed
+// text back and says why.
+func (a *App) refuseCommand(o commandOrigin, text string) tea.Cmd {
+	a.offerTypedBack(o)
+	return toastWithClear(a, text, 3*time.Second)
 }
 
 // runRemoteCommand runs name through CommandService off the Update

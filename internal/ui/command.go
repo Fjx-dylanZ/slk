@@ -22,10 +22,12 @@ import (
 // commandArgs is a command line after its name. Fields is the remainder
 // split on whitespace, which most handlers want; Rest is the remainder
 // as typed, inner whitespace and newlines intact, for a handler that
-// passes text on (/msg).
+// passes text on (/msg). Origin is where a slash command was typed, for a
+// built-in that may refuse and so give the text back; zero for ":" commands.
 type commandArgs struct {
 	Fields []string
 	Rest   string
+	Origin commandOrigin
 }
 
 // commandFunc executes a named command. Both registries use it: the
@@ -114,16 +116,31 @@ func cmdDelMarks(a *App, args commandArgs) tea.Cmd {
 // unknown runs when table has no such name. Empty input is a no-op.
 func dispatchCommand(a *App, table map[string]commandFunc, line string,
 	unknown func(a *App, name string, args commandArgs) tea.Cmd) tea.Cmd {
+	name, args, ok := splitCommandLine(line)
+	if !ok {
+		return nil
+	}
+	return runCommand(a, table, name, args, unknown)
+}
+
+// splitCommandLine splits line into its command name and args. ok is
+// false for an empty line.
+func splitCommandLine(line string) (name string, args commandArgs, ok bool) {
 	trimmed := strings.TrimLeft(line, " \t\r\n")
 	fields := strings.Fields(trimmed)
 	if len(fields) == 0 {
-		return nil
+		return "", commandArgs{}, false
 	}
-	name := fields[0]
-	args := commandArgs{
+	name = fields[0]
+	return name, commandArgs{
 		Fields: fields[1:],
 		Rest:   strings.TrimLeft(trimmed[len(name):], " \t\r\n"),
-	}
+	}, true
+}
+
+// runCommand calls name's entry in table, or unknown when it has none.
+func runCommand(a *App, table map[string]commandFunc, name string, args commandArgs,
+	unknown func(a *App, name string, args commandArgs) tea.Cmd) tea.Cmd {
 	if fn, ok := table[name]; ok {
 		return fn(a, args)
 	}

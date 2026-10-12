@@ -33,7 +33,7 @@ func handleNewMessageMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	result := a.newMessagePicker.HandleKey(keyStr)
 	if result != nil {
-		return a.openConversation(result.UserIDs, "")
+		return a.openConversation(result.UserIDs, msgPrefill{})
 	}
 
 	// Picker closed itself (Esc). Mark any in-flight submit as

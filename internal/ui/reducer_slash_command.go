@@ -20,7 +20,7 @@ var reduceSlashCommand reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		if !lookup.found {
-			return toastWithClear(a, "No channel named #"+lookup.name, 3*time.Second), true
+			return a.refuseCommand(lookup.origin, "No channel named #"+lookup.name), true
 		}
 		return a.openChannel(channelResultOf(lookup.item)), true
 	}
@@ -31,15 +31,7 @@ var reduceSlashCommand reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	if m.err == nil {
 		return nil, true
 	}
-	// Put the command back where it was typed, unless that conversation
-	// has a draft again by now. A thread command goes back to the
-	// thread composer, keyed by its thread; anything else to the
-	// channel composer.
-	c := &a.compose
-	if m.threadTS != "" {
-		c = &a.threadCompose
-	}
-	c.OfferDraft(m.teamID, m.channelID, m.threadTS, m.text)
+	a.offerTypedBack(commandOrigin{teamID: m.teamID, channelID: m.channelID, threadTS: m.threadTS, typed: m.text})
 	return toastWithClear(a, commandFailureText(m.name, m.err), 4*time.Second), true
 }
 
