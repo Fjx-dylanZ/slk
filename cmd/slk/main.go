@@ -1282,10 +1282,11 @@ func run() error {
 			},
 		}))
 
-		app.SetActivityService(core.NewActivityService(
-			activityFetchFunc(router),
-			activityHydrateFunc(router),
-		))
+		app.SetActivityService(core.NewActivityService(core.ActivityServiceFuncs{
+			Fetch:   activityFetchFunc(router),
+			Hydrate: activityHydrateFunc(router),
+			SetRead: activitySetReadFunc(router),
+		}))
 
 		app.SetMarksPersistStore(ui.NewMarksPersistStore(ui.MarksPersistStoreFuncs{
 			Upsert: func(teamID, letter string, m ui.Mark) error {

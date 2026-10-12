@@ -243,7 +243,17 @@ type (
 	// the filtering). Dispatched by the unread-toggle key while the
 	// Activity view is focused.
 	ActivityToggleUnreadMsg struct{}
-	ConnectionStateMsg      struct {
+	// ActivityReadSetMsg reports the result of asking Slack to mark one
+	// Activity item read (Read=true) or unread. The App changed the
+	// item before asking; a non-nil Err makes it undo that change.
+	// Ignored if TeamID is not the active team.
+	ActivityReadSetMsg struct {
+		TeamID string
+		Key    string
+		Read   bool
+		Err    error
+	}
+	ConnectionStateMsg struct {
 		State int // 0=connecting, 1=connected, 2=disconnected
 	}
 	ReactionAddedMsg struct {
