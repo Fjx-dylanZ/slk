@@ -115,9 +115,13 @@ capture taken after clearing it.
 ### 3.1 When composer text is a command
 
 On Enter in either composer (channel or thread), the text is a slash command
-when its first whitespace-separated token is `/` followed by one or more of
-`[A-Za-z0-9_-]` and nothing else. So `/tmp/foo is full` and `/ hello` are
-ordinary messages. Names are matched case-insensitively and sent lowercased.
+when it **starts** with `/` (no leading whitespace) and its first
+whitespace-separated token is `/` followed by one or more of `[A-Za-z0-9_-]`
+and nothing else. So `/tmp/foo is full` and `/ hello` are ordinary messages,
+and a leading space is the way to post a message that begins with `/name`.
+Names are matched case-insensitively and sent lowercased. The arguments are
+everything after the name and the whitespace that follows it, newlines kept;
+whitespace-only arguments count as none.
 
 It is not a command:
 
@@ -167,7 +171,7 @@ Each entry is backed by the capture it cites (§2). Aliases follow
 | `/active` | set active | same |
 | `/status away`, `/status active` | as `/away` / `/active` but not a toggle. Only `/status away` is captured; `active` is by symmetry | same |
 | `/open #c`, `/join #c` | switch to the channel, joining it first if not a member | `(*App).openChannel(…)`, **extracted** from the channel finder's "joined → `sidebar.SelectByID` + `ChannelSelectedMsg`, else `channels.Join`" (`mode_channel_finder.go`, lines 37–50 today); the finder then calls it too. The ID comes from the new `slackfmt.MentionedChannelIDs` (§3.8). No `#c`, or a name that does not resolve → toast "No channel named …" |
-| `/msg @u [text]`, `/dm @u [text]` | open the DM; text, if any, is **pre-filled** in the DM's composer, not sent | the new-message flow as is: `channels.OpenConversation(userIDs, reqID)` → `NewMessageOpenedMsg` (in-flight guard, `hydrateNewConversation`, switch, focus). The user ID comes from `slackfmt.MentionedUserIDs`. The text is written with the new `compose.SetDraftFor` (§3.8) when the open succeeds, before the switch restores the draft; an existing non-empty draft for that DM is kept and the toast says so. One `@user` only; anything else → toast with the usage |
+| `/msg @u [text]`, `/dm @u [text]` | open the DM; text, if any, is **pre-filled** in the DM's composer, not sent | the new-message flow as is: `channels.OpenConversation(userIDs, reqID)` → `NewMessageOpenedMsg` (in-flight guard, `hydrateNewConversation`, switch, focus). The user ID comes from `slackfmt.MentionedUserIDs`. The text is written with the new `compose.OfferDraft` (§3.8) when the open succeeds, before the switch restores the draft; an existing non-empty draft for that DM is kept and a toast says so. One `@user` only; anything else → toast with the usage |
 | bare `/status`, `/status <anything else>`, `/leave`, `/close`, `/part` | toast "/x isn't supported in slk yet" | `toastWithClear` |
 
 Pre-filling instead of sending is a deliberate difference from Slack: it needs
@@ -180,8 +184,12 @@ remote path.
 ### 3.4 The remote path: `chat.command`
 
 **Wire.** `slackclient.(*Client).RunCommand(ctx, CommandRequest) error`, in a new
-`internal/slack/command.go` following `attachment_action.go`. The form, in the
-captured order:
+`internal/slack/command.go` following `attachment_action.go`. The form fields
+below match the capture by name and value. Their order on the wire is
+alphabetical, like every body slk sends (`url.Values.Encode()`; the accepted
+divergence recorded on `applyEnvelopeBody` in `internal/slackhttp/transport.go`
+and pinned by `TestPostForm_BodyFieldOrderIsAlphabeticalThenEnvelope`); the
+captured order is listed for reference:
 
 | Field | Value |
 |---|---|
@@ -194,13 +202,18 @@ captured order:
 
 `slackhttp`'s `defaultReasons` gains `"chat.command": "executeCommand"`.
 Responses: `{"ok":true,"keep_input":false}` → `nil`; `{"ok":false,"error":e}` →
-an error carrying `e` (through `parseOKResponse`). slk sends urlencoded bodies
+`*slackclient.CommandRejectedError{Code: e}`, which the `cmd/slk` adapter
+translates to `*core.CommandError{Code: e}` — the same pattern as
+slackclient's `rateLimitError` becoming `core.RateLimitedError`, so the UI never
+parses Slack error strings. Transport failures pass through unchanged. slk sends urlencoded bodies
 where the web client sends multipart; that is the known, accepted difference
 recorded in `internal/slackhttp/transport.go` and is not changed here.
 
 Tests: the marshalled form equals each `chat_command_*.json` capture's form
-(minus `token` and the `_x_*` envelope, which `postForm` owns), field for field
-and in order; `unknown_command` becomes an error whose text names it.
+(minus `token` and the `_x_*` envelope, which `postForm` and `slackhttp` own) as
+a set of fields — same names, same values, JSON values byte for byte, nothing
+extra — except `client_token`, which is checked for the `web-<digits>` shape;
+`unknown_command` becomes an error whose text names it.
 
 **Port.** A new `core.CommandService`, built with `NewCommandService(
 CommandServiceFuncs{…})` like the other ports: `Run(channelID ids.ChannelID,
@@ -220,8 +233,10 @@ On `commandRanMsg` with an error, the reducer:
 
 - toasts with `toastWithClear`: "/notarealcommand is not a valid command" for
   `unknown_command`, otherwise "/name failed: <error>";
-- puts `text` back into the composer it came from, but only if that composer is
-  still bound to the same conversation (team, channel, thread) and is empty.
+- puts `text` back with `compose.OfferDraft` on the composer it came from, keyed
+  by the conversation it was sent from: visible again if the user is still
+  there, the stored draft if they moved away, and nothing if that conversation
+  has a draft again by then.
 
 Putting text back is new behaviour: a failed `chat.postMessage` does not do it
 today (`MessageSendFailedMsg` only removes the placeholder and toasts). It is one
@@ -242,10 +257,16 @@ replacing this.
 
 ### 3.6 `me_message`
 
-`/me waves` arrives as `subtype: me_message` (`ws_me_message.json`). slk keeps
-`Subtype` on `MessageItem` but renders it like any message. `messages.RenderMessage`
+`/me waves` arrives as `subtype: me_message` (`ws_me_message.json`). Today the
+WebSocket path **drops it**: `dispatchWebSocketEvent` only passes subtypes `""`,
+`bot_message`, `thread_broadcast` and `file_share` to `OnMessage`, so a `/me`
+line appears only after a history refetch (history does not filter subtypes).
+Stage 1 adds `me_message` to that list. slk keeps `Subtype` on `MessageItem` but
+renders it like any message. `messages.RenderMessage`
 — the one renderer both panes use — renders a `me_message` body in italics, the
-way the web client does. One golden scenario covers it.
+way the web client does. A `RenderMessage` test in `internal/ui/messages` covers
+it (italic for `me_message`, unchanged otherwise); no App golden needs
+re-blessing.
 
 ### 3.7 Tests (stage 1)
 
@@ -259,8 +280,8 @@ way the web client does. One golden scenario covers it.
   text, existing draft kept, wrong arguments; unsupported list.
 - Remote, through `App.Update`: Enter on `/giphy cats` in the channel and thread
   composers calls `Run` with the right channel, thread, command and args;
-  failure toasts and puts the text back; it does not when the composer moved on
-  or is no longer empty.
+  failure toasts and puts the text back — visibly when the user stayed, as the
+  stored draft when they moved away, not at all over a newer draft.
 - Wire marshal against every `chat_command_*.json`.
 - The posted-GIF frame is not dropped as a self-send.
 - `view_opened` decodes and toasts.
@@ -271,10 +292,13 @@ way the web client does. One golden scenario covers it.
 - `slackfmt.MentionedChannelIDs(text) []string`, next to `MentionedUserIDs`,
   reusing slackfmt's existing `channelMentionRe` (extended to capture the ID).
   It is not a fourth channel-mention regex (see §8).
-- `(*compose.Model).SetDraftFor(teamID, channelID, threadTS, text string) bool`:
-  writes the inactive draft for that key in the existing `drafts` map; returns
-  false and writes nothing when that key already has a non-empty draft or is
-  the visible conversation.
+- `(*compose.Model).OfferDraft(teamID, channelID, threadTS, text string) bool`:
+  makes `text` the draft of that conversation — the visible composer when the
+  key is the one it is bound to, otherwise the existing inactive `drafts` map —
+  but only when that conversation's draft is empty (no text, no attachments).
+  Returns whether it wrote. Both the `/msg` pre-fill and putting a failed
+  command's text back use it, so neither needs its own "same conversation and
+  empty?" check.
 
 ## 4. Stage 2 — Block Kit buttons on ephemerals
 
@@ -311,8 +335,8 @@ including those in `LegacyAttachment.Blocks`. Rendering does not change.
 ### 4.4 The wire call
 
 `slackclient.(*Client).BlockAction(ctx, BlockActionRequest) error`, in a new
-`internal/slack/block_action.go` beside `attachment_action.go`. Form, in the
-captured order:
+`internal/slack/block_action.go` beside `attachment_action.go`. Form fields,
+matching the capture by name and value (wire order alphabetical, as in §3.4):
 
 | Field | Value |
 |---|---|
@@ -325,8 +349,9 @@ captured order:
 | `state` | `{"values":{}}` |
 
 `defaultReasons` gains `"blocks.actions": "dispatch_action_to_developer"`.
-Tests: the marshalled form equals each `blocks_actions_ephemeral_*.json` capture,
-byte for byte for `actions` and `container`.
+Tests: the marshalled form equals each `blocks_actions_ephemeral_*.json` capture
+as a set of fields, byte for byte for the JSON values `actions`, `container` and
+`state`; `client_token` checked for shape.
 
 ### 4.5 `app_id`
 
@@ -468,7 +493,7 @@ extended, never copied.
 Genuinely new, with nothing to reuse: `client_token` generation;
 `core.CommandService`; `RunCommand`, `BlockAction`, `AppCommands`; the
 `view_opened` event; putting a failed command's text back;
-`compose.SetDraftFor`; `commandpicker`.
+`compose.OfferDraft`; `commandpicker`.
 
 ## 7. Delivery
 
@@ -483,7 +508,7 @@ Three PRs, in order, each passing the AGENTS.md gate (`go build`, `go vet`,
 
 Each PR updates the AGENTS.md shared-code tables in the same commit as the
 helper it adds: `dispatchCommand`/`slashCommands`, `applyPresenceAction`,
-`openChannel`, `slackfmt.MentionedChannelIDs`, `compose.SetDraftFor`,
+`openChannel`, `slackfmt.MentionedChannelIDs`, `compose.OfferDraft`,
 `CommandService`, `newClientToken`, `RunCommand`; then `PressBlockAction`,
 `BlockAction`, `ReplaceMessage`; then `AppCommands`, `commandpicker`,
 `PickerActive`/`PopupView`. Each also lists new test helpers there.
