@@ -190,6 +190,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Selected message or reply in the focused pane (channel, TS, text, author, panel) | `App.selectedMessageContext()` (`internal/ui/app.go`) |
 | Switch the active workspace from the UI | `App.switchWorkspace(teamID)` (`internal/ui/app.go`). Always use it: it saves a theme a cycle left pending, so a switch back to that workspace reads the new theme |
 | Save a per-workspace theme | `settings.SaveTheme(teamID, name, scope)` with the workspace on screen (`a.activeTeamID`), never the backend's active one: a switch moves that first |
+| Is composer text a slash command, and its name/args? | `parseSlashCommand(text)` (`internal/ui/slash_command.go`); `(*App).trySlashCommand(panel, c, channelID, threadTS)` runs it from either Enter branch. The result is `commandRanMsg`, reduced in `reducer_slash_command.go`; `commandFailureText` words the toast |
 
 ### Test helpers
 
@@ -251,6 +252,7 @@ greppable by name; no line numbers, because these files move.
 | An `App` with given per-channel caches and an optional fetch-around, for history tests | `navFixtureApp(t, caches, fetchAround)` (`internal/ui/navhistory_test.go`) |
 | Drive a history walk through the whole pipeline | `walkAndUpdate(t, app, cmd)`; `walkToCompletion(t, app, cmd)` also returns the selection and toasts (same file) |
 | A nav stack's entries as channel IDs | `navEntryChannelIDs(entries)` (`internal/ui/app_test.go`) |
+| An `App` in insert mode on C1/T1 whose slash-command runs are recorded and answered with an error you choose; press Enter through `Update` | `slashApp(t, err)`, `pressEnter(a)`, the `runCall` record (`internal/ui/slash_command_test.go`) |
 | Load a config from a TOML string | `loadConfigString(t, body)` (`internal/config/config_test.go`, `package config`) |
 
 ### Known duplication — do not add to it
