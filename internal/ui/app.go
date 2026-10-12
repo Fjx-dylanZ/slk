@@ -272,6 +272,11 @@ type App struct {
 	// call sites can dispatch without nil-checks.
 	activity core.ActivityService
 
+	// activityReads holds the Activity items with a read-state request
+	// to Slack under way, keyed by activityReadKey. Update goroutine
+	// only.
+	activityReads map[string]*activityRead
+
 	threadsDirtyDebounce time.Duration
 
 	// threadsListFetchScheduled is set while a threads-list refresh is
@@ -1957,10 +1962,8 @@ func (a *App) handleEnter() tea.Cmd {
 		if !ok {
 			return nil
 		}
-		channelID, ts, threadTS := it.ChannelID, it.TS, it.ThreadTS
-		return func() tea.Msg {
-			return ActivitySelectedMsg{ChannelID: channelID, TS: ts, ThreadTS: threadTS}
-		}
+		team := a.activeTeamID
+		return func() tea.Msg { return ActivitySelectedMsg{TeamID: team, Item: it} }
 	}
 
 	if a.focusedPanel == PanelMessages && a.view == ViewThreads {

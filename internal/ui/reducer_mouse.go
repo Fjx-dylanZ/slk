@@ -282,10 +282,8 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 			panel, _, py, ok := a.panelAt(m.X, m.Y)
 			if ok && panel == PanelMessages && py >= 0 && a.activityView.ClickAt(py) {
 				if it, ok := a.activityView.SelectedItem(); ok {
-					channelID, ts, threadTS := it.ChannelID, it.TS, it.ThreadTS
-					return func() tea.Msg {
-						return ActivitySelectedMsg{ChannelID: channelID, TS: ts, ThreadTS: threadTS}
-					}
+					team := a.activeTeamID
+					return func() tea.Msg { return ActivitySelectedMsg{TeamID: team, Item: it} }
 				}
 			}
 			return nil
