@@ -1,7 +1,7 @@
 // internal/ui/reducer_activity.go
 //
 // Activity-view reducer for App.Update. Modeled on reducer_threads.go's
-// ThreadsView arms — the Activity view mirrors the Threads view. Five arms:
+// ThreadsView arms — the Activity view mirrors the Threads view. Six arms:
 //
 //	ActivityViewActivatedMsg  - user opened the Activity view (sidebar
 //	                            row or :activity): switch view + focus,
@@ -17,6 +17,9 @@
 //	                            rows show what the activity actually was.
 //	ActivityToggleUnreadMsg   - flip the unread-only filter and re-fetch
 //	                            with the new flag (the server filters).
+//	ActivityReadSetMsg        - Slack answered a read-state change: on
+//	                            error, undo the optimistic change and
+//	                            toast.
 //	ActivitySelectedMsg       - user pressed Enter on a row: open the
 //	                            underlying thread (ThreadTS set) or the
 //	                            channel message (jump to TS), reusing
@@ -25,6 +28,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/core"
@@ -56,6 +61,21 @@ func activityRefs(items []core.ActivityItem) map[string][]string {
 // activityFeedPageLimit is the number of items requested per
 // activity.feed page. Matches the desktop client's default page size.
 const activityFeedPageLimit = 50
+
+// setActivityItemRead applies an Activity item's new read state at once
+// (its dot and the sidebar badge) and returns the command that asks
+// Slack for it. The ActivityReadSetMsg arm undoes the change if Slack
+// refuses.
+func (a *App) setActivityItemRead(it core.ActivityItem, read bool) tea.Cmd {
+	if a.activeTeamID == "" {
+		return nil
+	}
+	a.activityView.SetItemRead(it.Key, read)
+	a.sidebar.SetActivityUnreadCount(a.activityView.UnreadCount())
+	activity := a.activity
+	team := ids.TeamID(a.activeTeamID)
+	return func() tea.Msg { return activity.SetRead(team, it, read) }
+}
 
 var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
@@ -115,6 +135,20 @@ var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		a.activityView.SetBodies(m.Bodies)
 		return nil, true
+
+	case ActivityReadSetMsg:
+		if m.TeamID != a.activeTeamID || m.Err == nil {
+			return nil, true
+		}
+		// Undo to the opposite of what failed: if an earlier request
+		// for the same item succeeded, that is the state Slack holds.
+		a.activityView.SetItemRead(m.Key, !m.Read)
+		a.sidebar.SetActivityUnreadCount(a.activityView.UnreadCount())
+		state := "unread"
+		if m.Read {
+			state = "read"
+		}
+		return toastWithClear(a, "Couldn't mark activity item "+state+": "+m.Err.Error(), 3*time.Second), true
 
 	case ActivitySelectedMsg:
 		// Thread target: open the thread panel directly, reusing the
