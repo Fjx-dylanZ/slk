@@ -242,6 +242,15 @@ func (e *RateLimitedError) Error() string {
 	return fmt.Sprintf("rate limited, retry after %s", e.RetryAfter)
 }
 
+// CommandError is how adapters report Slack refusing a slash command
+// (chat.command's {"ok":false,"error":Code}), so the UI never parses
+// Slack error strings. Code is Slack's, e.g. "unknown_command".
+type CommandError struct {
+	Code string
+}
+
+func (e *CommandError) Error() string { return e.Code }
+
 // Theme holds the user's color overrides from config.
 type Theme struct {
 	Primary     string `toml:"primary"`

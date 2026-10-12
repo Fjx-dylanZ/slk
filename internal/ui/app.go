@@ -479,6 +479,7 @@ type App struct {
 	// so call sites can dispatch without nil-checks.
 	reactions     core.ReactionService
 	interactions  core.InteractionService
+	commandSvc    core.CommandService
 	currentUserID string
 
 	// editing tracks in-progress message edit state. See
@@ -882,6 +883,7 @@ func NewApp() *App {
 		layout:                newPanelLayout(),
 		reactions:             noopReactionService,
 		interactions:          noopInteractionService,
+		commandSvc:            noopCommandService,
 		threads:               noopThreadService,
 		activity:              noopActivityService,
 		messageSvc:            noopMessageService,
@@ -3216,6 +3218,16 @@ func (a *App) SetInteractionService(s core.InteractionService) {
 		s = noopInteractionService
 	}
 	a.interactions = s
+}
+
+// SetCommandService wires the service slash commands run through. A nil s
+// restores the no-op, whose runs fail with errors.ErrUnsupported and so
+// surface as a toast.
+func (a *App) SetCommandService(s core.CommandService) {
+	if s == nil {
+		s = noopCommandService
+	}
+	a.commandSvc = s
 }
 
 // SetProfileService wires the App's ProfileService collaborator, used

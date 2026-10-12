@@ -1381,6 +1381,18 @@ func run() error {
 			},
 		}))
 
+		app.SetCommandService(core.NewCommandService(core.CommandServiceFuncs{
+			Run: func(channelID ids.ChannelID, threadTS ids.ThreadTS, command, args string) error {
+				wctx := router.Active()
+				if wctx == nil {
+					return errors.New("no active workspace")
+				}
+				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				defer cancel()
+				return runCommand(ctx, wctx.Client, channelID, threadTS, command, args)
+			},
+		}))
+
 		sendTyping := func(channelID string) {
 			wctx := router.Active()
 			if wctx == nil {
