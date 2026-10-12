@@ -56,7 +56,11 @@ func isCommandSpace(b byte) bool {
 // web client handles them locally rather than through chat.command
 // (spec §3.3). Keys are lowercased names with their slash. Anything not
 // here runs remotely.
-var slashCommands = map[string]commandFunc{}
+var slashCommands = map[string]commandFunc{
+	"/away":   slashAway,
+	"/active": slashActive,
+	"/status": slashStatus,
+}
 
 // commandRanMsg is the result of running a slash command through
 // CommandService. text is the composer text as typed, kept so a failure
