@@ -55,11 +55,11 @@ func TestConfigSavers_ReaderNeverSeesPartialFile(t *testing.T) {
 	writers := []func(i int) error{
 		func(i int) error { return saveGlobalTheme(path, fmt.Sprintf("theme-%d", i)) },
 		func(i int) error {
-			return saveWorkspaceTheme(path, "acme", "T04T4TH8W", "Acme", fmt.Sprintf("t-%d", i))
+			return saveWorkspaceTheme(path, "T04T4TH8W", "Acme", fmt.Sprintf("t-%d", i))
 		},
-		func(i int) error { return saveWorkspaceWidth(path, "other", "T05U5UI9X", "Other", 20+i%30) },
+		func(i int) error { return saveWorkspaceWidth(path, "T05U5UI9X", "Other", 20+i%30) },
 		func(i int) error {
-			return saveWorkspaceVersionTS(path, "acme", "T04T4TH8W", "Acme", fmt.Sprintf("17854%05d", i))
+			return saveWorkspaceVersionTS(path, "T04T4TH8W", "Acme", fmt.Sprintf("17854%05d", i))
 		},
 	}
 	for _, w := range writers {

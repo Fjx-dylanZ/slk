@@ -189,6 +189,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Save a per-workspace theme | `settings.SaveTheme(teamID, name, scope)` with the workspace on screen (`a.activeTeamID`), never the backend's active one: a switch moves that first |
 | Which `[workspaces.<key>]` block configures a team | `Config.WorkspaceKey(teamID)` for the key, `Config.WorkspaceByTeamID(teamID)` for the block (`internal/config`) |
 | Judge config.toml bytes you already hold by the rules `config.Load` applies | `config.Parse(data)`; `Load` is a file read plus `Parse` |
+| Rewrite a team's `[workspaces.*]` block in config.toml | `saveWorkspaceTheme` / `saveWorkspaceWidth` / `saveWorkspaceVersionTS` (`cmd/slk`); a new per-workspace saver finds the block with `workspaceSectionStart(data, lines, teamID)` on the bytes it read under `configWriteMu`, never from a `Config` loaded earlier: a block written since (onboarding's) is missed, and the appended duplicate makes `config.Load` fail at the next launch |
 
 ### Test helpers
 
