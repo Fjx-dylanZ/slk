@@ -137,7 +137,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Press a legacy attachment button (`chat.attachmentAction`, payload byte-identical to the web client's) | `(*slackclient.Client).AttachmentAction(ctx, AttachmentActionRequest)`, with `service_id` = the posting app's bot ID |
 | Press a legacy attachment button from the UI | `core.InteractionService.PressAttachmentAction` (App field `a.interactions`); wired in `cmd/slk` via `pressAttachmentAction` to the active workspace's `Client.AttachmentAction` |
 | Run a slash command (`chat.command`, request shape copied from the web client; arguments as rich text via `mrkdwn.Convert`) | `(*slackclient.Client).RunCommand(ctx, CommandRequest)`; a refusal (`unknown_command`, …) is `*slackclient.CommandRejectedError` |
-| Run a slash command from the UI | `core.CommandService.Run` (App field `a.commandSvc`); wired in `cmd/slk` via `runCommand` to the active workspace's `Client.RunCommand`. Slack's refusal arrives as `*core.CommandError{Code}` |
+| Run a slash command from the UI | `core.CommandService.Run` (App field `a.commandSvc`); wired in `cmd/slk` via `runCommand` to the `Client.RunCommand` of the workspace the command was typed in (`teamID`, looked up with `router.ByID`, not the active one). Slack's refusal arrives as `*core.CommandError{Code}` |
 | A web-client `client_token` (`web-<unix ms>`) for any request that sends one | `newClientToken()` (`internal/slack`); the only generator |
 | Emoji shortcode → glyph | `emoji.Sprint`, `emoji.CodeMap`, `emoji.StripSkinTone` |
 | Does Block Kit already render the message body? | `blockkit.RendersBody(blocks)`, `messages.BlocksCarryBody(msg)` |

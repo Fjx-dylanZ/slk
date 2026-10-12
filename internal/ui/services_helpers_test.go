@@ -235,6 +235,6 @@ func (a *App) setInteractionPressForTest(fn func(ids.ChannelID, ids.MessageTS, i
 	a.SetInteractionService(core.NewInteractionService(core.InteractionServiceFuncs{PressAttachmentAction: fn}))
 }
 
-func (a *App) setCommandRunnerForTest(fn func(ids.ChannelID, ids.ThreadTS, string, string) error) {
+func (a *App) setCommandRunnerForTest(fn func(string, ids.ChannelID, ids.ThreadTS, string, string) error) {
 	a.SetCommandService(core.NewCommandService(core.CommandServiceFuncs{Run: fn}))
 }

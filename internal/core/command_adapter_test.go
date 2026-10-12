@@ -8,7 +8,7 @@ import (
 )
 
 func TestCommandServiceNilFuncIsUnsupported(t *testing.T) {
-	err := NewCommandService(CommandServiceFuncs{}).Run("C1", "", "/giphy", "cats")
+	err := NewCommandService(CommandServiceFuncs{}).Run("T1", "C1", "", "/giphy", "cats")
 	if !errors.Is(err, errors.ErrUnsupported) {
 		t.Errorf("err = %v, want ErrUnsupported", err)
 	}
@@ -17,15 +17,15 @@ func TestCommandServiceNilFuncIsUnsupported(t *testing.T) {
 func TestCommandServicePassesArguments(t *testing.T) {
 	var got []any
 	svc := NewCommandService(CommandServiceFuncs{
-		Run: func(ch ids.ChannelID, th ids.ThreadTS, cmd, args string) error {
-			got = []any{ch, th, cmd, args}
+		Run: func(team string, ch ids.ChannelID, th ids.ThreadTS, cmd, args string) error {
+			got = []any{team, ch, th, cmd, args}
 			return nil
 		},
 	})
-	if err := svc.Run("C1", "10.0", "/giphy", "cats"); err != nil {
+	if err := svc.Run("T1", "C1", "10.0", "/giphy", "cats"); err != nil {
 		t.Fatal(err)
 	}
-	want := []any{ids.ChannelID("C1"), ids.ThreadTS("10.0"), "/giphy", "cats"}
+	want := []any{"T1", ids.ChannelID("C1"), ids.ThreadTS("10.0"), "/giphy", "cats"}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("arg %d = %v, want %v", i, got[i], want[i])

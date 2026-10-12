@@ -47,7 +47,7 @@ func TestParseSlashCommand(t *testing.T) {
 
 // runCall records one CommandService.Run.
 type runCall struct {
-	channelID, threadTS, name, args string
+	teamID, channelID, threadTS, name, args string
 }
 
 // slashApp is an App in insert mode on C1 in team T1, its channel
@@ -59,8 +59,8 @@ func slashApp(t *testing.T, err error) (*App, *[]runCall) {
 	a.focusedPanel = PanelMessages
 	a.compose.SetDraftContext("T1", "C1", "")
 	calls := &[]runCall{}
-	a.setCommandRunnerForTest(func(ch ids.ChannelID, th ids.ThreadTS, name, args string) error {
-		*calls = append(*calls, runCall{string(ch), string(th), name, args})
+	a.setCommandRunnerForTest(func(team string, ch ids.ChannelID, th ids.ThreadTS, name, args string) error {
+		*calls = append(*calls, runCall{team, string(ch), string(th), name, args})
 		return err
 	})
 	return a, calls
@@ -81,7 +81,7 @@ func TestSlashCommand_ChannelComposerRunsRemote(t *testing.T) {
 	if len(ran) != 1 {
 		t.Fatalf("commandRanMsg delivered %d times, want 1", len(ran))
 	}
-	want := runCall{channelID: "C1", threadTS: "", name: "/giphy", args: "cats"}
+	want := runCall{teamID: "T1", channelID: "C1", threadTS: "", name: "/giphy", args: "cats"}
 	if len(*calls) != 1 || (*calls)[0] != want {
 		t.Fatalf("Run calls = %+v, want [%+v]", *calls, want)
 	}
@@ -93,6 +93,20 @@ func TestSlashCommand_ChannelComposerRunsRemote(t *testing.T) {
 	}
 }
 
+// The command runs in the workspace it was typed in, even when the user
+// switches workspace before the run starts: the channel ID belongs to
+// that workspace.
+func TestSlashCommand_RunsInTheWorkspaceItWasTypedIn(t *testing.T) {
+	a, calls := slashApp(t, nil)
+	a.compose.SetValue("/giphy cats")
+	cmd := pressEnter(a)
+	a.activeTeamID = "T2"
+	_ = deliveredMsgs[commandRanMsg](t, cmd)
+	if len(*calls) != 1 || (*calls)[0].teamID != "T1" {
+		t.Fatalf("Run calls = %+v, want one in T1", *calls)
+	}
+}
+
 func TestSlashCommand_ThreadComposerRunsInThread(t *testing.T) {
 	a, calls := slashApp(t, nil)
 	showThread(t, a)
@@ -100,7 +114,7 @@ func TestSlashCommand_ThreadComposerRunsInThread(t *testing.T) {
 
 	cmd := pressEnter(a)
 	_ = deliveredMsgs[commandRanMsg](t, cmd)
-	want := runCall{channelID: "C1", threadTS: "10.0", name: "/giphy", args: "cats"}
+	want := runCall{teamID: "T1", channelID: "C1", threadTS: "10.0", name: "/giphy", args: "cats"}
 	if len(*calls) != 1 || (*calls)[0] != want {
 		t.Fatalf("Run calls = %+v, want [%+v]", *calls, want)
 	}

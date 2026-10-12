@@ -64,9 +64,11 @@ type InteractionService interface {
 // Build one with NewCommandService.
 type CommandService interface {
 	// Run executes command ("/giphy", with its slash, lowercased) with
-	// args in channelID, in threadTS's thread when threadTS is set.
+	// args in channelID of workspace teamID — the one the command was
+	// typed in, which the user may have switched away from since — in
+	// threadTS's thread when threadTS is set.
 	// args is wire-form text (<@U…>, <#C…|name>); "" for none.
-	Run(channelID ids.ChannelID, threadTS ids.ThreadTS, command, args string) error
+	Run(teamID string, channelID ids.ChannelID, threadTS ids.ThreadTS, command, args string) error
 }
 
 // ThreadService is the App's interface to Slack's thread surfaces:

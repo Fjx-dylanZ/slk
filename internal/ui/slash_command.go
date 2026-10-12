@@ -144,7 +144,7 @@ func (a *App) refuseCommand(o commandOrigin, text string) tea.Cmd {
 func (a *App) runRemoteCommand(channelID, threadTS, name, args, text string) tea.Cmd {
 	svc, teamID := a.commandSvc, a.activeTeamID
 	return func() tea.Msg {
-		err := svc.Run(ids.ChannelID(channelID), ids.ThreadTS(threadTS), name, args)
+		err := svc.Run(teamID, ids.ChannelID(channelID), ids.ThreadTS(threadTS), name, args)
 		return commandRanMsg{teamID: teamID, channelID: channelID, threadTS: threadTS, name: name, text: text, err: err}
 	}
 }

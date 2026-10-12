@@ -1382,10 +1382,11 @@ func run() error {
 		}))
 
 		app.SetCommandService(core.NewCommandService(core.CommandServiceFuncs{
-			Run: func(channelID ids.ChannelID, threadTS ids.ThreadTS, command, args string) error {
-				wctx := router.Active()
-				if wctx == nil {
-					return errors.New("no active workspace")
+			Run: func(teamID string, channelID ids.ChannelID, threadTS ids.ThreadTS, command, args string) error {
+				// The user may have switched workspaces since pressing Enter.
+				wctx := router.ByID(teamID)
+				if wctx == nil || wctx.Client == nil {
+					return fmt.Errorf("running %s: workspace %q is unavailable", command, teamID)
 				}
 				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 				defer cancel()
