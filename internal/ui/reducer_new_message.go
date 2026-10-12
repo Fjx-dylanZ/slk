@@ -50,6 +50,14 @@ var reduceNewMessagePicker reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, boo
 		a.newMessagePicker.Close()
 		a.newMessageInFlightID = 0
 		a.newMessageCancelled = false
+		prefill := a.newMessagePrefill
+		a.newMessagePrefill = ""
+		var keptDraft tea.Cmd
+		if prefill != "" && !a.compose.OfferDraft(a.activeTeamID, m.ChannelID, "", prefill) {
+			keptDraft = func() tea.Msg {
+				return ToastMsg{Text: "Kept your existing draft there; the /msg text was not added"}
+			}
+		}
 		a.SetMode(ModeInsert)
 
 		channelType := "dm"
@@ -64,7 +72,7 @@ var reduceNewMessagePicker reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, boo
 		emitSelected := func() tea.Msg {
 			return ChannelSelectedMsg{ID: channelID, Type: channelType}
 		}
-		return tea.Batch(emitSelected, a.compose.Focus()), true
+		return tea.Batch(emitSelected, a.compose.Focus(), keptDraft), true
 
 	case NewMessageFailedMsg:
 		if !newMessageResultIsCurrent(a, m.RequestID) {
@@ -76,6 +84,7 @@ var reduceNewMessagePicker reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, boo
 		// the error via a toast (the existing app-wide notification
 		// channel) so the user knows the submit didn't go through.
 		a.newMessageInFlightID = 0
+		a.newMessagePrefill = ""
 		errText := m.Err.Error()
 		return func() tea.Msg { return ToastMsg{Text: "Open DM failed: " + errText} }, true
 	}

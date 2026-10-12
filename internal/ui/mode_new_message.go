@@ -33,13 +33,7 @@ func handleNewMessageMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	result := a.newMessagePicker.HandleKey(keyStr)
 	if result != nil {
-		// Submit. Bump the in-flight ID and clear cancellation
-		// before dispatch so a fresh result is honored.
-		a.newMessageInFlightID++
-		a.newMessageCancelled = false
-		reqID := a.newMessageInFlightID
-		userIDs := result.UserIDs
-		return teaCmd(a.channels.OpenConversation(userIDs, reqID))
+		return a.openConversation(result.UserIDs, "")
 	}
 
 	// Picker closed itself (Esc). Mark any in-flight submit as

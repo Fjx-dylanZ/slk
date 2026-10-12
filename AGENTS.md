@@ -194,6 +194,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Save a per-workspace theme | `settings.SaveTheme(teamID, name, scope)` with the workspace on screen (`a.activeTeamID`), never the backend's active one: a switch moves that first |
 | Set the user's own presence or DND from the UI (optimistic cache + status bar, then the service) | `(*App).applyPresenceAction(action, snoozeMinutes)` (`internal/ui/presence_action.go`); the presence menu, custom snooze and the `/away` family use it |
 | Switch to a channel, joining it first if the user is not a member | `(*App).openChannel(channelfinder.ChannelResult)` (`internal/ui/open_channel.go`); the channel finder and `/open` use it |
+| Open (or find) a DM / group DM and switch to it, optionally pre-filling its draft | `(*App).openConversation(userIDs, prefill)` (`internal/ui/open_conversation.go`); the new-message picker and `/msg` use it |
 | Is composer text a slash command, and its name/args? | `parseSlashCommand(text)` (`internal/ui/slash_command.go`); `(*App).trySlashCommand(panel, c, channelID, threadTS)` runs it from either Enter branch. The result is `commandRanMsg`, reduced in `reducer_slash_command.go`; `commandFailureText` words the toast |
 | Add a command | `:` commands: an entry in `commands` (`internal/ui/command.go`); slash built-ins slk runs itself: an entry in `slashCommands` (`internal/ui/slash_command.go`). Both are `commandFunc(a, commandArgs{Fields, Rest})`, dispatched by `dispatchCommand`; a slash name not in the table runs through `chat.command` |
 
