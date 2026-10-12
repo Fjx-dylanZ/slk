@@ -24,7 +24,8 @@
 //	                            underlying thread (ThreadTS set) or the
 //	                            channel message (jump to TS), reusing
 //	                            the existing thread-open / permalink-jump
-//	                            helpers.
+//	                            helpers. An item with no channel is
+//	                            marked read and explained with a toast.
 package ui
 
 import (
@@ -75,6 +76,22 @@ func (a *App) setActivityItemRead(it core.ActivityItem, read bool) tea.Cmd {
 	activity := a.activity
 	team := ids.TeamID(a.activeTeamID)
 	return func() tea.Msg { return activity.SetRead(team, it, read) }
+}
+
+// activateUnopenableActivity is Enter on an item with no conversation (a
+// Slack reminder, or a type slk does not know): there is nothing to
+// open, so acknowledge it by marking it read, and say why nothing
+// opened.
+func (a *App) activateUnopenableActivity(it core.ActivityItem) tea.Cmd {
+	text := "slk can't open this activity item yet"
+	if it.Type == "saved_reminder" {
+		text = "Reminder: open Slack to see it"
+	}
+	toast := toastWithClear(a, text, 3*time.Second)
+	if !it.IsUnread {
+		return toast
+	}
+	return tea.Batch(a.setActivityItemRead(it, true), toast)
 }
 
 var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
@@ -151,35 +168,36 @@ var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		return toastWithClear(a, "Couldn't mark activity item "+state+": "+m.Err.Error(), 3*time.Second), true
 
 	case ActivitySelectedMsg:
+		it := m.Item
+		if it.ChannelID == "" {
+			return a.activateUnopenableActivity(it), true
+		}
 		// Thread target: open the thread panel directly, reusing the
 		// permalink helper (builds the parent from the pane buffer or
 		// thread cache, else a stub the replies-loaded handler
 		// backfills). The Activity view stays visible behind the
 		// thread panel, mirroring the Threads view.
-		if m.ThreadTS != "" {
-			return a.openThreadForPermalink(m.ChannelID, m.ThreadTS), true
+		if it.ThreadTS != "" {
+			return a.openThreadForPermalink(it.ChannelID, it.ThreadTS), true
 		}
 		// Channel message target: reuse the in-app permalink-jump
 		// machinery. Set the pending nav so the ChannelSelectedMsg /
 		// MessagesLoadedMsg arms select (or FetchAround) the target ts,
 		// then switch to the channel.
-		if m.ChannelID == "" {
-			return nil, true
-		}
-		if m.TS != "" {
+		if it.TS != "" {
 			a.pendingLinkNav = &pendingLinkNav{Location: Location{
 				TeamID:    ids.TeamID(a.activeTeamID),
-				ChannelID: ids.ChannelID(m.ChannelID),
-				MessageTS: ids.MessageTS(m.TS),
+				ChannelID: ids.ChannelID(it.ChannelID),
+				MessageTS: ids.MessageTS(it.TS),
 			}}
 		}
-		name, chType, _ := a.channels.Lookup(ids.ChannelID(m.ChannelID))
+		name, chType, _ := a.channels.Lookup(ids.ChannelID(it.ChannelID))
 		// Already viewing the channel: the loaded buffer is as good as
 		// it gets, so complete the jump authoritatively right now.
-		if m.ChannelID == a.activeChannelID && a.pendingLinkNav != nil {
+		if it.ChannelID == a.activeChannelID && a.pendingLinkNav != nil {
 			return a.completePendingLinkNav(a.activeChannelID, true), true
 		}
-		id := m.ChannelID
+		id := it.ChannelID
 		return func() tea.Msg {
 			return ChannelSelectedMsg{ID: id, Name: name, Type: chType}
 		}, true

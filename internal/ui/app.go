@@ -1957,10 +1957,7 @@ func (a *App) handleEnter() tea.Cmd {
 		if !ok {
 			return nil
 		}
-		channelID, ts, threadTS := it.ChannelID, it.TS, it.ThreadTS
-		return func() tea.Msg {
-			return ActivitySelectedMsg{ChannelID: channelID, TS: ts, ThreadTS: threadTS}
-		}
+		return func() tea.Msg { return ActivitySelectedMsg{Item: it} }
 	}
 
 	if a.focusedPanel == PanelMessages && a.view == ViewThreads {

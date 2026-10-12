@@ -222,12 +222,11 @@ type (
 		Items  []core.ActivityItem
 	}
 	// ActivitySelectedMsg is dispatched when the user presses Enter on
-	// an Activity row. The App opens the underlying thread (ThreadTS
-	// set) or channel message (jumps to TS) reusing existing helpers.
+	// (or clicks) an Activity row. The App opens the underlying thread
+	// (ThreadTS set) or channel message (jumps to TS); an item with no
+	// channel has nothing to open and is acknowledged instead.
 	ActivitySelectedMsg struct {
-		ChannelID string
-		TS        string
-		ThreadTS  string
+		Item core.ActivityItem
 	}
 	// ActivityBodiesLoadedMsg carries hydrated message bodies for the
 	// refs in a freshly loaded Activity page (fetched via messages.list

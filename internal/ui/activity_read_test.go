@@ -4,6 +4,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
@@ -175,5 +178,73 @@ func TestActivityU_ThreadFocusedKeepsMessageMeaning(t *testing.T) {
 	}
 	if len(calls) != 0 || !selectedActivity(t, a).IsUnread {
 		t.Error("U with the thread pane focused touched the Activity item")
+	}
+}
+
+func reminder(unread bool) core.ActivityItem {
+	return core.ActivityItem{Key: "saved_reminder.1.1.0", Type: "saved_reminder", Subtype: "reminder",
+		FeedTS: "1791803337.000000", IsUnread: unread}
+}
+
+// enterOnActivity presses Enter and feeds the resulting
+// ActivitySelectedMsg back through Update, returning that step's command.
+func enterOnActivity(t *testing.T, a *App) tea.Cmd {
+	t.Helper()
+	_, cmd := a.Update(keyCode(tea.KeyEnter))
+	if cmd == nil {
+		t.Fatal("Enter in the Activity view returned no command")
+	}
+	sel, ok := cmd().(ActivitySelectedMsg)
+	if !ok {
+		t.Fatal("Enter in the Activity view did not select the item")
+	}
+	_, cmd = a.Update(sel)
+	return cmd
+}
+
+func TestActivityEnter_UnreadReminderMarksReadAndToasts(t *testing.T) {
+	a, calls := activityReadApp(t, nil, reminder(true))
+
+	cmd := enterOnActivity(t, a)
+	if selectedActivity(t, a).IsUnread || a.sidebar.ActivityUnreadCount() != 0 {
+		t.Errorf("Enter did not mark the reminder read (badge %d)", a.sidebar.ActivityUnreadCount())
+	}
+	if got := statusbarText(a); !strings.Contains(got, "Reminder: open Slack to see it") {
+		t.Errorf("status bar = %q, want the reminder toast", got)
+	}
+	deliveredMsgs[ActivityReadSetMsg](t, cmd)
+	if c := <-calls; c != (setReadCall{"T1", "saved_reminder.1.1.0", true}) {
+		t.Errorf("Enter asked Slack for %+v, want the reminder marked read", c)
+	}
+}
+
+// Enter on a reminder already read only explains; it must not call
+// Slack. The command is the toast's 3 s clear tick, so watch for a call
+// for a short while instead of waiting the tick out.
+func TestActivityEnter_ReadReminderOnlyToasts(t *testing.T) {
+	a, calls := activityReadApp(t, nil, reminder(false))
+
+	cmd := enterOnActivity(t, a)
+	if got := statusbarText(a); !strings.Contains(got, "Reminder: open Slack to see it") {
+		t.Errorf("status bar = %q, want the reminder toast", got)
+	}
+	go deliverFirst(cmd, make(chan ActivityReadSetMsg, 1))
+	select {
+	case c := <-calls:
+		t.Errorf("Enter on a read reminder asked Slack for %+v", c)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestActivityEnter_UnknownItemMarksReadAndToasts(t *testing.T) {
+	a, calls := activityReadApp(t, nil, core.ActivityItem{Key: "x1", Type: "brand_new_type", FeedTS: "1.1", IsUnread: true})
+
+	cmd := enterOnActivity(t, a)
+	if got := statusbarText(a); !strings.Contains(got, "slk can't open this activity item yet") {
+		t.Errorf("status bar = %q, want the can't-open toast", got)
+	}
+	deliveredMsgs[ActivityReadSetMsg](t, cmd)
+	if c := <-calls; !c.read || c.key != "x1" {
+		t.Errorf("Enter asked Slack for %+v, want x1 marked read", c)
 	}
 }
