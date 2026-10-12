@@ -12,6 +12,7 @@ import (
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui/mentionpicker"
+	"github.com/gammons/slk/internal/ui/messages"
 )
 
 // presenceSlashApp is slashApp with the status setter recorded and the
@@ -454,6 +455,40 @@ func TestSlashRefusalKeepsANewerDraft(t *testing.T) {
 	}
 	if !strings.Contains(statusbarText(a), "No channel named #nope") {
 		t.Errorf("status bar = %q, want the toast", statusbarText(a))
+	}
+}
+
+// An action dialog waiting on the user's typing opens when /msg's Enter
+// clears the composer. The conversation it opens must not pull the user
+// back into insert mode underneath the dialog.
+func TestSlashMsg_OpenedConversationDoesNotEnterInsertUnderADialog(t *testing.T) {
+	a, _, _ := msgSlashApp(t)
+	a.messagepane.SetMessages([]messages.MessageItem{mentionEphemeral(ephTS)})
+	a.compose.SetValue("/msg <@U9> hi")
+	_ = a.enqueueActionPrompt(actionPromptRef{channelID: "C1", ts: ephTS})
+	if a.shownPrompt != nil {
+		t.Fatal("precondition: the dialog must wait while the user types")
+	}
+
+	opened := deliveredMsgs[NewMessageOpenedMsg](t, pressEnter(a))
+	if a.shownPrompt == nil || a.mode != ModeConfirm {
+		t.Fatalf("precondition: shownPrompt = %v, mode = %v; want the dialog open", a.shownPrompt, a.mode)
+	}
+	_, cmd := a.Update(opened[0])
+	if a.shownPrompt != nil && a.mode == ModeInsert {
+		t.Errorf("mode = ModeInsert with the action dialog still shown")
+	}
+
+	// The switch to the opened conversation takes the dialog's message
+	// off screen; closing the dialog then lands the user in insert mode.
+	for _, sel := range deliveredMsgs[ChannelSelectedMsg](t, cmd) {
+		a.Update(sel)
+	}
+	if a.shownPrompt != nil {
+		t.Fatalf("the dialog is still shown after switching to the DM")
+	}
+	if a.mode != ModeInsert {
+		t.Errorf("mode = %v after the dialog closed, want ModeInsert in the opened DM", a.mode)
 	}
 }
 

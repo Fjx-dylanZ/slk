@@ -58,7 +58,17 @@ var reduceNewMessagePicker reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, boo
 				return ToastMsg{Text: "Kept your existing draft there; the /msg text was not added"}
 			}
 		}
-		a.SetMode(ModeInsert)
+		// An action dialog may already be up (it opened when /msg
+		// cleared the composer): leave it be and let it hand the user
+		// back to insert mode, in the opened conversation, when it
+		// closes.
+		var focus tea.Cmd
+		if a.shownPrompt != nil {
+			a.shownPromptInsert, a.shownPromptThread = true, false
+		} else {
+			a.SetMode(ModeInsert)
+			focus = a.compose.Focus()
+		}
 
 		channelType := "dm"
 		if len(m.UserIDs) > 1 {
@@ -72,7 +82,7 @@ var reduceNewMessagePicker reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, boo
 		emitSelected := func() tea.Msg {
 			return ChannelSelectedMsg{ID: channelID, Type: channelType}
 		}
-		return tea.Batch(emitSelected, a.compose.Focus(), keptDraft), true
+		return tea.Batch(emitSelected, focus, keptDraft), true
 
 	case NewMessageFailedMsg:
 		if !newMessageResultIsCurrent(a, m.RequestID) {
