@@ -106,7 +106,8 @@ func (a *App) renderThreadBotStatusLine(width int) string {
 	}
 	parts := make([]string, 0, len(statuses))
 	for _, s := range statuses {
-		parts = append(parts, a.userNameFor(s.botUserID)+" "+s.text)
+		// Fields: the app's line breaks would otherwise be rows.
+		parts = append(parts, a.userNameFor(s.botUserID)+" "+strings.Join(strings.Fields(s.text), " "))
 	}
 	style := styles.TypingIndicator
 	text := ansi.Truncate(strings.Join(parts, " · "), width-style.GetHorizontalFrameSize(), "…")

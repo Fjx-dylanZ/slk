@@ -183,6 +183,17 @@ func TestBotStatus_OpenThreadShowsTheBotsOwnText(t *testing.T) {
 	}
 }
 
+// statusRows returns the screen rows containing marker.
+func statusRows(screen, marker string) []string {
+	var rows []string
+	for _, line := range strings.Split(screen, "\n") {
+		if strings.Contains(line, marker) {
+			rows = append(rows, line)
+		}
+	}
+	return rows
+}
+
 // An app chooses its status text, and it can be longer than the pane
 // is wide. It is one row, cut short, not a paragraph eating the
 // thread's replies.
@@ -194,17 +205,29 @@ func TestBotStatus_LongStatusTakesOneRow(t *testing.T) {
 	updateAndRender(t, a, atlasStatus("C1", ts, long))
 	screen := ansi.Strip(a.View().Content)
 
-	rows := 0
-	for _, line := range strings.Split(screen, "\n") {
-		if strings.Contains(line, "very") {
-			rows++
-			if !strings.Contains(line, "Atlas Thinking very") || !strings.Contains(line, "…") {
-				t.Errorf("status row = %q, want it to start with the app's name and end cut short", line)
-			}
-		}
+	rows := statusRows(screen, "very")
+	if len(rows) != 1 {
+		t.Fatalf("the status takes %d rows, want 1:\n%s", len(rows), screen)
 	}
-	if rows != 1 {
-		t.Errorf("the status takes %d rows, want 1:\n%s", rows, screen)
+	if !strings.Contains(rows[0], "Atlas Thinking very") || !strings.Contains(rows[0], "…") {
+		t.Errorf("status row = %q, want it to start with the app's name and end cut short", rows[0])
+	}
+}
+
+// Line breaks in the app's text are not rows either.
+func TestBotStatus_MultilineStatusTakesOneRow(t *testing.T) {
+	a := botStatusApp(t)
+	ts := openThreadOnSelected(t, a)
+
+	updateAndRender(t, a, atlasStatus("C1", ts, "Thinking...\nSearching...\r\nAlmost there"))
+	screen := ansi.Strip(a.View().Content)
+
+	rows := statusRows(screen, "Atlas Thinking")
+	if len(rows) != 1 {
+		t.Fatalf("found %d status rows, want 1:\n%s", len(rows), screen)
+	}
+	if !strings.Contains(rows[0], "Atlas Thinking... Searching... Almost there") {
+		t.Errorf("status row = %q, want its lines joined by spaces", rows[0])
 	}
 }
 
