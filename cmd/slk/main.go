@@ -230,6 +230,11 @@ func run() error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
+	// <!date tokens render their {time} clock with the same
+	// timestamp_format the message stamps use, so every clock in the
+	// TUI follows one setting.
+	messages.SetDateTokenTimeLayout(cfg.Appearance.TimestampFormat)
+
 	// Load custom themes and apply the active theme
 	themesDir := filepath.Join(configDir, "themes")
 	styles.LoadCustomThemes(os.DirFS(themesDir))
