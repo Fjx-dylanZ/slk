@@ -533,6 +533,13 @@ func (h *rtmEventHandler) OnUserTyping(channelID, userID string) {
 }
 
 func (h *rtmEventHandler) OnAssistantStatus(s slackclient.AssistantStatus) {
+	// The status names the app; one slk has not seen yet is fetched,
+	// as an unknown message author is, so it does not stay a raw ID.
+	if s.Status != "" {
+		if _, ok := resolveUserCached(s.BotUserID, h.userNames, h.db); !ok && h.wsCtx != nil && h.wsCtx.UserResolver != nil {
+			h.wsCtx.UserResolver.Request(s.BotUserID)
+		}
+	}
 	if h.program == nil {
 		return
 	}
