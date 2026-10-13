@@ -185,6 +185,25 @@ func TestSlashOpen_LookupForAnotherWorkspaceIsDropped(t *testing.T) {
 	}
 }
 
+// The composer was cleared at Enter, so a lookup dropped after a
+// workspace switch gives the command back as the draft of the
+// conversation it was typed in, leaving the new workspace's composer alone.
+func TestSlashOpen_LookupForAnotherWorkspaceGivesTheTextBack(t *testing.T) {
+	a, _, _, _ := openSlashApp(t)
+	a.compose.SetValue("/open #Design")
+	lookups := deliveredMsgs[channelLookupMsg](t, pressEnter(a))
+	a.activeTeamID = "T2"
+	a.compose.SetDraftContext("T2", "C5", "")
+	a.Update(lookups[0])
+	if got := a.compose.Value(); got != "" {
+		t.Errorf("T2 composer = %q, want untouched", got)
+	}
+	a.compose.SetDraftContext("T1", "C1", "")
+	if got := a.compose.Value(); got != "/open #Design" {
+		t.Errorf("back in T1/C1: composer = %q, want the command", got)
+	}
+}
+
 func TestSlashOpen_ErrorsToast(t *testing.T) {
 	cases := []struct {
 		typed, want string

@@ -15,8 +15,10 @@ import (
 
 var reduceSlashCommand reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	if lookup, ok := msg.(channelLookupMsg); ok {
-		// An answer for a workspace the user has since left is dropped.
+		// An answer for a workspace the user has since left is dropped;
+		// the command goes back to the conversation it was typed in.
 		if lookup.teamID != a.activeTeamID {
+			a.offerTypedBack(lookup.origin)
 			return nil, true
 		}
 		if !lookup.found {
