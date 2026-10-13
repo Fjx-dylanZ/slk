@@ -446,6 +446,22 @@ func (h *rtmEventHandler) OnEphemeralMessage(m slackclient.EphemeralMessage) {
 	}
 }
 
+// OnViewOpened tells the user an app opened a modal slk cannot show yet
+// (spec §3.5). Nothing else is done with the view.
+func (h *rtmEventHandler) OnViewOpened(title string) {
+	if h.isActive != nil && !h.isActive() {
+		return
+	}
+	if h.program == nil {
+		return
+	}
+	text := "This command opened a dialog slk can't show yet"
+	if title != "" {
+		text = title + " opened a dialog slk can't show yet"
+	}
+	h.program.Send(ui.ToastMsg{Text: text})
+}
+
 func (h *rtmEventHandler) OnMessageDeleted(channelID, ts string) {
 	if err := h.db.DeleteMessage(channelID, ts); err != nil {
 		log.Printf("Warning: failed to soft-delete cached message %s/%s: %v", channelID, ts, err)
