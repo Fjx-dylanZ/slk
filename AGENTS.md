@@ -122,6 +122,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | A content pane's per-entry payload next to its `entrylist.Entry` (short-timestamp selected variant, kitty flushes, sixel rows), and the rows to draw for the cursor entry | `messages.EntryPayload`, `(*EntryPayload).SelectedLines`; the emoji-image context both panes take is `messages.EmojiContext` |
 | Date label from a Slack ts | `messages.DateFromTS`, `messages.FormatDateSeparator`, `messages.FormatShortDate` (compact form for a message header: "Today", "Jan 2") |
 | Date-qualified timestamp for the selected message header | `messages.LongTimestamp(ts, short)`, `messages.SelectedHeader(rendered, header, ts, short, maxWidth)`; any other header timestamp swap that must fit the width budget: `messages.ReplaceHeaderTimestamp(rendered, header, short, replacement, maxWidth)` |
+| Clock layout `<!date` tokens render `{time}`/`{time_secs}` with | `messages.SetDateTokenTimeLayout(layout)` — seeded once at startup from `appearance.timestamp_format` (`cmd/slk/main.go`); empty keeps the default `"3:04 PM"`. Package-level (like theme state) so every render path agrees |
 | mpdm channel name → human name | `slackfmt.FormatMPDMName` |
 | Channel-type glyph (`#` / `◆` / `●`) | `messages.ChannelGlyph(chType)` |
 | Marker row for a message only the current user can see | `messages.EphemeralLabel()` — drawn above the author line in both panes |

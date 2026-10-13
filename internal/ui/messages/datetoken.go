@@ -59,11 +59,21 @@ func SetDateTokenTimeLayout(layout string) {
 // timeLayoutWithSeconds returns the layout with a seconds component
 // inserted after the minutes token unless one is already present, so
 // {time_secs} stays a superset of {time} for any configured layout.
+// Go's seconds token is "05" wherever it appears (":05", ".05", …), so
+// its presence anywhere means the layout already renders seconds.
 func timeLayoutWithSeconds(layout string) string {
-	if strings.Contains(layout, ":05") {
+	if strings.Contains(layout, "05") {
 		return layout
 	}
-	return strings.Replace(layout, "04", "04:05", 1)
+	if strings.Contains(layout, "04") {
+		return strings.Replace(layout, "04", "04:05", 1)
+	}
+	// Zero-suppressed minutes ("15:4"); anything with neither a
+	// minute token nor seconds is not a clock layout, so leave it.
+	if strings.Contains(layout, "4") {
+		return strings.Replace(layout, "4", "4:05", 1)
+	}
+	return layout
 }
 
 // renderDateToken formats one whole <!date^...> token match. The token

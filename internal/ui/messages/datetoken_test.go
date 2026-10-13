@@ -42,15 +42,23 @@ func TestFormatSlackDateTokenIn_Tokens(t *testing.T) {
 }
 
 func TestFormatSlackDateTokenIn_Ordinals(t *testing.T) {
-	// Walk days 1..31 of May 2026 at noon UTC through the pretty token
-	// and check the ordinal suffix against the day number.
+	// Independent expected suffixes (not computed via ordinalSuffix, so
+	// a bug in that function cannot pass its own test). Slack's pretty
+	// tokens use English ordinal day suffixes.
+	suffixes := map[int]string{
+		1: "st", 2: "nd", 3: "rd", 4: "th", 5: "th", 6: "th", 7: "th",
+		8: "th", 9: "th", 10: "th", 11: "th", 12: "th", 13: "th",
+		14: "th", 15: "th", 16: "th", 17: "th", 18: "th", 19: "th",
+		20: "th", 21: "st", 22: "nd", 23: "rd", 24: "th", 25: "th",
+		26: "th", 27: "th", 28: "th", 29: "th", 30: "th", 31: "st",
+	}
 	base := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC).Unix()
 	for d := 1; d <= 31; d++ {
 		ts := base + int64(d-1)*86400
 		got := formatSlackDateTokenIn(
 			strconv.FormatInt(ts, 10), "{date_short_pretty}", "FB", "", utcZone())
 		want := time.Unix(ts, 0).In(utcZone()).Format("Jan") +
-			" " + strconv.Itoa(d) + ordinalSuffix(d) + ", 2026"
+			" " + strconv.Itoa(d) + suffixes[d] + ", 2026"
 		if got != want {
 			t.Errorf("day %d: got %q, want %q", d, got, want)
 		}
@@ -95,6 +103,9 @@ func TestTimeLayoutWithSeconds(t *testing.T) {
 		{"3:04 PM", "3:04:05 PM"},
 		{"15:04", "15:04:05"},
 		{"15:04:05", "15:04:05"},
+		{"15.04.05", "15.04.05"}, // seconds present, dot separator
+		{"15:4", "15:4:05"},      // zero-suppressed minutes
+		{"3:4", "3:4:05"},
 		{"3:04PM", "3:04:05PM"},
 	}
 	for _, tc := range cases {
@@ -115,8 +126,8 @@ func TestRenderDateToken_MalformedFallsBack(t *testing.T) {
 		{"format without tokens uses fallback", "<!date^1779996974^plain text|Nov 14>", "Nov 14"},
 		{"empty ts uses fallback", "<!date^^{date}|Nov 14>", "Nov 14"},
 		{"missing comps uses fallback", "<!date^only|Nov 14>", "Nov 14"},
-		{"pipe link form drops link", "<!date^1779996974^{date_num}|May 28, 2026|https://x.example>", "2026-05-28"},
-		{"caret link form drops link", "<!date^1779996974^{date_num}^https://x.example|May 28, 2026>", "2026-05-28"},
+		{"pipe link form drops link", "<!date^1779996974^{date_num}|May 28, 2026|https://x.example>", time.Unix(1779996974, 0).Format("2006-01-02")},
+		{"caret link form drops link", "<!date^1779996974^{date_num}^https://x.example|May 28, 2026>", time.Unix(1779996974, 0).Format("2006-01-02")},
 		{"negative ts renders", "<!date^-100^{date_num}|FB>", time.Unix(-100, 0).Format("2006-01-02")},
 	}
 	for _, tc := range cases {

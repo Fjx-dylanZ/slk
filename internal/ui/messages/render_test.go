@@ -235,7 +235,14 @@ func TestNonHTTPBracketedSurvives(t *testing.T) {
 // holds in every CI timezone.
 func TestDateTokenRendersFormatted(t *testing.T) {
 	in := "<https://linear.app/truelist-io/team/TRU/all|Truelist> | <!date^1779996974^{date_short_pretty}|May 28, 2026>"
-	wantDate := time.Unix(1779996974, 0).Format("Jan 2") + ordinalSuffix(time.Unix(1779996974, 0).Day()) + ", 2026"
+	// 1779996974 is 2026-05-28 19:36 UTC: local day is 28 (UTC−) or 29
+	// (UTC+). Both days take the "th" ordinal, hardcoded here so a bug
+	// in ordinalSuffix cannot pass its own test.
+	ts := time.Unix(1779996974, 0)
+	if d := ts.Day(); d != 28 && d != 29 {
+		t.Fatalf("fixture moved: day %d, expected 28 or 29", d)
+	}
+	wantDate := ts.Format("Jan 2") + "th, 2026"
 	out := ansi.Strip(RenderSlackMarkdown(in, nil, nil))
 	if !strings.Contains(out, wantDate) {
 		t.Errorf("missing formatted date %q: %q", wantDate, out)
