@@ -912,6 +912,31 @@ func TestOnEphemeralMessage_DisplaysButTouchesNoDurableState(t *testing.T) {
 	}
 }
 
+// A bot's working indicator reaches the UI tagged with the workspace
+// it came from, the empty status that clears it included.
+func TestOnAssistantStatus_SendsBotStatus(t *testing.T) {
+	var sent []tea.Msg
+	h := &rtmEventHandler{
+		program:     sendFunc(func(msg tea.Msg) { sent = append(sent, msg) }),
+		workspaceID: "T1",
+	}
+	h.OnAssistantStatus(slackclient.AssistantStatus{ChannelID: "C1", ThreadTS: "100.1", BotUserID: "UBOT", Status: "Thinking..."})
+	h.OnAssistantStatus(slackclient.AssistantStatus{ChannelID: "C1", ThreadTS: "100.1", BotUserID: "UBOT"})
+
+	want := []tea.Msg{
+		ui.BotStatusMsg{WorkspaceID: "T1", ChannelID: "C1", ThreadTS: "100.1", BotUserID: "UBOT", Status: "Thinking..."},
+		ui.BotStatusMsg{WorkspaceID: "T1", ChannelID: "C1", ThreadTS: "100.1", BotUserID: "UBOT"},
+	}
+	if len(sent) != len(want) {
+		t.Fatalf("sent %d messages, want %d: %+v", len(sent), len(want), sent)
+	}
+	for i := range want {
+		if sent[i] != want[i] {
+			t.Errorf("sent[%d] = %#v, want %#v", i, sent[i], want[i])
+		}
+	}
+}
+
 func TestOnEphemeralMessage_InactiveWorkspaceDrops(t *testing.T) {
 	sent := 0
 	h := &rtmEventHandler{

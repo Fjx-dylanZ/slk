@@ -38,6 +38,9 @@ type EventHandler interface {
 	OnReactionRemoved(channelID, ts, userID, emoji string)
 	OnPresenceChange(userID, presence string)
 	OnUserTyping(channelID, userID string)
+	// OnAssistantStatus is delivered for ai_assistant_status: an app
+	// set or cleared its "working" indicator on a thread.
+	OnAssistantStatus(s AssistantStatus)
 	OnConnect()
 	OnDisconnect()
 	OnSelfPresenceChange(presence string)
@@ -169,6 +172,18 @@ type EphemeralMessage struct {
 	ActionIDs [][]string
 }
 
+// AssistantStatus is an app's "working" indicator on one thread, from an
+// ai_assistant_status event: what the app's assistant.threads.setStatus
+// (or agents.sessions.setStatus) call looks like to a client. An empty
+// Status clears the indicator. Slack also drops it on its own two
+// minutes after it was set.
+type AssistantStatus struct {
+	ChannelID string
+	ThreadTS  string
+	BotUserID string
+	Status    string
+}
+
 // wsEvent is the minimal structure for identifying a WebSocket event type.
 type wsEvent struct {
 	Type    string `json:"type"`
@@ -283,6 +298,16 @@ type wsTypingEvent struct {
 	Type    string `json:"type"`
 	Channel string `json:"channel"`
 	User    string `json:"user"`
+}
+
+// wsAssistantStatusEvent represents an ai_assistant_status event. Its
+// status_type ("banner" in every capture so far) is not decoded: slk
+// draws every status the same way.
+type wsAssistantStatusEvent struct {
+	ChannelID string `json:"channel_id"`
+	ThreadTS  string `json:"thread_ts"`
+	BotUserID string `json:"bot_user_id"`
+	Status    string `json:"status"`
 }
 
 // wsMemberChannelEvent represents member_joined_channel /
@@ -670,6 +695,15 @@ func dispatchWebSocketEvent(data []byte, handler EventHandler) {
 		}
 		debuglog.WS("user_typing: channel=%s user=%s", evt.Channel, evt.User)
 		handler.OnUserTyping(evt.Channel, evt.User)
+
+	case "ai_assistant_status":
+		var evt wsAssistantStatusEvent
+		if err := json.Unmarshal(data, &evt); err != nil {
+			return
+		}
+		debuglog.WS("ai_assistant_status: channel=%s thread=%s bot=%s status=%q",
+			evt.ChannelID, evt.ThreadTS, evt.BotUserID, evt.Status)
+		handler.OnAssistantStatus(AssistantStatus(evt))
 
 	case "member_joined_channel":
 		var evt wsMemberChannelEvent

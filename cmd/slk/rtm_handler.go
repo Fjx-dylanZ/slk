@@ -531,3 +531,16 @@ func (h *rtmEventHandler) OnUserTyping(channelID, userID string) {
 		WorkspaceID: h.workspaceID,
 	})
 }
+
+func (h *rtmEventHandler) OnAssistantStatus(s slackclient.AssistantStatus) {
+	if h.program == nil {
+		return
+	}
+	h.program.Send(ui.BotStatusMsg{
+		WorkspaceID: h.workspaceID,
+		ChannelID:   s.ChannelID,
+		ThreadTS:    s.ThreadTS,
+		BotUserID:   s.BotUserID,
+		Status:      s.Status,
+	})
+}
