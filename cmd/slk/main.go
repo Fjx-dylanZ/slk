@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -228,6 +229,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+
+	// <!date tokens render their {time} clock with the same
+	// timestamp_format the message stamps use, so every clock in the
+	// TUI follows one setting.
+	messages.SetDateTokenTimeLayout(cfg.Appearance.TimestampFormat)
 
 	// Load custom themes and apply the active theme
 	themesDir := filepath.Join(configDir, "themes")
@@ -1382,6 +1388,19 @@ func run() error {
 			},
 		}))
 
+		app.SetCommandService(core.NewCommandService(core.CommandServiceFuncs{
+			Run: func(teamID string, channelID ids.ChannelID, threadTS ids.ThreadTS, command, args string) error {
+				// The user may have switched workspaces since pressing Enter.
+				wctx := router.ByID(teamID)
+				if wctx == nil || wctx.Client == nil {
+					return fmt.Errorf("running %s: workspace %q is unavailable", command, teamID)
+				}
+				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				defer cancel()
+				return runCommand(ctx, wctx.Client, channelID, threadTS, command, args)
+			},
+		}))
+
 		sendTyping := func(channelID string) {
 			wctx := router.Active()
 			if wctx == nil {
@@ -1630,7 +1649,6 @@ func run() error {
 			}
 			wctx.RTMHandler = handler
 			wctx.ConnMgr = slackclient.NewConnectionManager(wctx.Client, handler)
-			go wctx.ConnMgr.Run(ctx)
 
 			// Use the same workspace-relative cache projection as switching,
 			// including profiles first cached by a different workspace.
@@ -1648,8 +1666,9 @@ func run() error {
 				Domain:       wctx.Client.TeamSubdomain(),
 				Theme:        cfgSnap.ResolveTheme(wctx.TeamID),
 				SidebarWidth: cfgSnap.ResolveWidth(wctx.TeamID),
-				Channels:     wctx.Channels,
-				FinderItems:  wctx.FinderItems,
+				// Detach both UI snapshots before the event owner starts.
+				Channels:    slices.Clone(wctx.Channels),
+				FinderItems: slices.Clone(wctx.FinderItems),
 				// A private copy: the UI must never share a map with
 				// the engine's goroutines (see userNameStore).
 				UserNames:        readyNames,
@@ -1667,6 +1686,10 @@ func run() error {
 			// the Ready message; anything the notifier sends is
 			// processed after it.
 			wctx.UserNames.NotifyFrom(readySeq, uiNameNotifier(wctx.TeamID, p.Send))
+
+			// Live repairs may mutate workspace slices. Start their owner only
+			// after cloning and handing off the startup snapshots above.
+			go wctx.ConnMgr.Run(ctx)
 
 			// Fetch the workspace's custom emoji in the background. When
 			// done, a follow-up message makes rendering and the emoji
