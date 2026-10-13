@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -1282,10 +1283,11 @@ func run() error {
 			},
 		}))
 
-		app.SetActivityService(core.NewActivityService(
-			activityFetchFunc(router),
-			activityHydrateFunc(router),
-		))
+		app.SetActivityService(core.NewActivityService(core.ActivityServiceFuncs{
+			Fetch:   activityFetchFunc(router),
+			Hydrate: activityHydrateFunc(router),
+			SetRead: activitySetReadFunc(router),
+		}))
 
 		app.SetMarksPersistStore(ui.NewMarksPersistStore(ui.MarksPersistStoreFuncs{
 			Upsert: func(teamID, letter string, m ui.Mark) error {
@@ -1642,7 +1644,6 @@ func run() error {
 			}
 			wctx.RTMHandler = handler
 			wctx.ConnMgr = slackclient.NewConnectionManager(wctx.Client, handler)
-			go wctx.ConnMgr.Run(ctx)
 
 			// Use the same workspace-relative cache projection as switching,
 			// including profiles first cached by a different workspace.
@@ -1660,8 +1661,9 @@ func run() error {
 				Domain:       wctx.Client.TeamSubdomain(),
 				Theme:        cfgSnap.ResolveTheme(wctx.TeamID),
 				SidebarWidth: cfgSnap.ResolveWidth(wctx.TeamID),
-				Channels:     wctx.Channels,
-				FinderItems:  wctx.FinderItems,
+				// Detach both UI snapshots before the event owner starts.
+				Channels:    slices.Clone(wctx.Channels),
+				FinderItems: slices.Clone(wctx.FinderItems),
 				// A private copy: the UI must never share a map with
 				// the engine's goroutines (see userNameStore).
 				UserNames:        readyNames,
@@ -1679,6 +1681,10 @@ func run() error {
 			// the Ready message; anything the notifier sends is
 			// processed after it.
 			wctx.UserNames.NotifyFrom(readySeq, uiNameNotifier(wctx.TeamID, p.Send))
+
+			// Live repairs may mutate workspace slices. Start their owner only
+			// after cloning and handing off the startup snapshots above.
+			go wctx.ConnMgr.Run(ctx)
 
 			// Fetch the workspace's custom emoji in the background. When
 			// done, a follow-up message makes rendering and the emoji
