@@ -215,6 +215,9 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Make a Normal-mode action's keys configurable (scoped to a panel, where it wins over global bindings on the same key) | a row in `keyActions` (`internal/ui/keyactions.go`: name, `KeyMap` binding, scope panel, run) plus a `*[]string` field in `config.Keys`; `config.Keys.Bindings()` → `uiSettings.KeyBindings` → `(*App).SetKeyBindings`. `TestKeyActionsAgreeWithConfig` (`cmd/slk`) checks the two lists agree |
 | Validate and normalize a key spelling from config (bubbletea's key strings; refuses esc, ctrl+c and keys terminals deliver as another key) | `normalizeKey` (`internal/config/keys.go`); `normalizeLeader` and `normalizeBindingKey` add their own rules on top |
 | Activate the selected sidebar row (Threads / Activity view, section toggle, channel) | `(*App).openSidebarRow()` (`internal/ui/app.go`), the `sidebar_open` action; a click on a row does the same |
+| Make a global Normal-mode command bindable in the leader layer, or change the default layer | its name (and default sequences) in `core.LeaderActions()` (`internal/core/leader.go`) plus its row in `leaderActions` (`internal/ui/leader_layer.go`: hint, `KeyMap` binding for the description, handler); `TestLeaderActionsMatchCore` keeps them in step |
+| Resolve a `[keys.leader_map]` into the effective leader layer (defaults, replacements, explicit-beats-default, collision errors naming the action) | `core.ResolveLeaderMap(m, normalizeKey)`; `core.DefaultLeaderLayer()` with no map. `config.Load` calls it; `config.Keys.LeaderLayer()` → `uiSettings.LeaderLayer` → `(*App).SetLeaderLayer` |
+| Open the help overlay; close the thread pane if open | `(*App).openHelp()`, `(*App).closeThreadView()` (`internal/ui/mode_normal.go`); `?`, `q` and the leader layer share them |
 
 ### Test helpers
 
@@ -256,6 +259,8 @@ greppable by name; no line numbers, because these files move.
 | Record status-setter invocations | the `statusCall` struct (same file) |
 | Rebind configurable actions as a `keyCase` setup; focus the sidebar on a section header or a channel; assert a cmd selects a channel | `withKeyBindings(b, then)`, `onSidebarHeader(&section, &wantCollapsed)`, `onSidebarChannel(id)`, `wantChannelSelected(t, cmd, id)` (`internal/ui/keyactions_test.go`) |
 | Load a config and get `Load`'s error | `loadConfigErr(t, body)` (`internal/config/config_test.go`, `package config`) |
+| An App configured like the wiki's neovim example; install a `[keys.leader_map]`; type tokens (`"space"`, `"esc"`, a character) through `Update`; read the which-key hint | `nvimApp(t)`, `withLeaderMap(t, a, m)`, `typeTokens(t, a, tokens...)`, `hint(a)` (`internal/ui/leader_layer_test.go`) |
+| The wiki's neovim-style `[keys]` block, verbatim | `nvimExampleFromWiki(t)` (`cmd/slk/ui_settings_test.go`, `package main`) |
 | A fixture with real unread channels either side of the active one | `unreadOpts()` + `seedUnreads(t, a)` (`internal/ui/mode_normal_keys_test.go`) |
 | Establish a focused pane with an asserted selection | `focusMessages(t, a)`, `focusThreadPanel(t, a)` (same file) |
 | Park the message viewport at an exact `yOffset` | `scrollTo(off)` (same file) |

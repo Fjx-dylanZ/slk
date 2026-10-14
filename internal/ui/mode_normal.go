@@ -252,9 +252,7 @@ func handleNormalKey(a *App, msg tea.KeyMsg) tea.Cmd {
 		return a.scrollFocusedPanel(a.halfPageSize())
 
 	case key.Matches(msg, a.keys.Help):
-		a.help.SetEntries(a.helpEntries())
-		a.help.Open()
-		a.SetMode(ModeHelp)
+		return a.openHelp()
 
 	case key.Matches(msg, a.keys.ThemeSwitcher):
 		return a.openWorkspaceThemeSwitcher()
@@ -365,10 +363,7 @@ func handleNormalKey(a *App, msg tea.KeyMsg) tea.Cmd {
 		// no thread panel is visible it's a no-op (Q and Ctrl+C
 		// are the quit keys). The vim-style pairing: q closes the
 		// transient pane, Q closes the whole app.
-		if a.threadVisible {
-			a.CloseThread()
-		}
-		return nil
+		return a.closeThreadView()
 
 	case key.Matches(msg, a.keys.QuitConfirm):
 		a.openQuitConfirm()
@@ -474,5 +469,22 @@ func (a *App) openWorkspaceThemeSwitcher() tea.Cmd {
 func (a *App) openGlobalThemeSwitcher() tea.Cmd {
 	a.themeSwitcher.OpenWithScope(themeswitcher.ScopeGlobal, "Default theme for new workspaces")
 	a.SetMode(ModeThemeSwitcher)
+	return nil
+}
+
+// openHelp opens the keybindings overlay (?) over the KeyMap and the
+// leader layer's rows.
+func (a *App) openHelp() tea.Cmd {
+	a.help.SetEntries(a.helpEntries())
+	a.help.Open()
+	a.SetMode(ModeHelp)
+	return nil
+}
+
+// closeThreadView closes the thread pane when one is open (q).
+func (a *App) closeThreadView() tea.Cmd {
+	if a.threadVisible {
+		a.CloseThread()
+	}
 	return nil
 }
