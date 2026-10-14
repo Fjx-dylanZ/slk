@@ -88,8 +88,11 @@ show_jump_overlay = true
 # The Normal-mode leader key (see Keybindings → Leader key). One key: a
 # single character, "space", or either after ctrl+ / alt+ ("ctrl+space").
 # Default '\' (a TOML literal string; the basic-string form is "\\").
-# esc, ctrl+c and 1-9 are refused at startup. If the key already did
-# something (space toggles a sidebar section), pressing it twice still does.
+# Refused at startup: esc, ctrl+c, 1-9, and keys many terminals send as
+# another key — ctrl+ with anything but a letter, space or \ ] ^ _ (ctrl+[
+# is esc), ctrl+i (tab), ctrl+m (enter), alt+ with an uppercase letter.
+# If the key already did something (space toggles a sidebar section),
+# pressing it twice still does.
 leader = "space"
 
 # Glob-based channel sections — only consulted when use_slack_sections

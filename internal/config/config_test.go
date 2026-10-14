@@ -505,8 +505,12 @@ func TestConfig_KeysLeader(t *testing.T) {
 		{"ctrl chord", "[keys]\nleader = \"ctrl+space\"\n", "ctrl+space"},
 		{"modifiers any case, ctrl letter lower-cased", "[keys]\nleader = \"Ctrl+X\"\n", "ctrl+x"},
 		{"modifiers in bubbletea order", "[keys]\nleader = \"alt+ctrl+x\"\n", "ctrl+alt+x"},
-		{"alt keeps the letter's case", "[keys]\nleader = \"alt+Y\"\n", "alt+Y"},
-		{"plus key", "[keys]\nleader = \"ctrl++\"\n", "ctrl++"},
+		{"alt with a lowercase letter", "[keys]\nleader = \"alt+y\"\n", "alt+y"},
+		{"alt with a symbol", "[keys]\nleader = \"alt+,\"\n", "alt+,"},
+		{"ctrl with a symbol terminals send as a control code", "[keys]\nleader = 'ctrl+\\'\n", "ctrl+\\"},
+		{"ctrl+]", "[keys]\nleader = \"ctrl+]\"\n", "ctrl+]"},
+		{"plus key", "[keys]\nleader = \"+\"\n", "+"},
+		{"plus key after a modifier", "[keys]\nleader = \"alt++\"\n", "alt++"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := loadConfigString(t, tc.body).Keys.Leader; got != tc.want {
@@ -534,6 +538,20 @@ func TestConfig_KeysLeaderRejected(t *testing.T) {
 		"9",        // switches workspaces
 		"\t",       // not printable as a key
 		"ctrl+tab", // named key behind a modifier
+		// Without keyboard enhancements these arrive as another key,
+		// so the leader would never fire.
+		"ctrl+[",     // esc
+		"ctrl+i",     // tab
+		"CTRL+I",     // tab, any spelling
+		"ctrl+m",     // enter
+		"ctrl+alt+i", // alt+tab
+		"ctrl+@",     // ctrl+space
+		"ctrl+2",     // ctrl+space, esc, ctrl+\ … or a plain digit
+		"ctrl+0",     // a plain digit
+		"ctrl+,",     // no control code: the plain key, or nothing
+		"ctrl++",     // same
+		"ctrl+?",     // backspace
+		"alt+Y",      // alt+shift+y, alt+Y or alt+shift+Y, by terminal
 	} {
 		t.Run(value, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.toml")

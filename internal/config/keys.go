@@ -26,8 +26,13 @@ type Keys struct {
 // Rejected: any other named key or word (esc cancels a sequence, and
 // tab, enter, f1… are not offered), shift+ (write the shifted
 // character), 1–9 (they switch workspaces and have no binding a doubled
-// leader could hand back), and ctrl+c (slk intercepts it before normal
-// mode, so it could never start a sequence).
+// leader could hand back), ctrl+c (slk intercepts it before normal
+// mode, so it could never start a sequence), and keys a terminal
+// without keyboard enhancements sends as some other key, so the leader
+// would silently never fire: ctrl+ with anything but a letter, space or
+// one of \ ] ^ _ (ctrl+[ is esc, ctrl+@ is ctrl+space, ctrl+, is a plain
+// comma or nothing), ctrl+i (tab), ctrl+m (enter), and alt+ with an
+// uppercase letter (alt+shift+y, alt+Y or alt+shift+Y by terminal).
 func normalizeLeader(s string) (string, error) {
 	switch s {
 	case "":
@@ -83,6 +88,25 @@ func normalizeLeader(s string) (string, error) {
 		return "", fmt.Errorf("%q: 1-9 switch workspaces", s)
 	case key == "ctrl+c":
 		return "", fmt.Errorf("%q: ctrl+c quits from every mode, so it cannot start a sequence", s)
+	case ctrl && base == "i":
+		return "", fmt.Errorf("%q: most terminals send ctrl+i as tab, so it would never start a sequence", s)
+	case ctrl && base == "m":
+		return "", fmt.Errorf("%q: most terminals send ctrl+m as enter, so it would never start a sequence", s)
+	case ctrl && base != "space" && !isCtrlCodeKey(base):
+		return "", fmt.Errorf("%q: most terminals cannot send ctrl+%s as itself; with ctrl+ use a letter, space or one of \\ ] ^ _", s, base)
+	case alt && !ctrl && unicode.IsUpper([]rune(base)[0]):
+		return "", fmt.Errorf("%q: terminals report alt with a shifted letter differently (alt+shift+%s, alt+%s, …); use alt+%s or another key",
+			s, strings.ToLower(base), base, strings.ToLower(base))
 	}
 	return key, nil
+}
+
+// isCtrlCodeKey reports whether ctrl+k reaches slk as ctrl+k from any
+// terminal: k has its own control code (a letter, or one of \ ] ^ _).
+func isCtrlCodeKey(k string) bool {
+	if len(k) != 1 {
+		return false
+	}
+	c := k[0]
+	return (c >= 'a' && c <= 'z') || strings.IndexByte(`\]^_`, c) >= 0
 }
