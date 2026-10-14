@@ -20,7 +20,10 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/slk/internal/cache"
+	"github.com/gammons/slk/internal/config"
 	imgpkg "github.com/gammons/slk/internal/image"
+	"github.com/gammons/slk/internal/ui/styles"
+	"github.com/gammons/slk/internal/ui/workspace"
 )
 
 // testHintsDelay is a real but short delay, so a tick runs within the
@@ -45,7 +48,7 @@ func sendKey(a *App, k tea.KeyMsg) tea.Cmd {
 // screen row of its box; "" when no menu is on screen.
 func menuText(a *App) string {
 	frame := a.View().Content
-	_, r := a.placeKeyHints(frame)
+	_, r := a.keyHintsBox()
 	if r.w == 0 {
 		return ""
 	}
@@ -290,6 +293,51 @@ func TestKeyHintsMarks(t *testing.T) {
 	wantRows(t, a, "a → #ops  alice: deploy at noon", "'/` → back-jump to where you jumped from")
 }
 
+// A click on the workspace rail while ' waits for a mark cancels it, as
+// a switch from the keyboard does (the digit cancels the chord first):
+// the switch's SetMode(ModeNormal) closes the menu listing T1's marks
+// with the chord, so a letter typed next does not jump to T2's mark of
+// that letter.
+func TestKeyHintsWorkspaceSwitchCancelsThePendingKey(t *testing.T) {
+	a := jumpMarkTestApp(t)
+	a.width, a.height = 120, 30
+	a.SetWorkspaces([]workspace.WorkspaceItem{
+		{ID: "T1", Name: "Acme", Initials: "AC"},
+		{ID: "T2", Name: "Beta", Initials: "BE"},
+	})
+	a.setWorkspaceSwitcherForTest(func(teamID string) tea.Msg {
+		return WorkspaceSwitchedMsg{TeamID: teamID, TeamName: "Beta"}
+	})
+	seedMark(t, a, "a", Location{TeamID: "T1", ChannelID: "C2", MessageTS: "10.0"})
+	if err := a.marks.Set("T2", "a", Mark{Location: Location{TeamID: "T2", ChannelID: "C3", MessageTS: "20.0"}, Letter: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	a.SetShowJumpOverlay(false)
+	a.SetKeyHintsDelay(0)
+	_ = a.View() // lays out the rail for the click
+	sendKey(a, keyPress('\''))
+	if !a.keyHints.IsVisible() || !a.pendingJumpMark {
+		t.Fatal("precondition: ' did not open the marks menu")
+	}
+
+	_, cmd := a.Update(tea.MouseClickMsg{X: 0, Y: 3, Button: tea.MouseLeft}) // T2's tile
+	for _, msg := range drainBatch(cmd) {
+		a.Update(msg)
+	}
+	if a.activeTeamID != "T2" {
+		t.Fatalf("precondition: the click did not switch to T2 (active %q)", a.activeTeamID)
+	}
+	if a.pendingJumpMark || a.keyHints.IsVisible() {
+		t.Fatalf("after the switch: ' pending %v, menu %v (rows %q); want both gone",
+			a.pendingJumpMark, a.keyHints.IsVisible(), rowKeys(a))
+	}
+	seqDone(t, a)
+	sendKey(a, keyPress('a'))
+	if a.backJump != nil {
+		t.Error("a after the switch jumped to T2's mark a")
+	}
+}
+
 // key_hints = false: no tick, no menu; the status hint is the hint. The
 // key_hints action still opens its menu, at once.
 func TestKeyHintsDisabled(t *testing.T) {
@@ -489,7 +537,7 @@ func TestKeyHintsWithholdSixelUnderTheMenu(t *testing.T) {
 	a.focusedPanel = PanelMessages
 	a.SetKeyHintsDelay(0)
 	openContext(t, a)
-	_, r := a.placeKeyHints(a.View().Content)
+	_, r := a.keyHintsBox()
 	after := published()
 	// Whether p (1-based) covers a cell of the menu's box.
 	under := func(p imgpkg.SixelPlacement) bool {
@@ -547,4 +595,37 @@ func TestKeyScopesCoverTheKeyMap(t *testing.T) {
 	if len(rows) > 0 {
 		t.Errorf("%d scope rows name no KeyMap field", len(rows))
 	}
+}
+
+// The kept draw (keyHintsDraw) is always what a fresh draw would give:
+// after a repeat frame, a level change, a page, a resize and a theme
+// change, the frame equals the one drawn with the draw dropped.
+func TestKeyHintsKeptDrawMatchesAFreshOne(t *testing.T) {
+	t.Cleanup(func() { styles.Apply("dark", config.Theme{}) })
+	a := menuApp(t)
+	a.width, a.height = 60, 14
+	a.SetKeyHintsDelay(0)
+	focusMessages(t, a)
+	check := func(step string) {
+		t.Helper()
+		kept := a.View().Content
+		if menuText(a) == "" {
+			t.Fatalf("%s: no menu", step)
+		}
+		a.keyHintsDraw = keyHintsDraw{}
+		if fresh := a.View().Content; kept != fresh {
+			t.Errorf("%s: the kept draw differs from a fresh one", step)
+		}
+	}
+	sendKey(a, leaderKey)
+	check("leader")
+	check("a repeat frame")
+	sendKey(a, keyPress('?'))
+	check("the context menu")
+	sendKey(a, keyMod('d', tea.ModCtrl))
+	check("a page")
+	a.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	check("a resize")
+	a.applyTheme("light")
+	check("a theme")
 }

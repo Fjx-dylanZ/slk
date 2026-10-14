@@ -53,6 +53,7 @@ type Model struct {
 	rows    []Row
 	page    int
 	visible bool
+	version uint64 // see Version
 }
 
 var _ chrome.Dialog = (*Model)(nil)
@@ -67,11 +68,12 @@ func (m *Model) Open(title string, rows []Row) {
 	m.title = title
 	m.rows = sortRows(rows)
 	m.visible = true
+	m.version++
 }
 
 // Close hides the menu.
 func (m *Model) Close() {
-	*m = Model{}
+	*m = Model{version: m.version + 1}
 }
 
 // IsVisible reports whether the menu is open.
@@ -83,15 +85,25 @@ func (m Model) Title() string { return m.title }
 // Rows are the menu's rows, in display order.
 func (m Model) Rows() []Row { return m.rows }
 
+// Version changes whenever what View draws for a given size and Styles
+// may change (Open, Page, Close), so a host can keep the drawn box until
+// it does.
+func (m Model) Version() uint64 { return m.version }
+
 // Page turns the page by delta (1 next, -1 previous) when the menu,
 // drawn in maxW × maxH as View draws it, has more than one page. It
 // reports whether the menu pages, and so whether the page key was its.
+// The page is the one View shows, so a resize that left fewer pages
+// than the page turned to does not swallow the next key.
 func (m *Model) Page(delta, maxW, maxH int) bool {
 	l, ok := m.layout(maxW, maxH)
 	if !m.visible || !ok || l.pages < 2 {
 		return false
 	}
-	m.page = min(max(m.page+delta, 0), l.pages-1)
+	if page := min(max(min(m.page, l.pages-1)+delta, 0), l.pages-1); page != m.page {
+		m.page = page
+		m.version++
+	}
 	return true
 }
 

@@ -227,7 +227,11 @@ menu.
 `View` draws the menu after the compositor memo, so the memoized base
 frame stays valid; the menu is a few spliced rows per frame. It is not
 an `overlayActive` modal: no dimmed backdrop, no full-screen re-wrap,
-and images elsewhere stay.
+and images elsewhere stay. View runs after every message, but the menu
+changes only with a key, a resize or a theme: the App keeps the drawn
+box (keyed on the model's `Version`, which `Open`, `Page` and `Close`
+bump, the screen size and `styles.Version()`) and the last frame it
+went onto, reused while the memo hands View the same base frame.
 
 - **Placement**: bottom-right, one column from the right edge, its bottom
   border on the row above the status bar (never over it). It may use
@@ -275,7 +279,9 @@ s = "search"
   to `windows`: `w = "windows"` in the default layer, wherever
   `window_commands` is mapped). Errors name `[keys.leader_groups]` and
   the sequence: not a group (naming the action when the sequence runs
-  one), an empty label, a key `normalizeKey` refuses.
+  one), an empty label, a label with a control character (a newline
+  would split the row and the one-line status hint), a key
+  `normalizeKey` refuses.
   Resolved by `core.ResolveLeaderGroups` against the effective layer
   (`core.LeaderAction.Group` marks `window_commands`).
 - `[keys.leader_map]` sequences may not contain `backspace` (§1).

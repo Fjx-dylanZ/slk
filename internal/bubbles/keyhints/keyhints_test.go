@@ -161,6 +161,50 @@ func TestPaging(t *testing.T) {
 	}
 }
 
+// After a resize leaves fewer pages than the one turned to, View shows
+// the last page and the next ctrl+u turns back from there: no key is
+// lost to a page that is no longer drawn.
+func TestPagingAfterResize(t *testing.T) {
+	var m Model
+	m.Open("many", numberedRows(25))
+	const w, small, tall = 40, 7, 12 // 3 pages at 40x7, 2 at 40x12
+	m.Page(1, w, small)
+	m.Page(1, w, small)
+	if got := lines(m, w, small); !strings.Contains(got[len(got)-1], "3/3") {
+		t.Fatalf("precondition: %q", got[len(got)-1])
+	}
+	if got := lines(m, w, tall); !strings.Contains(got[len(got)-1], "2/2") {
+		t.Fatalf("after the resize: %q, want the last page", got[len(got)-1])
+	}
+	if !m.Page(-1, w, tall) {
+		t.Fatal("ctrl+u was not the menu's")
+	}
+	if got := lines(m, w, tall); !strings.Contains(got[len(got)-1], "1/2") {
+		t.Errorf("ctrl+u after the resize: %q, want the first page", got[len(got)-1])
+	}
+}
+
+// Version changes when what View draws may change, and only then.
+func TestVersion(t *testing.T) {
+	var m Model
+	seen := map[uint64]bool{m.Version(): true}
+	step := func(name string, f func(), changes bool) {
+		t.Helper()
+		f()
+		if seen[m.Version()] == changes {
+			t.Errorf("%s: version %d, want a change = %v", name, m.Version(), changes)
+		}
+		seen[m.Version()] = true
+	}
+	step("open", func() { m.Open("many", numberedRows(25)) }, true)
+	step("page", func() { m.Page(1, 40, 7) }, true)
+	step("page past the last", func() { m.Page(1, 40, 7); m.Page(1, 40, 7) }, true)
+	step("page at the last", func() { m.Page(1, 40, 7) }, false)
+	step("reopen", func() { m.Open("many", numberedRows(25)) }, true)
+	step("close", m.Close, true)
+	step("open after close", func() { m.Open("many", numberedRows(25)) }, true)
+}
+
 // Too small for one row (in height, or for a key and a few columns of
 // description): nothing is drawn. A long description is cut.
 func TestViewTooSmallAndCut(t *testing.T) {

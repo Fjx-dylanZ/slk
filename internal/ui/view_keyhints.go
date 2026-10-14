@@ -4,7 +4,10 @@
 // screen, above the status bar, with no backdrop. It is spliced in
 // after the compositor memo, so the memoized frame stays the one
 // without it, and it is not an overlayActive modal: images outside it
-// stay where they are (adaptive key hints design §7).
+// stay where they are (adaptive key hints design §7). View runs after
+// every message, but the menu changes only with a key, a resize or a
+// theme, so the drawn box and the last frame it went onto are kept
+// (keyHintsDraw).
 package ui
 
 import (
@@ -42,25 +45,59 @@ func (a *App) keyHintsArea() (w, h int) {
 // menu.
 type keyHintsRect struct{ x, y, w, h int }
 
-// placeKeyHints draws the open menu onto screen, one column in from the
-// right edge with its bottom border on the row above the status bar,
-// and returns where it went. overlay.Place keeps every cell outside the
-// box as it was, kitty images included. Nothing is drawn when the menu
-// is closed, Normal mode does not have the keyboard, a modal or the
-// image preview is up, or the terminal is too small (the status bar's
-// hint carries on then).
-func (a *App) placeKeyHints(screen string) (string, keyHintsRect) {
+// keyHintsDraw is the menu as last drawn: the box and where it goes,
+// valid while the model's version, the screen size and the theme are
+// the ones it was drawn at; and the last frame the box went onto
+// (base) with the result, reused while the frame beneath is the same
+// (the compositor memo hands View the same string then).
+type keyHintsDraw struct {
+	drawn   bool
+	version uint64
+	w, h    int
+	theme   int64
+	box     string
+	rect    keyHintsRect
+
+	placed       bool
+	base, screen string
+}
+
+// keyHintsBox is the open menu's box and where it goes: one column in
+// from the right edge, its bottom border on the row above the status
+// bar. "" when nothing is drawn: the menu is closed, Normal mode does
+// not have the keyboard, a modal or the image preview is up, or the
+// terminal is too small (the status bar's hint carries on then).
+func (a *App) keyHintsBox() (string, keyHintsRect) {
 	if !a.keyHints.IsVisible() || a.mode != ModeNormal || a.overlayActive() || a.preview.Active() {
-		return screen, keyHintsRect{}
+		a.keyHintsDraw = keyHintsDraw{}
+		return "", keyHintsRect{}
 	}
-	w, h := a.keyHintsArea()
-	box := a.keyHints.View(keyHintStyles(), w, h)
+	d := &a.keyHintsDraw
+	version, theme := a.keyHints.Version(), styles.Version()
+	if !d.drawn || d.version != version || d.w != a.width || d.h != a.height || d.theme != theme {
+		w, h := a.keyHintsArea()
+		box := a.keyHints.View(keyHintStyles(), w, h)
+		*d = keyHintsDraw{drawn: true, version: version, w: a.width, h: a.height, theme: theme, box: box}
+		if box != "" {
+			bw, bh := lipgloss.Width(box), lipgloss.Height(box)
+			d.rect = keyHintsRect{x: a.width - 1 - bw, y: a.height - 1 - bh, w: bw, h: bh}
+		}
+	}
+	return d.box, d.rect
+}
+
+// placeKeyHints draws the open menu onto screen (keyHintsBox says where)
+// and returns where it went. overlay.Place keeps every cell outside the
+// box as it was, kitty images included.
+func (a *App) placeKeyHints(screen string) (string, keyHintsRect) {
+	box, r := a.keyHintsBox()
 	if box == "" {
 		return screen, keyHintsRect{}
 	}
-	bw, bh := lipgloss.Width(box), lipgloss.Height(box)
-	r := keyHintsRect{x: a.width - 1 - bw, y: a.height - 1 - bh, w: bw, h: bh}
-	return overlay.Place(screen, box, r.x, r.y), r
+	if d := &a.keyHintsDraw; !d.placed || d.base != screen {
+		d.placed, d.base, d.screen = true, screen, overlay.Place(screen, box, r.x, r.y)
+	}
+	return a.keyHintsDraw.screen, r
 }
 
 // outside drops the sixel placements r covers any cell of. Sixel is

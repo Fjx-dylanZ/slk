@@ -206,11 +206,13 @@ type App struct {
 	// keyHints is the which-key menu of what may follow the pending key
 	// (keyhints.go), opened keyHintsDelay after it when keyHintsOn, or
 	// at once by the key_hints action. keyHintsSeq names the latest
-	// key, so only its delay tick can open the menu.
+	// key, so only its delay tick can open the menu. keyHintsDraw is
+	// the menu as View last drew it (view_keyhints.go).
 	keyHints      keyhints.Model
 	keyHintsOn    bool
 	keyHintsDelay time.Duration
 	keyHintsSeq   uint64
+	keyHintsDraw  keyHintsDraw
 
 	// backJump is the vim-style '' back-jump slot: the single most
 	// recently departed location, written immediately before a mark
