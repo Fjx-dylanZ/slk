@@ -369,7 +369,7 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 	}
 	a.cancelEdit()
 	// Picking a channel always exits the Threads view.
-	a.view = ViewChannels
+	a.setView(ViewChannels)
 	a.sidebar.SetThreadsActive(false)
 	a.sidebar.SetActivityActive(false)
 	a.lastOpenedChannelID = ""

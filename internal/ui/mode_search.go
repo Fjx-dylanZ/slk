@@ -1,64 +1,31 @@
 // internal/ui/mode_search.go
 //
-// Search-mode key handler: the in-channel `/` prompt.
+// Search-mode key handler: the `/` prompt.
 //
 // The prompt is an input buffer rendered in the status line's search
-// segment. Enter executes the FTS query for the active channel (via
-// the SearchService) and returns to Normal mode; the results land as
-// a ChannelSearchResultsMsg (see reducer_search.go). Esc cancels.
+// segment, prefixed with what it searches (searchScope.prefix: "/" for
+// the channel, "thread /", "threads /", "activity /", "channels /").
+// Enter runs the query in that scope and returns to Normal mode (the
+// channel's FTS result lands as a ChannelSearchResultsMsg, the
+// client-side scopes install synchronously; see reducer_search.go). Esc
+// cancels. In the sidebar scope every edit filters the sidebar live.
 package ui
 
 import (
-	"fmt"
-	"strings"
-
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/gammons/slk/internal/ids"
 )
 
 func handleSearchMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, a.keys.Escape):
-		a.searchInput = ""
 		// If a search is still active (the user re-entered `/` on
-		// top of existing results and bailed), restore its i/N
-		// indicator instead of blanking the segment.
-		if s := a.search; s != nil {
-			a.statusbar.SetSearch(fmt.Sprintf("/%s  %d/%d", s.query, s.idx+1, len(s.matches)))
-		} else {
-			a.statusbar.SetSearch("")
-		}
-		a.SetMode(ModeNormal)
+		// top of existing results and bailed), its i/N indicator
+		// comes back instead of a blank segment.
+		a.cancelSearchPrompt()
 		return nil
 	case key.Matches(msg, a.keys.Enter):
-		query := strings.TrimSpace(a.searchInput)
-		a.searchInput = ""
-		a.SetMode(ModeNormal)
-		if query == "" {
-			a.clearActiveSearch()
-			a.statusbar.SetSearch("")
-			return nil
-		}
-		a.statusbar.SetSearch("/" + query + "  …")
-		// New dispatch supersedes any in-flight query; stamp the
-		// result with this dispatch's generation so the reducer can
-		// drop late results from older queries (or ones the user
-		// cleared while pending). The Gen is attached here, UI-side,
-		// so the SearchService stays unaware of UI bookkeeping.
-		a.searchGen++
-		gen := a.searchGen
-		search := a.searchSvc
-		chID := a.activeChannelID
-		return func() tea.Msg {
-			msg := search.SearchChannel(ids.ChannelID(chID), query)
-			if r, ok := msg.(ChannelSearchResultsMsg); ok {
-				r.Gen = gen
-				return r
-			}
-			return msg
-		}
+		return a.submitSearchPrompt()
 	}
 	// Text editing: append printable runes, backspace deletes.
 	switch s := normalizeFinderKey(msg); s {
@@ -79,6 +46,6 @@ func handleSearchMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			a.searchInput += s
 		}
 	}
-	a.statusbar.SetSearch("/" + a.searchInput)
+	a.searchPromptEdited()
 	return nil
 }

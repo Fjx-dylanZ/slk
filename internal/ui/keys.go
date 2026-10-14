@@ -89,7 +89,7 @@ func DefaultKeyMap() KeyMap {
 		Escape:          key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 		InsertMode:      key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "insert mode")),
 		CommandMode:     key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "command mode")),
-		SearchMode:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+		SearchMode:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search focused pane")),
 		SearchNext:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next match")),
 		SearchPrev:      key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "prev match")),
 		WorkspaceSearch: key.NewBinding(key.WithKeys("ctrl+f"), key.WithHelp("ctrl+f", "search workspace")),

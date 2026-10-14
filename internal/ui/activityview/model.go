@@ -314,6 +314,62 @@ func (m *Model) selectedKey() (string, bool) {
 	return it.Key, true
 }
 
+// The Search* methods let the App's `/` search the list client-side
+// (internal/ui's searchableList). Rows are the cards in display order.
+
+// SearchRows returns the number of cards.
+func (m *Model) SearchRows() int { return len(m.items) }
+
+// SearchText returns what card i shows, as plain text: the author (and
+// the DM's name), the channel, the activity detail and the hydrated body
+// (mrkdwn flattened, mentions resolved).
+func (m *Model) SearchText(i int) string {
+	if i < 0 || i >= len(m.items) {
+		return ""
+	}
+	it := m.items[i]
+	body := m.bodies[core.ActivityMsgKey(it.ChannelID, it.TS)]
+	authorID := it.AuthorID
+	if authorID == "" {
+		authorID = body.UserID
+	}
+	user := func(id string) (string, bool) { n, ok := m.userNames[id]; return n, ok }
+	channel := func(id string) (string, bool) { n, ok := m.channelNames[id]; return n, ok }
+	return strings.Join([]string{
+		m.resolveUser(authorID),
+		m.resolveChannel(it.ChannelID),
+		messages.FlattenMrkdwn(activityDetail(it), user, channel),
+		messages.FlattenMrkdwn(body.Text, user, channel),
+	}, " ")
+}
+
+// SearchKey returns card i's Key, stable across the refreshes SetItems
+// applies.
+func (m *Model) SearchKey(i int) string {
+	if i < 0 || i >= len(m.items) {
+		return ""
+	}
+	return m.items[i].Key
+}
+
+// SearchCursor returns the selected card's index.
+func (m *Model) SearchCursor() int { return m.selected }
+
+// SelectSearchKey selects the card with that key, as j/k do, and
+// reports whether it is in the list.
+func (m *Model) SelectSearchKey(key string) bool {
+	for i := range m.items {
+		if m.items[i].Key == key {
+			if m.selected != i {
+				m.selected = i
+				m.dirty()
+			}
+			return true
+		}
+	}
+	return false
+}
+
 // MoveDown advances the cursor by one row, clamping at the bottom.
 func (m *Model) MoveDown() {
 	if m.selected < len(m.items)-1 {

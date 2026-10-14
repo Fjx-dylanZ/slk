@@ -137,7 +137,7 @@ var reduceActivity reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case ActivityViewActivatedMsg:
 		_ = m
-		a.view = ViewActivity
+		a.setView(ViewActivity)
 		a.sidebar.SetActivityActive(true)
 		a.focusedPanel = PanelMessages
 		if a.activeTeamID == "" {

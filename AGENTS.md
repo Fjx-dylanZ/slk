@@ -111,6 +111,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Case/accent-insensitive fold for matching | `text.Fold(s)` |
 | Slack mrkdwn → plain text | `messages.FlattenMrkdwn`, `messages.FlattenMrkdwnWithUserGroups` |
 | Search-term highlighting (ANSI/OSC-safe) | `messages.HighlightSearchTerms`, `messages.SearchHighlightSGR` |
+| Does plain text match a `/` query (every folded term at a word start, the rule the FTS query and the highlighter apply)? | `messages.MatchesSearchTerms(text, terms)` |
 | Re-assert a background (or background+foreground) after every SGR reset, so nested lipgloss renders don't drop it | `bubbles/ansi.ReapplyAfterResets(text, style)` — the one implementation; `messages.ReapplyBgAfterResets` delegates to it for existing callers. The theme's sequences come from `messages.BgANSI()` / `messages.FgANSI()` |
 | Extract links from message text | `messages.ExtractLinks` |
 | Every link a message offers to `o` (text links + permalinks of messages it shares, from attachment `from_url`) | `messages.MessageLinks(msg)` |
@@ -197,6 +198,9 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Need | Use |
 |---|---|
 | Selected message or reply in the focused pane (channel, TS, text, author, panel) | `App.selectedMessageContext()` (`internal/ui/app.go`) |
+| What `/` searches from the current focus, and the one active search every scope shares (n/N, status segment, Esc, highlights in either content pane) | `searchScope` / `(*App).searchScopeForFocus`, `activeSearch`, `searchStep`, `showSearchHighlights`, `dropStaleSearch` (`internal/ui/reducer_search.go`) |
+| Search a pane client-side (thread pane, Threads view, Activity view) | implement `searchableList` (`internal/ui/search_list.go`, compile-time asserted) and match with `clientSearchMatches`; add the scope to `searchScope` |
+| Change what the messages slot shows (`ViewChannels` / `ViewThreads` / `ViewActivity`) | `(*App).setView(v)`, never `a.view = v`: it drops a list search whose view left the screen |
 | Switch the active workspace from the UI | `App.switchWorkspace(teamID)` (`internal/ui/app.go`). Always use it: it saves a theme a cycle left pending, so a switch back to that workspace reads the new theme |
 | Save a per-workspace theme | `settings.SaveTheme(teamID, name, scope)` with the workspace on screen (`a.activeTeamID`), never the backend's active one: a switch moves that first |
 | Set the user's own presence or DND from the UI (optimistic cache + status bar, then the service) | `(*App).applyPresenceAction(action, snoozeMinutes)` (`internal/ui/presence_action.go`); the presence menu, custom snooze and the `/away` family use it |

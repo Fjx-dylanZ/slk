@@ -326,10 +326,11 @@ func reducePaste(a *App, m tea.PasteMsg) tea.Cmd {
 	// the paste verbatim into the active compose's textarea.
 	if a.mode == ModeSearch {
 		// Paste into the `/` prompt: the prompt is single-line, so
-		// flatten any newlines to spaces and append.
+		// flatten any newlines to spaces and append (in the sidebar
+		// scope this filters, like typing).
 		txt := strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(m.Content)
 		a.searchInput += txt
-		a.statusbar.SetSearch("/" + a.searchInput)
+		a.searchPromptEdited()
 		return nil
 	}
 	if a.mode != ModeInsert {

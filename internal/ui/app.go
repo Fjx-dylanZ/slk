@@ -548,15 +548,24 @@ type App struct {
 	// option does not affect the :marks command, which always shows it.
 	showJumpOverlay bool
 
-	// search is the active in-channel search (nil = none).
-	// searchInput is the prompt buffer while in ModeSearch.
+	// search is the active `/` search of a message scope: the channel
+	// FTS, the thread pane or a Threads/Activity list (nil = none; one
+	// at a time, see reducer_search.go).
+	// searchInput is the prompt buffer while in ModeSearch, and
+	// searchScope what that prompt searches (resolved from focus when
+	// `/` is pressed; the zero value is the channel search).
+	// sidebarFilterBefore is the sidebar filter and cursor a sidebar
+	// prompt restores on Esc.
 	// searchGen is a monotonic generation counter: bumped on every
-	// dispatch and clear, echoed through ChannelSearchResultsMsg.Gen
-	// so stale in-flight results are dropped (see reducer_search.go).
-	search      *activeSearch
-	searchInput string
-	searchGen   uint64
-	searchSvc   core.SearchService
+	// dispatch, install and clear, echoed through
+	// ChannelSearchResultsMsg.Gen so stale in-flight results are
+	// dropped (see reducer_search.go).
+	search              *activeSearch
+	searchInput         string
+	searchScope         searchScope
+	sidebarFilterBefore sidebar.FilterState
+	searchGen           uint64
+	searchSvc           core.SearchService
 
 	// browserOpener launches a URL in the OS browser. Defaults to
 	// openURLCmd; tests inject fakes.
@@ -1018,6 +1027,14 @@ func (a *App) threadDrawnAlone() bool {
 	frame := scratch.Compute(a.width, a.height, a.workspaceRail.Width(), a.sidebar.Width(),
 		a.sidebarVisible, a.threadVisible, a.threadInFront())
 	return frame.MsgWidth == 0
+}
+
+// setView switches what the messages slot shows. Every view change goes
+// through it: a `/` search of the Threads or Activity list belongs to
+// that view and is dropped when it leaves the screen.
+func (a *App) setView(v View) {
+	a.view = v
+	a.dropStaleSearch()
 }
 
 // computeFrame resolves this frame's layout from the App's state and
@@ -2066,6 +2083,7 @@ func (a *App) openThreadPanel(parent messages.MessageItem, channelID, threadTS s
 	a.statusbar.SetInThread(true)
 	a.focusedPanel = PanelThread
 	a.threadPanel.SetThread(parent, nil, channelID, threadTS)
+	a.dropStaleSearch()
 	a.threadCompose.SetChannel(a.threadComposeChannelName(channelID))
 	a.threadCompose.SetActiveChannel(channelID)
 	a.threadCompose.SetDraftContext(a.activeTeamID, channelID, threadTS)
@@ -2270,6 +2288,8 @@ func (a *App) CloseThread() {
 	a.threadVisible = false
 	a.statusbar.SetInThread(false)
 	a.threadPanel.Clear()
+	// A thread-scope search belonged to the thread just closed.
+	a.dropStaleSearch()
 	a.threadCompose.Blur()
 	// Drop dedup state so a future activation re-opens this thread.
 	a.lastOpenedChannelID = ""
@@ -2331,6 +2351,7 @@ func (a *App) openSelectedThreadCmd(debounce bool) tea.Cmd {
 		}
 	}
 	a.threadPanel.SetThread(parent, cachedReplies, sum.ChannelID, sum.ThreadTS)
+	a.dropStaleSearch()
 	a.threadCompose.SetChannel(a.threadComposeChannelName(sum.ChannelID))
 	a.threadCompose.SetActiveChannel(sum.ChannelID)
 	a.threadCompose.SetDraftContext(a.activeTeamID, sum.ChannelID, sum.ThreadTS)
@@ -2654,18 +2675,26 @@ func (a *App) SetSearchService(s core.SearchService) {
 	a.searchSvc = s
 }
 
-// clearActiveSearch removes in-channel search state: highlights,
-// status segment, prompt buffer. It also invalidates any in-flight
-// query by bumping the generation counter. Always runs unguarded:
-// the status segment can be set without active state (e.g. the
-// "no matches" text), and the Set* calls below are no-ops when
-// already clear.
+// clearActiveSearch removes the active search of any scope: match list,
+// highlights in both content panes, status segment, prompt buffer. It
+// also invalidates any in-flight query by bumping the generation
+// counter. Always runs unguarded: the status segment can be set without
+// active state (e.g. the "no matches" text), and the Set* calls below
+// are no-ops when already clear. The sidebar filter is separate state
+// and survives.
 func (a *App) clearActiveSearch() {
-	a.search = nil
+	a.dropSearchState()
 	a.searchInput = ""
-	a.searchGen++
-	a.messagepane.SetSearchTerms(nil)
 	a.statusbar.SetSearch("")
+}
+
+// dropSearchState is clearActiveSearch without the prompt: it leaves
+// searchInput and the status segment alone, for callers that may run
+// while the user is typing a query.
+func (a *App) dropSearchState() {
+	a.search = nil
+	a.searchGen++
+	a.showSearchHighlights(searchChannel, nil)
 }
 
 // SetMessageService wires the App's MessageService collaborator
