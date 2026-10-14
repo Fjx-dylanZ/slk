@@ -204,6 +204,11 @@ func (m Model) inputView(focused bool) string {
 	if !focused || m.vim == nil {
 		return view
 	}
+	// Checked before vimBuffer, which builds the whole value: this runs
+	// on every frame.
+	if mode := m.vim.Mode(); mode != vimedit.Visual && mode != vimedit.VisualLine {
+		return view
+	}
 	b := m.vimBuffer()
 	from, to, ok := m.vim.Selection(b)
 	if !ok {
@@ -218,18 +223,28 @@ func (m Model) inputView(focused bool) string {
 // inside the selection shows one painted cell, as in vim.
 //
 // The rows each logical line wraps into come from the textarea itself
-// (rowStarts), so the painting follows its wrapping exactly.
+// (rowStarts), so the painting follows its wrapping exactly. Only lines
+// that can wrap pay for that; the walk stops below the last visible row.
 func paintSelection(view, text string, from, to, cursor, width, yOffset int, style lipgloss.Style) string {
 	rows := strings.Split(view, "\n")
-	scratch := scratchTextarea(width)
+	var scratch *textarea.Model
 	row := 0
-	lineStart := 0
-	for _, line := range strings.Split(text, "\n") {
-		runes := []rune(line)
-		starts := rowStarts(&scratch, len(runes), line)
-		lineEnd := lineStart + len(line)
+	for lineStart := 0; lineStart <= len(text) && row-yOffset < len(rows); {
+		lineEnd := len(text)
+		if i := strings.IndexByte(text[lineStart:], '\n'); i >= 0 {
+			lineEnd = lineStart + i
+		}
+		line := text[lineStart:lineEnd]
+		starts := singleRow
+		if !fitsOneRow(line, width) {
+			if scratch == nil {
+				s := scratchTextarea(width)
+				scratch = &s
+			}
+			starts = rowStarts(scratch, line)
+		}
 		for k, rs := range starts {
-			re := len(runes)
+			re := len(line)
 			if k+1 < len(starts) {
 				re = starts[k+1]
 			}
@@ -238,8 +253,7 @@ func paintSelection(view, text string, from, to, cursor, width, yOffset int, sty
 			if i < 0 || i >= len(rows) {
 				continue
 			}
-			bs := lineStart + len(string(runes[:rs]))
-			be := lineStart + len(string(runes[:re]))
+			bs, be := lineStart+rs, lineStart+re
 			a, z := max(from, bs), min(to, be)
 			var ranges []lipgloss.Range
 			switch {
@@ -257,6 +271,19 @@ func paintSelection(view, text string, from, to, cursor, width, yOffset int, sty
 		lineStart = lineEnd + 1
 	}
 	return strings.Join(rows, "\n")
+}
+
+// singleRow is the row starts of a line that does not wrap.
+var singleRow = []int{0}
+
+// fitsOneRow reports whether the textarea draws line on one row at
+// width. Its wrap only starts a new row once a row's width plus the
+// pending word reaches the width (white space counting one cell each),
+// so a line narrower than that is never wrapped. Lines that might wrap
+// go to rowStarts; TestFitsOneRowAgreesWithTheTextarea holds the two
+// in step.
+func fitsOneRow(line string, width int) bool {
+	return cellWidth(line) < width
 }
 
 // splitAtCursor is the cell ranges [ca, cz) covering bytes [a, z) of a
@@ -301,19 +328,24 @@ func scratchTextarea(width int) textarea.Model {
 	return ta
 }
 
-// rowStarts is the rune offset each soft-wrapped row of line starts at,
+// rowStarts is the byte offset each soft-wrapped row of line starts at,
 // read from the textarea's own LineInfo so it matches its rendering.
-func rowStarts(ta *textarea.Model, n int, line string) []int {
+func rowStarts(ta *textarea.Model, line string) []int {
 	ta.SetValue(line)
+	runes := []rune(line)
 	starts := []int{0}
+	off := 0 // byte offset of rune c
+	prev := 0
 	for c := 0; ; {
 		ta.SetCursorColumn(c)
 		li := ta.LineInfo()
 		next := li.StartColumn + li.Width
-		if li.Width <= 0 || next > n || next <= c {
+		if li.Width <= 0 || next > len(runes) || next <= c {
 			return starts
 		}
-		starts = append(starts, next)
+		off += len(string(runes[prev:next]))
+		prev = next
+		starts = append(starts, off)
 		c = next
 	}
 }

@@ -2,6 +2,7 @@ package compose
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"testing"
 
@@ -369,8 +370,12 @@ func TestPaintSelection(t *testing.T) {
 	// Soft wrap: at width 5 "aaaa bbbb" wraps into "aaaa " / "bbbb ";
 	// a selection of the second word paints only the second row.
 	scratch := scratchTextarea(5)
-	if starts := rowStarts(&scratch, 9, "aaaa bbbb"); fmt.Sprint(starts) != "[0 5]" {
+	if starts := rowStarts(&scratch, "aaaa bbbb"); fmt.Sprint(starts) != "[0 5]" {
 		t.Fatalf("rowStarts = %v, want [0 5]", starts)
+	}
+	// Row starts are byte offsets: each é is two bytes.
+	if starts := rowStarts(&scratch, "éééé bbbb"); fmt.Sprint(starts) != "[0 9]" {
+		t.Fatalf("rowStarts(é…) = %v, want [0 9]", starts)
 	}
 	got = paintSelection("aaaa \nbbbb ", "aaaa bbbb", 5, 9, 0, 5, 0, sel)
 	if want := "aaaa \n" + paint("bbbb") + " "; got != want {
@@ -393,6 +398,33 @@ func TestPaintSelection(t *testing.T) {
 	got = paintSelection("a\n \nb", "a\n\nb", 0, 3, 3, 40, 0, sel)
 	if want := paint("a") + "\n" + paint(" ") + "\nb"; got != want {
 		t.Errorf("empty line:\n got %q\nwant %q", got, want)
+	}
+}
+
+// fitsOneRow is the shortcut paintSelection takes past the textarea's
+// wrap. Whenever it says a line fits, the textarea must draw that line
+// on a single row.
+func TestFitsOneRowAgreesWithTheTextarea(t *testing.T) {
+	pieces := []string{
+		"a", "word", " ", "  ", "日本", "語", "😀", "👨\u200d👩\u200d👧", "🇯🇵", "e\u0301", " \u0301",
+		"\u00a0", "\u3000", "\u2003", "x\u200b", "Ｗ", "-", ".",
+	}
+	rng := rand.New(rand.NewPCG(3, 4))
+	for _, width := range []int{5, 10, 15, 40, 80} {
+		scratch := scratchTextarea(width)
+		for range 400 {
+			var b strings.Builder
+			for n := rng.IntN(30); n > 0; n-- {
+				b.WriteString(pieces[rng.IntN(len(pieces))])
+			}
+			line := b.String()
+			if !fitsOneRow(line, width) {
+				continue
+			}
+			if starts := rowStarts(&scratch, line); len(starts) != 1 {
+				t.Errorf("width %d: fitsOneRow(%q) but the textarea wraps it at %v", width, line, starts)
+			}
+		}
 	}
 }
 
