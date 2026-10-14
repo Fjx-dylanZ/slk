@@ -394,7 +394,8 @@ A group is a sequence some longer sequence begins with (`f` of `f f`),
 or `window_commands`' own sequence, whose table is a group too; it is
 labelled `windows` unless you set one. A label for anything else (a
 sequence that runs an action, or that nothing begins with) stops slk at
-startup with an error naming the sequence. So does an empty label.
+startup with an error naming the sequence. So does an empty label, or one
+with a control character such as a newline: a label is one line.
 
 ### Neovim-style keys
 

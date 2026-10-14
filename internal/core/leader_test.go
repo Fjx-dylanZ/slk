@@ -217,6 +217,8 @@ func TestResolveLeaderGroupsErrors(t *testing.T) {
 		{"a whole sequence", map[string]string{"f f": "x"}, `"f f": not a group: it runs channel_finder`},
 		{"past a sequence", map[string]string{"f f f": "x"}, `"f f f": not a group: no leader sequence begins with it`},
 		{"an empty label", map[string]string{"f": "  "}, `"f": an empty label`},
+		{"a newline in a label", map[string]string{"f": "fi\nnd"}, `"f": the label "fi\nnd" has a control character`},
+		{"a tab in a label", map[string]string{"f": "fi\tnd"}, `"f": the label "fi\tnd" has a control character`},
 		{"an empty sequence", map[string]string{" ": "x"}, `" ": an empty sequence`},
 		{"a bad key", map[string]string{"bad": "x"}, `"bad": bad key`},
 		{"one group twice", map[string]string{"f": "find", " f ": "found"}, `"f": the group "f" is labelled twice`},

@@ -810,6 +810,7 @@ func TestConfig_KeysLeaderGroups(t *testing.T) {
 		{`t = "x"`, `[keys.leader_groups] "t": not a group: it runs channel_finder`},
 		{`z = "x"`, `[keys.leader_groups] "z": not a group: no leader sequence begins with it`},
 		{`w = " "`, `[keys.leader_groups] "w": an empty label`},
+		{`w = "win\ndows"`, `[keys.leader_groups] "w": the label "win\ndows" has a control character`},
 		{`esc = "x"`, `[keys.leader_groups] "esc": "esc": esc cancels`},
 	} {
 		err := loadConfigErr(t, "[keys.leader_groups]\n"+tc.body+"\n")

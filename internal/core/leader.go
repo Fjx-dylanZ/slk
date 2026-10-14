@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // The leader layer's vocabulary, shared by the config layer (which
@@ -200,7 +201,9 @@ func parseSeq(s string, normalizeKey func(string) (string, error)) ([]string, er
 // own (LeaderAction.Group, window_commands). The error, which names
 // the sequence as written first, is for anything else (naming the
 // action when the sequence runs one), an empty sequence, a key
-// normalizeKey rejects, an empty label, or one group spelled twice.
+// normalizeKey rejects, an empty label, a label with a control
+// character (a newline would split the menu row and the one-line status
+// hint), or one group spelled twice.
 func ResolveLeaderGroups(g map[string]string, layer []LeaderSeq, normalizeKey func(string) (string, error)) (map[string]string, error) {
 	groupAction := map[string]bool{}
 	for _, a := range LeaderActions() {
@@ -215,6 +218,9 @@ func ResolveLeaderGroups(g map[string]string, layer []LeaderSeq, normalizeKey fu
 		label := strings.TrimSpace(g[raw])
 		if label == "" {
 			return nil, fmt.Errorf("%q: an empty label", raw)
+		}
+		if strings.IndexFunc(label, unicode.IsControl) >= 0 {
+			return nil, fmt.Errorf("%q: the label %q has a control character; a label is one line of text", raw, label)
 		}
 		if why := notAGroup(keys, layer, groupAction); why != "" {
 			return nil, fmt.Errorf("%q: not a group: %s", raw, why)
