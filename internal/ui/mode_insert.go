@@ -9,9 +9,10 @@
 //   - Any key with active upload -> "Upload in progress" toast (no
 //     draft mutations or sends while an upload is in flight).
 //   - Esc with active edit       -> close any open compose picker
-//     first, else cancel the edit.
+//     first, else (vim mode) leave vim INSERT / VISUAL / a pending
+//     command, else cancel the edit.
 //   - Esc otherwise              -> close any open compose picker
-//     first, else exit insert mode.
+//     first, else (vim mode) the same vim step, else exit insert mode.
 //   - Ctrl+V                     -> smartPaste (clipboard image /
 //     file path / verbatim text).
 //   - Ctrl+U                     -> clear compose (text +
@@ -31,6 +32,12 @@
 // Compose-overlay pickers (emoji / @mention / #channel) get
 // priority on Up/Down/Enter: when a picker is active, those keys
 // go to the picker so the user can navigate / select.
+//
+// With [compose] vim_mode on, the composer's vim NORMAL / VISUAL take
+// every other key as a command (compose_vim.go): Up/Down are k/j, the
+// newline keys do nothing, Enter cancels a half-typed command or a
+// selection instead of sending, and no typing indicator is sent. The
+// status bar shows the sub-mode.
 package ui
 
 import (
@@ -47,6 +54,13 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		// single early return covers every key (Esc included),
 		// replacing the former Esc-only guard.
 		return toastWithClear(a, "Upload in progress", 2*time.Second)
+	}
+	defer a.syncComposeModeLabel()
+	// The composer that gets the keys: the thread's when it has focus and
+	// is shown. An edit's Esc below picks by the edit's panel instead.
+	target := &a.compose
+	if a.focusedPanel == PanelThread && a.threadVisible {
+		target = &a.threadCompose
 	}
 	if a.editing.IsActive() && key.Matches(msg, a.keys.Escape) {
 		// If a picker is active in the relevant compose, close it
@@ -77,6 +91,13 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 				a.compose.CloseChannel()
 				return nil
 			}
+		}
+		edit := &a.compose
+		if a.editing.Panel() == PanelThread {
+			edit = &a.threadCompose
+		}
+		if edit.VimEscape() {
+			return nil
 		}
 		a.cancelEdit()
 		return nil
@@ -110,6 +131,9 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 				return nil
 			}
 		}
+		if target.VimEscape() {
+			return nil
+		}
 		a.SetMode(ModeNormal)
 		a.compose.Blur()
 		a.threadCompose.Blur()
@@ -133,10 +157,6 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	//   Ctrl+U  -> clear compose (text + attachments + uploading flag)
 	//   Up      -> if cursor on first line, jump to start of textarea
 	//   Down    -> if cursor on last line,  jump to end of textarea
-	target := &a.compose
-	if a.focusedPanel == PanelThread && a.threadVisible {
-		target = &a.threadCompose
-	}
 	if code == 'u' && mod == tea.ModCtrl {
 		target.Reset()
 		return nil
@@ -155,7 +175,9 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.threadCompose.ToggleBroadcast()
 		return nil
 	}
-	if !pickerActive {
+	// Vim NORMAL / VISUAL: keys are commands, not text (Up/Down are k/j).
+	vimNormal := target.VimNormal()
+	if !pickerActive && !vimNormal {
 		if code == tea.KeyUp && mod == 0 && target.CursorAtFirstLine() {
 			target.MoveCursorToStart()
 			return nil
@@ -173,6 +195,17 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	isSend := code == tea.KeyEnter && !mod.Contains(tea.ModShift)
 	isNewline := (code == tea.KeyEnter && mod.Contains(tea.ModShift)) ||
 		(code == 'j' && mod == tea.ModCtrl)
+	if vimNormal {
+		// o and O open lines; Enter with a half-typed command or a
+		// selection up cancels that instead of sending.
+		if isNewline {
+			return nil
+		}
+		if isSend && target.VimBusy() {
+			target.VimEscape()
+			return nil
+		}
+	}
 
 	// Determine which compose box is active based on focused panel.
 	if a.focusedPanel == PanelThread && a.threadVisible {
@@ -226,7 +259,9 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		}
 		var cmd tea.Cmd
 		a.threadCompose, cmd = a.threadCompose.Update(msg)
-		a.typingOut.MaybeSend(a.threadPanel.ChannelID())
+		if !vimNormal {
+			a.typingOut.MaybeSend(a.threadPanel.ChannelID())
+		}
 		return cmd
 	}
 
@@ -280,6 +315,8 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	var cmd tea.Cmd
 	a.compose, cmd = a.compose.Update(msg)
-	a.typingOut.MaybeSend(a.activeChannelID)
+	if !vimNormal {
+		a.typingOut.MaybeSend(a.activeChannelID)
+	}
 	return cmd
 }

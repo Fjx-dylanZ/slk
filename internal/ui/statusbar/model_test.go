@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/gammons/slk/internal/ui/styles"
 )
 
 // testMode is a simple fmt.Stringer for testing without importing ui (avoids circular import).
@@ -40,6 +42,22 @@ func TestStatusBarInsertMode(t *testing.T) {
 
 	if !strings.Contains(view, "INSERT") {
 		t.Error("expected 'INSERT' in status bar")
+	}
+}
+
+// The composer's vim labels ([compose] vim_mode): C-NORMAL in the NORMAL
+// style, VISUAL and V-LINE set apart in the COMMAND style.
+func TestStatusBarComposeVimLabels(t *testing.T) {
+	for label, style := range map[string]lipgloss.Style{
+		"C-NORMAL": styles.StatusMode,
+		"VISUAL":   styles.StatusModeCommand,
+		"V-LINE":   styles.StatusModeCommand,
+	} {
+		m := New()
+		m.SetMode(testMode(label))
+		if want := style.Render(" " + label + " "); !strings.Contains(m.View(80), want) {
+			t.Errorf("%s is not drawn in its style", label)
+		}
 	}
 }
 

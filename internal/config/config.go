@@ -31,6 +31,9 @@ type Config struct {
 type Compose struct {
 	// Editor is the Ctrl+E fallback when $VISUAL/$EDITOR are unset.
 	Editor string `toml:"editor"`
+	// VimMode turns on vim editing (NORMAL / INSERT / VISUAL) inside
+	// the composer. Off by default.
+	VimMode bool `toml:"vim_mode"`
 }
 
 // SectionDef defines a sidebar section with channel name patterns.

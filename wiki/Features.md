@@ -26,6 +26,7 @@
 
 - Multi-line input, `Shift+Enter` for newlines
 - External editor (`Ctrl+E`) — opens the draft in `$VISUAL`, then `$EDITOR`, then `[compose] editor` from config; the edited text replaces the draft when the editor exits
+- Vim editing in the composer (`[compose] vim_mode = true`) — `Esc` while typing goes to a compose NORMAL mode instead of leaving: counts, motions (`w b e f t 0 $ gg G` …), operators (`d c y`), text objects (`iw`, `i"`, `i(` …), `p`/`P` with an internal register shared by the channel and thread composers, `u`/`Ctrl+r` undo/redo, `.` repeat, and `v`/`V` visual selections. Emoji and CJK are moved over as whole characters. `Enter` sends from NORMAL too; a second `Esc` leaves the composer. Off by default
 - Inline `@mention` autocomplete (resolves to `<@UserID>` on send)
 - Special mentions: `@here`, `@channel`, `@everyone`
 - Bracketed paste — paste multi-line text from the system clipboard without it being interpreted as keystrokes

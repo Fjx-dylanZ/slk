@@ -26,6 +26,14 @@
 | `Ctrl+U` / `Ctrl+D` | Normal | Half-page up / down |
 | `Up` | Insert | Previous line; on the first line, jump to start of message |
 | `Down` | Insert | Next line; on the last line, jump to end of message |
+| `Esc` | Insert, with `[compose] vim_mode` | To compose normal (the status bar shows `C-NORMAL`); a second `Esc` returns to normal mode |
+| `h` `j` `k` `l` `w` `b` `e` `ge` `W` `B` `E` `0` `^` `$` `gg` `G` `f` `F` `t` `T` `;` `,` | Compose normal | Vim motions in the draft; counts work (`3w`) |
+| `d` `c` `y` + motion or text object, `dd` `cc` `yy` `D` `C` `Y` `x` `X` `s` `S` | Compose normal | Vim operators; text objects `iw` `aw` `iW` `aW` `i"` `a"` `i'` `a'` `` i` `` `` a` `` `i(` `a(` `i[` `a[` `i{` `a{` `i<` `a<` |
+| `p` `P` `r` `~` `J` | Compose normal | Put (internal register, shared by both composers), replace, toggle case, join lines |
+| `i` `a` `I` `A` `o` `O` | Compose normal | Back to typing |
+| `u` / `Ctrl+r` / `.` | Compose normal | Undo / redo / repeat the last change |
+| `v` / `V` | Compose normal | Visual / visual-line selection; `d` `c` `y` `p` `~` `u` `U` `J` `r` `o` act on it, `Esc` ends it |
+| `Enter` | Compose normal | Send; with a half-typed command or a selection up, cancels that instead |
 | `gg` / `G` | Normal | Jump to top / bottom |
 | `/` | Normal | Search in channel (vim-style; searches cached history of the current channel) |
 | `n` / `N` | Normal | Next / previous search match (wraps) |

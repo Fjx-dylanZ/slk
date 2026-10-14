@@ -457,6 +457,17 @@ func TestConfig_MarksPersistAllExplicit(t *testing.T) {
 	}
 }
 
+// [compose] vim_mode is opt-in: existing configs keep today's composer.
+func TestConfig_ComposeVimMode(t *testing.T) {
+	if loadConfigString(t, "").Compose.VimMode {
+		t.Error("vim_mode must default to off")
+	}
+	cfg := loadConfigString(t, "[compose]\neditor = \"nvim\"\nvim_mode = true\n")
+	if !cfg.Compose.VimMode || cfg.Compose.Editor != "nvim" {
+		t.Errorf("compose = %+v, want vim_mode on next to the editor", cfg.Compose)
+	}
+}
+
 func TestConfig_MarksShowJumpOverlayExplicit(t *testing.T) {
 	for _, tc := range []struct {
 		name string

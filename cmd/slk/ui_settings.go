@@ -26,6 +26,8 @@ type uiSettings struct {
 	// (config.Keys.Bindings): an absent action keeps its default keys,
 	// an empty list unbinds it.
 	KeyBindings map[string][]string
+	// ComposeVimMode is [compose] vim_mode: vim editing in the composer.
+	ComposeVimMode bool
 }
 
 // applyUISettings installs s on app. The timestamp formatter feeds the
@@ -45,4 +47,5 @@ func applyUISettings(app *ui.App, s uiSettings) {
 	app.SetThemeOverrides(s.ThemeOverrides)
 	app.SetKeyBindings(s.KeyBindings)
 	app.SetLeader(s.Leader)
+	app.SetComposeVimMode(s.ComposeVimMode)
 }

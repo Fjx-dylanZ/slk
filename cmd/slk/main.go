@@ -580,6 +580,7 @@ func run() error {
 		ThemeOverrides:   cfg.Theme,
 		Leader:           cfg.Keys.Leader,
 		KeyBindings:      cfg.Keys.Bindings(),
+		ComposeVimMode:   cfg.Compose.VimMode,
 	})
 	app.SetEditorService(core.NewEditorService(editor.WriteDraft, editor.Edit, editor.TakeDraft))
 	if editor, ok := ui.ResolveEditor(cfg.Compose.Editor); ok {
