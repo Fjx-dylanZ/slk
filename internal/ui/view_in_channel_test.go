@@ -461,3 +461,159 @@ func TestViewInChannel_ClickOnTheHeaderChannelName(t *testing.T) {
 	feed(t, a, click(x), 0)
 	wantInChannel(t, a, "C2", vicC2Parent)
 }
+
+// The kept thread is still the thread its loads are for: a load already
+// on its way when view in channel replaced the navigation (or dropped
+// the Threads view's open state) that started it still lands, and marks
+// the thread read.
+func TestViewInChannel_KeptThreadStillLoads(t *testing.T) {
+	const fetchedReply = "1700000021.000200"
+	t.Run("a permalink's fetch", func(t *testing.T) {
+		a, _ := viewInChannelApp(t)
+		var marks []string
+		parent := messages.MessageItem{TS: vicC2Parent, ThreadTS: vicC2Parent, UserID: "U2", UserName: "bob", Text: "parent"}
+		replies := []messages.MessageItem{
+			{TS: vicC2Reply, ThreadTS: vicC2Parent, Text: "cached reply"},
+			{TS: fetchedReply, ThreadTS: vicC2Parent, Text: "fetched reply"},
+		}
+		a.SetThreadService(core.NewThreadService(core.ThreadServiceFuncs{
+			CacheRead: func(ids.ChannelID, ids.ThreadTS) []messages.MessageItem {
+				return []messages.MessageItem{parent, replies[0]}
+			},
+			Fetch: func(ids.ChannelID, ids.ThreadTS) core.Msg {
+				return ThreadRepliesLoadedMsg{ThreadTS: vicC2Parent, Replies: slices.Clone(replies)}
+			},
+			Mark: func(_ ids.ChannelID, _ ids.ThreadTS, ts ids.MessageTS) core.Cmd {
+				marks = append(marks, string(ts))
+				return nil
+			},
+		}))
+		a.workspaceDomains["T1"] = "acme"
+		// The permalink switches to #random and opens the thread from
+		// its cache; the fetch is held back until after gp.
+		_, cmd := a.Update(OpenLinkMsg{URL: "https://acme.slack.com/archives/C2/p1700000021000100?thread_ts=" + vicC2Parent + "&cid=C2"})
+		var fetched tea.Msg
+		for _, m := range drainBatch(cmd) {
+			_, next := a.Update(m)
+			for _, load := range drainBatch(next) {
+				if r, ok := load.(permalinkThreadResultMsg); ok && r.authoritative {
+					fetched = r
+				} else if load != nil {
+					a.Update(load)
+				}
+			}
+		}
+		if fetched == nil || a.threadPanel.ThreadTS() != vicC2Parent || len(a.threadPanel.Replies()) != 1 {
+			t.Fatalf("precondition: fetch held %v, thread %q with %d replies; want the cached one",
+				fetched != nil, a.threadPanel.ThreadTS(), len(a.threadPanel.Replies()))
+		}
+
+		pressGP(t, a)
+		_, cmd = a.Update(fetched)
+		feed(t, a, cmd, 0)
+
+		if got := len(a.threadPanel.Replies()); got != 2 {
+			t.Errorf("the kept thread shows %d replies, want the fetched 2", got)
+		}
+		if !slices.Equal(marks, []string{fetchedReply}) {
+			t.Errorf("thread marks %q, want one at the fetched newest reply", marks)
+		}
+	})
+	t.Run("a Threads-view j's debounced fetch", func(t *testing.T) {
+		a, calls := viewInChannelApp(t, withThreadsView([]cache.ThreadSummary{
+			{ChannelID: "C4", ChannelName: "ops", ChannelType: "channel", ThreadTS: vicFarParent, ParentTS: vicFarParent,
+				ParentUserID: "U2", ParentText: "far", ReplyCount: 1, LastReplyTS: "1700000041.000100"},
+			{ChannelID: "C2", ChannelName: "random", ChannelType: "channel", ThreadTS: vicC2Parent, ParentTS: vicC2Parent,
+				ParentUserID: "U2", ParentText: "parent", ReplyCount: 2, LastReplyTS: "1700000021.000200"},
+		}))
+		withLeaderMap(t, a, map[string][]string{"view_in_channel": {"x"}})
+		_, cmd := a.Update(ThreadsViewActivatedMsg{})
+		feed(t, a, cmd, 0)
+		tick := sendKey(a, keyPress('j'))
+		if a.threadPanel.ThreadTS() != vicC2Parent || calls.threadFetches["C2/"+vicC2Parent] != 0 {
+			t.Fatalf("precondition: j shows thread %q, fetched %d times; want #random's, not fetched yet",
+				a.threadPanel.ThreadTS(), calls.threadFetches["C2/"+vicC2Parent])
+		}
+
+		a.Update(leaderKey)
+		feed(t, a, sendKey(a, keyPress('x')), 0)
+		wantInChannel(t, a, "C2", vicC2Parent)
+		_, cmd = a.Update(deliveredMsgs[threadFetchDebounceMsg](t, tick)[0])
+		feed(t, a, cmd, 0)
+
+		if got := calls.threadFetches["C2/"+vicC2Parent]; got != 1 {
+			t.Errorf("the kept thread was fetched %d times after j's pause, want 1", got)
+		}
+	})
+}
+
+// gp's dispatch and the menu after g read the same keyScopes row: p is
+// listed exactly where g p views the thread in its channel.
+func TestViewInChannel_GPDispatchFollowsTheMenu(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(a *App)
+		want  bool
+	}{
+		{name: "thread pane", want: true},
+		{name: "Activity list", setup: func(a *App) { a.focusedPanel = PanelMessages }},
+		{name: "channel pane", setup: func(a *App) { a.Update(keyMod('a', tea.ModCtrl)) }},
+		{name: "sidebar", setup: func(a *App) { a.focusedPanel = PanelSidebar }},
+		// Focus left on a thread pane with no thread: nothing to view.
+		{name: "thread pane, no thread", setup: func(a *App) { a.CloseThread(); a.focusedPanel = PanelThread }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, _ := viewInChannelApp(t)
+			a.SetKeyHintsDelay(0)
+			openFromActivity(t, a, "C2", vicC2Parent)
+			if tc.setup != nil {
+				tc.setup(a)
+			}
+			a.Update(keyPress('g'))
+			listed := slices.Contains(rowKeys(a), "p → view thread in channel")
+			// What g p started, before any of it runs (a toast's clear
+			// tick would wipe the toast): a navigation, or the refusal.
+			sendKey(a, keyPress('p'))
+			ran := a.pendingLinkNav != nil || strings.Contains(statusbarText(a), "No thread open")
+			if listed != tc.want || ran != tc.want {
+				t.Errorf("after g: p listed %v, g p ran %v; want both %v", listed, ran, tc.want)
+			}
+		})
+	}
+}
+
+// A `/` search of the kept thread stays with it, whether view in channel
+// completes in place or switches channel.
+func TestViewInChannel_KeepsTheThreadSearch(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		open func(t *testing.T, a *App)
+	}{
+		{name: "switching channel", open: func(t *testing.T, a *App) { openFromActivity(t, a, "C2", vicC2Parent) }},
+		{name: "in place", open: func(t *testing.T, a *App) {
+			a.workspaceDomains["T1"] = "acme"
+			_, cmd := a.Update(OpenLinkMsg{URL: "https://acme.slack.com/archives/C2/p1700000021000100?thread_ts=" + vicC2Parent + "&cid=C2"})
+			feed(t, a, cmd, 0)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, _ := viewInChannelApp(t)
+			tc.open(t, a)
+			searchDispatch(t, a, "reply")
+			if a.search == nil || a.search.scope != searchThread || len(a.search.matches) != 2 {
+				t.Fatalf("precondition: search %+v, want a thread search with 2 matches", a.search)
+			}
+			segment := a.statusbar.Search()
+
+			pressGP(t, a)
+
+			wantInChannel(t, a, "C2", vicC2Parent)
+			if a.search == nil || a.search.scope != searchThread {
+				t.Errorf("search %+v, want the kept thread's", a.search)
+			}
+			if got := a.statusbar.Search(); got != segment {
+				t.Errorf("status segment %q, want %q", got, segment)
+			}
+		})
+	}
+}

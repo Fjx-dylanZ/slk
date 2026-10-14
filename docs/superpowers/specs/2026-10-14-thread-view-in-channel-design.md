@@ -91,10 +91,34 @@ the navigation's thread, and in that case:
   the position.
 
 Keeping the pane rather than reopening it keeps the reply the user was
-reading, the thread's scroll and its draft. It costs no refetch. It also
-can't come back as a stub: a reopen takes the parent row from the new
-buffer or the thread cache, and with both cold (the demo, a never-opened
-channel) the parent row comes up blank until a cache read fills it.
+reading, the thread's scroll, its draft and its `/` search. It costs no
+refetch. It also can't come back as a stub: a reopen takes the parent row
+from the new buffer or the thread cache, and with both cold (the demo, a
+never-opened channel) the parent row comes up blank until a cache read
+fills it.
+
+The kept thread also keeps its loads:
+
+- **A jump's loads.** A thread opened by a jump (permalink with
+  `thread_ts`, mark, history walk, search hit) loads its cache and fetch
+  in the jump's envelope, and `reduceThreads` drops the envelope of a
+  superseded navigation. That invariant stays: a newer navigation that
+  closes or reopens the thread owns it (`TestOpenLink_ThreadPermalink_RejectsStaleLoads`).
+  View in channel supersedes the jump without doing either. So `navigate`
+  marks the jump it replaces `kept` when that jump opened the thread being
+  kept, and a kept navigation's loads land as the thread's ordinary loads:
+  the late-cache rule still applies, the target selection doesn't, and the
+  fetch marks the thread read.
+- **The Threads view's debounced fetch.** A `j`/`k` open waits 200 ms
+  before it fetches. The tick checked `lastOpenedChannelID/ThreadTS`, the
+  Threads view's dedup state, which every channel switch and jump
+  completion clears. It now checks the pane (`threadVisible` and the
+  pane's channel and thread), which is the question it asks: is that
+  thread still on screen?
+- **A thread `/` search.** It survives both paths: in place it already did
+  (`dropStaleSearch` keeps a search whose thread is still shown); on the
+  switch `reduceChannelSelected` now clears only a non-thread search when
+  the thread is kept.
 
 Inherited unchanged: the `Upload in progress` refusal, the workspace guard
 (`TeamID` on the pending navigation and on `ChannelSelectedMsg`), the
@@ -157,15 +181,17 @@ keys are scoped to the sidebar.
   a new kind for a key that only follows a chord's first key. The context
   menu never lists a `chordTail` row at its top level, where `p` typed
   alone would do nothing. `topHints` (the menu after `g`) lists `Top` and
-  every `chordTail` row that applies in the current context, so the menu
-  and the dispatch read one table. `\ ?` in the thread pane shows
-  `g +go to`, and `g` there lists `g top` and `p view thread in channel`.
-  The `g` group's label becomes "go to" everywhere (it was the `Top`
-  description, "top").
+  every `chordTail` row that applies in the current context, and the
+  `pendingTop` dispatch runs `p` only where its row applies
+  (`chordTailApplies`): the menu and the dispatch read one table. `\ ?` in
+  the thread pane shows `g +go to`, and `g` there lists `g top` and
+  `p view thread in channel`. The `g` group's label becomes "go to"
+  everywhere (it was the `Top` description, "top").
 - A chord tail's key belongs to the chord, so a leader on that key takes
   nothing from it: `chordTails` joins `notDisplaceable` and `helpKeyMap`
-  skips it. Without that, `leader = "p"` would drop the `gp` help row and
-  offer a `<leader><leader>` that does nothing.
+  keeps its row. Without that, `leader = "p"` would drop the `gp` help row
+  and offer a `<leader><leader>` that does nothing. A leader on `g`
+  takes the chord itself, so the chord tails' help rows go.
 
 **Leader action `view_in_channel`**, hint "in channel", no default
 sequence. The default layer mirrors ctrl chords and this action has none.
@@ -256,7 +282,15 @@ calls:
   message the user had selected; `Ctrl+l` returns to the parent.
 - Key hints: `topHints` lists `p` in the thread pane only; the context
   menu in the thread pane has `g +go to` and no top-level `p`; the help
-  overlay lists `gp`; `leader = "p"` keeps the `gp` row.
+  overlay lists `gp`; `leader = "p"` keeps the `gp` row, `leader = "g"`
+  drops it.
+- Lockstep: in each context (thread pane, Activity list, channel pane,
+  sidebar, a thread pane focused with no thread) the menu after `g` lists
+  `p` exactly where `g p` runs.
+- The kept thread's loads: a permalink's fetch held back until after
+  `gp` still lands (2 replies, marked read); a Threads-view `j`'s
+  debounced fetch still fires after the leader action switched channel.
+- A thread `/` search survives `gp`, in place and across the switch.
 - Leader action through `TestLeaderMapExtraActions`.
 - Click on the breadcrumb's channel name runs it; a click on ` › Thread`
   does not; `renderBreadcrumb`'s channel width per truncation case.

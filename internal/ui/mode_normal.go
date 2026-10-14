@@ -60,17 +60,17 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	}
 
 	// `g` pending sub-state: a second `g` completes the vim `gg` chord
-	// (jump to top), and in the thread pane `p` completes `gp` (view the
-	// thread in its channel; its keyScopes row says where). Esc cancels
-	// silently; any other key cancels the chord and is then handled as
-	// if it had been pressed on its own.
+	// (jump to top), and `p` completes `gp` (view the thread in its
+	// channel) where its keyScopes row applies, the row the menu after g
+	// lists it from. Esc cancels silently; any other key cancels the
+	// chord and is then handled as if it had been pressed on its own.
 	if a.pendingTop {
 		a.pendingTop = false
 		a.statusbar.SetHelpHint(a.defaultHelpHint())
 		switch {
 		case key.Matches(msg, a.keys.Top):
 			return a.handleGoToTop()
-		case key.Matches(msg, a.keys.ViewInChannel) && a.focusedPanel == PanelThread:
+		case key.Matches(msg, a.keys.ViewInChannel) && a.chordTailApplies(&a.keys.ViewInChannel):
 			return a.viewThreadInChannel()
 		case key.Matches(msg, a.keys.Escape):
 			return nil

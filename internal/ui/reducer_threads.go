@@ -73,19 +73,29 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	var linkNav *pendingLinkNav
 	if m, ok := msg.(permalinkThreadResultMsg); ok {
 		p := m.nav
-		if a.pendingLinkNav != p {
+		current := a.pendingLinkNav == p
+		if !current && !p.kept {
+			// Superseded: the newer navigation owns the thread (it
+			// closed or reopened it). Unless view in channel kept this
+			// navigation's thread open: its loads are then the thread's
+			// own and land as ordinary loads, without the target.
 			return nil, true
 		}
 		if string(p.TeamID) != a.activeTeamID || string(p.ChannelID) != a.activeChannelID ||
 			!a.threadVisible || string(p.ChannelID) != a.threadPanel.ChannelID() || string(p.ThreadTS) != a.threadPanel.ThreadTS() {
-			a.pendingLinkNav = nil
+			if current {
+				a.pendingLinkNav = nil
+			}
 			return nil, true
 		}
-		p.loadsDone++
-		if p.loadsDone == m.loads {
-			// Count nil/failure results too, but allow cache to populate the
-			// panel if a failed fetch happened to arrive first.
-			defer func() { a.pendingLinkNav = nil }()
+		if current {
+			p.loadsDone++
+			if p.loadsDone == m.loads {
+				// Count nil/failure results too, but allow cache to populate the
+				// panel if a failed fetch happened to arrive first.
+				defer func() { a.pendingLinkNav = nil }()
+			}
+			linkNav = p
 		}
 		if !m.authoritative && p.fetchApplied {
 			return nil, true // late cache must not replace authoritative data
@@ -93,7 +103,6 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if replies, ok := m.result.(ThreadRepliesLoadedMsg); ok && m.authoritative && replies.Replies != nil {
 			p.fetchApplied = true
 		}
-		linkNav = p
 		msg = m.result
 		if msg == nil {
 			return nil, true
@@ -129,10 +138,12 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		if m.gen != a.pendingThreadFetchGen {
 			return nil, true
 		}
-		// Also drop if the user has navigated away (e.g. switched
-		// to a different thread or closed the threads view) since
-		// scheduling.
-		if m.channelID != a.lastOpenedChannelID || m.threadTS != a.lastOpenedThreadTS {
+		// Also drop if the thread is no longer the one on screen
+		// (another thread opened, or it closed) since scheduling. The
+		// pane, not lastOpened*: view in channel keeps the thread open
+		// beside its channel while the switch drops the Threads view's
+		// open state.
+		if !a.threadVisible || m.channelID != a.threadPanel.ChannelID() || m.threadTS != a.threadPanel.ThreadTS() {
 			return nil, true
 		}
 		threads := a.threads

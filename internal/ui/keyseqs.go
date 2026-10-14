@@ -102,12 +102,21 @@ func displacedBindings(km KeyMap, leader string) []key.Binding {
 // key ("ctrl+w s / :sp" for a ctrl+w leader) is dropped too. The leader
 // layer's rows say what those keys do now. A chord tail keeps its row
 // ("gp" with a p leader): its key follows g, which the leader leaves.
+// A leader on g itself takes the chord, and the chord tails' rows go.
 func helpKeyMap(km KeyMap, leader string) KeyMap {
+	// Read before the loop, which clears Top for a g leader.
+	chordTaken := slices.Contains(km.Top.Keys(), leader)
 	v := reflect.ValueOf(&km).Elem()
 	for i := range v.NumField() {
 		name := v.Type().Field(i).Name
 		b, ok := v.Field(i).Interface().(key.Binding)
-		if !ok || name == "Leader" || slices.Contains(insertOnly, name) || slices.Contains(chordTails, name) {
+		if !ok || name == "Leader" || slices.Contains(insertOnly, name) {
+			continue
+		}
+		if slices.Contains(chordTails, name) {
+			if chordTaken {
+				v.Field(i).Set(reflect.ValueOf(key.Binding{}))
+			}
 			continue
 		}
 		h := b.Help()

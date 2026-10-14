@@ -107,6 +107,19 @@ func (s keyScope) applies(a *App, ctx hintContext) bool {
 	return s.where&ctx != 0 && (s.when == nil || s.when(a))
 }
 
+// chordTailApplies reports whether b (a field of a.keys) has a chordTail
+// row that applies where focus is: handleNormalMode's pendingTop arm
+// dispatches the key on it, and topHints lists the rows it holds for.
+func (a *App) chordTailApplies(b *key.Binding) bool {
+	ctx := a.hintContext()
+	for _, s := range keyScopes {
+		if s.kind == chordTail && s.binding(&a.keys) == b {
+			return s.applies(a, ctx)
+		}
+	}
+	return false
+}
+
 // State a few bindings need besides the context.
 var (
 	threadOpen = func(a *App) bool { return a.threadVisible }

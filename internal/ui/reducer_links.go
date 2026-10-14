@@ -38,6 +38,10 @@ type pendingLinkNav struct {
 	// ThreadTS stays empty.
 	besideThread bool
 	threadOpened bool
+	// kept: a besideThread navigation superseded this one and kept the
+	// thread it opened, so its loads still in flight are that thread's
+	// own (reduceThreads applies them without the target).
+	kept         bool
 	loadsDone    int
 	fetchApplied bool
 }
@@ -45,7 +49,7 @@ type pendingLinkNav struct {
 // keepsOpenThread reports whether p is a besideThread navigation and
 // the thread pane shows the thread it keeps open, so that the channel
 // switch (reduceChannelSelected) and the in-place path leave the pane
-// as it is, scroll, selection and draft included.
+// as it is, scroll, selection, draft, search and loads included.
 func (p *pendingLinkNav) keepsOpenThread(a *App) bool {
 	return p.besideThread && a.threadVisible &&
 		a.threadPanel.ChannelID() == string(p.ChannelID) && a.threadPanel.ThreadTS() == string(p.MessageTS)
@@ -148,6 +152,12 @@ func (a *App) navigate(p *pendingLinkNav, fromHistory bool) (tea.Cmd, bool) {
 	name, chType, found := a.channels.Lookup(loc.ChannelID)
 	if !found {
 		return nil, false
+	}
+	if old := a.pendingLinkNav; old != nil && old.threadOpened && p.keepsOpenThread(a) &&
+		old.ChannelID == p.ChannelID && string(old.ThreadTS) == string(p.MessageTS) {
+		// View in channel keeps the thread the jump being replaced
+		// opened: that jump's loads still in flight are the thread's.
+		old.kept = true
 	}
 	a.pendingLinkNav = p
 	if !fromHistory && string(loc.ChannelID) == a.activeChannelID {

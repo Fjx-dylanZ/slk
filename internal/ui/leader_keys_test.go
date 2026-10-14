@@ -619,6 +619,16 @@ func TestHelpEntriesFollowTheLeader(t *testing.T) {
 				{Key: "gp", Desc: "view thread in channel"},
 			},
 		},
+		{
+			// A g leader takes the g chord: gp no longer types, so its
+			// row goes (the doubled leader is gg's top).
+			leader: "g",
+			want: []help.Entry{
+				{Key: "g", Desc: leaderHelpDesc},
+				{Key: "g g", Desc: "top"},
+			},
+			absent: []help.Entry{{Key: "gp", Desc: "view thread in channel"}},
+		},
 	}
 	for _, tc := range cases {
 		t.Run("leader "+tc.leader, func(t *testing.T) {

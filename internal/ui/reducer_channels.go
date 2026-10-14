@@ -377,13 +377,19 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 	a.lastOpenedThreadTS = ""
 	// Close thread panel when switching channels, except the thread a
 	// view in channel is switching to the channel of: it belongs there.
-	if p := a.pendingLinkNav; p == nil || string(p.ChannelID) != m.ID || !p.keepsOpenThread(a) {
+	p := a.pendingLinkNav
+	kept := p != nil && string(p.ChannelID) == m.ID && p.keepsOpenThread(a)
+	if !kept {
 		a.CloseThread()
 	}
 	a.clearSelections()
 	// Search state is per-channel: drop highlights, match list, and
-	// the status-line segment on every switch.
-	a.clearActiveSearch()
+	// the status-line segment on every switch. A search of the kept
+	// thread is the thread's, not the channel's, and stays with it (as
+	// it does when view in channel completes in place).
+	if !kept || a.search == nil || a.search.scope != searchThread {
+		a.clearActiveSearch()
+	}
 	// Move focus to the messages pane so the user can immediately
 	// j/k through messages, react, open threads, etc. without first
 	// having to Tab/h-l out of the sidebar after picking a channel.
