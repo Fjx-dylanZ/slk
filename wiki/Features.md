@@ -182,7 +182,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - 59 built-in themes (including `ANSI Dark` / `ANSI Light` that inherit your terminal palette)
 - Drop-in custom themes (`~/.config/slk/themes/*.toml`)
 - Live theme switcher (`Ctrl+y`); `Alt+y` / `Alt+Shift+y` cycle to the next / previous theme
-- TOML config for appearance, animations, notifications, channel sections, the leader key and the sidebar's open / toggle-section keys (e.g. nvim-tree style `l` to open)
+- TOML config for appearance, animations, notifications, channel sections, the leader key and its layer (e.g. neovim-style `space f f`), and the sidebar's open / toggle-section keys (e.g. nvim-tree style `l` to open)
 - Deterministic per-user username coloring, opt-in via `colored_usernames`
 
 See [[Configuration]] for the full `config.toml` reference and [[Keybindings]] for the key map.
