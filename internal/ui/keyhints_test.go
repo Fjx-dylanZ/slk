@@ -437,8 +437,8 @@ func TestKeyHintsContextMenu(t *testing.T) {
 			opts:  []testOpt{withView(ViewActivity)},
 			setup: func(t *testing.T, a *App) { a.focusedPanel = PanelMessages },
 			title: "keys: activity",
-			want:  []string{"u → Activity: toggle unread-only", "U → mark unread", "⏎ → open/confirm", "G → bottom", "/ → search focused pane"},
-			gone:  []string{"y", "g", "m", "i"},
+			want:  []string{"u → Activity: toggle unread-only", "U → mark unread", "⏎ → open/confirm", "G → bottom", "g → +go to", "/ → search focused pane"},
+			gone:  []string{"y", "m", "i"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
