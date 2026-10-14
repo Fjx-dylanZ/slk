@@ -28,6 +28,10 @@ type uiSettings struct {
 	KeyBindings map[string][]string
 	// ComposeVimMode is [compose] vim_mode: vim editing in the composer.
 	ComposeVimMode bool
+	// LeaderLayer is the effective leader layer config.Load resolved
+	// from [keys.leader_map] (config.Keys.LeaderLayer); nil keeps the
+	// App's default layer.
+	LeaderLayer []core.LeaderSeq
 }
 
 // applyUISettings installs s on app. The timestamp formatter feeds the
@@ -46,6 +50,7 @@ func applyUISettings(app *ui.App, s uiSettings) {
 	app.SetThemeItems(styles.ThemeNames())
 	app.SetThemeOverrides(s.ThemeOverrides)
 	app.SetKeyBindings(s.KeyBindings)
+	app.SetLeaderLayer(s.LeaderLayer)
 	app.SetLeader(s.Leader)
 	app.SetComposeVimMode(s.ComposeVimMode)
 }

@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/gammons/slk/internal/core"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -690,6 +692,90 @@ func TestConfig_KeysBindingsRejected(t *testing.T) {
 func TestKeyActionNames(t *testing.T) {
 	if got, want := KeyActionNames(), []string{"sidebar_open", "sidebar_toggle_section"}; !slices.Equal(got, want) {
 		t.Fatalf("KeyActionNames = %q, want %q", got, want)
+	}
+}
+
+// nvimExampleConfig is the nvim-style [keys] block of
+// wiki/Configuration.md; cmd/slk's TestNvimExampleConfig runs the
+// wiki's own copy through the App.
+const nvimExampleConfig = `[keys]
+leader = "space"
+sidebar_open = ["enter", "l"]
+[keys.leader_map]
+channel_finder = ["f f", "space"]
+workspace_search = ["/", "s g"]
+toggle_sidebar = ["e"]
+help = ["?"]
+close_thread = ["q"]
+`
+
+// leaderLayerItems renders a resolved layer as "action=keys" items.
+func leaderLayerItems(layer []core.LeaderSeq) []string {
+	var out []string
+	for _, s := range layer {
+		out = append(out, s.Action+"="+strings.Join(s.Keys, " "))
+	}
+	return out
+}
+
+func TestConfig_KeysLeaderMap(t *testing.T) {
+	t.Run("unset leaves the layer to the UI", func(t *testing.T) {
+		if layer := loadConfigString(t, "[keys]\nleader = \"space\"\n").Keys.LeaderLayer(); layer != nil {
+			t.Fatalf("LeaderLayer = %v, want nil", layer)
+		}
+	})
+	t.Run("the nvim example", func(t *testing.T) {
+		cfg := loadConfigString(t, nvimExampleConfig)
+		want := []string{"window_commands=w", "channel_finder=f f", "channel_finder=space",
+			"workspace_search=/", "workspace_search=s g", "toggle_activity=a", "new_message=n",
+			"switch_theme=y", "set_default_theme=Y", "toggle_sidebar=e", "toggle_thread=]",
+			"help=?", "close_thread=q"}
+		if got := leaderLayerItems(cfg.Keys.LeaderLayer()); !slices.Equal(got, want) {
+			t.Fatalf("layer =\n%q\nwant\n%q", got, want)
+		}
+	})
+	t.Run("keys are normalized", func(t *testing.T) {
+		cfg := loadConfigString(t, "[keys.leader_map]\nhelp = [\"  Ctrl+X   Space \", \"Enter\"]\n")
+		got := leaderLayerItems(cfg.Keys.LeaderLayer())
+		if !slices.Contains(got, "help=ctrl+x space") || !slices.Contains(got, "help=enter") {
+			t.Fatalf("layer %q lacks the normalized help sequences", got)
+		}
+	})
+	t.Run("an empty list removes the action", func(t *testing.T) {
+		got := leaderLayerItems(loadConfigString(t, "[keys.leader_map]\nwindow_commands = []\n").Keys.LeaderLayer())
+		if slices.ContainsFunc(got, func(s string) bool { return strings.HasPrefix(s, "window_commands=") }) {
+			t.Fatalf("layer %q still has window_commands", got)
+		}
+	})
+}
+
+// A [keys.leader_map] slk cannot build stops startup with an error that
+// names the section and the action.
+func TestConfig_KeysLeaderMapRejected(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string // the error starts with it
+	}{
+		{"unknown action", `open_all = ["o"]`, "[keys.leader_map] open_all: not a leader action"},
+		{"empty sequence", `help = [""]`, "[keys.leader_map] help: an empty sequence"},
+		{"bad key", `help = ["f foo"]`, "[keys.leader_map] help: \"foo\" is not a single key"},
+		{"esc", `help = ["esc"]`, "[keys.leader_map] help: \"esc\": esc cancels"},
+		{"ctrl+c", `quit = ["ctrl+c"]`, "[keys.leader_map] quit: \"ctrl+c\""},
+		{"undeliverable", `quit = ["ctrl+["]`, "[keys.leader_map] quit: \"ctrl+[\""},
+		{"the same sequence on two actions", "help = [\"h\"]\nquit = [\"h\"]", "[keys.leader_map] quit: \"h\" is also bound to help"},
+		{"one sequence begins another", "channel_finder = [\"f f\"]\nworkspace_search = [\"f\"]", "[keys.leader_map] workspace_search: \"f\" and channel_finder's \"f f\" overlap"},
+		{"not a list", `help = "?"`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := loadConfigErr(t, "[keys.leader_map]\n"+tc.body+"\n")
+			if err == nil {
+				t.Fatal("loaded without error")
+			}
+			if !strings.HasPrefix(err.Error(), tc.want) {
+				t.Fatalf("error = %q, want one starting %q", err, tc.want)
+			}
+		})
 	}
 }
 

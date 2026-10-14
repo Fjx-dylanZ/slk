@@ -89,8 +89,14 @@ In Normal mode the leader key (default `\`, set with `[keys] leader` — see
 follow. `Esc` cancels; any other key cancels too and does nothing else. There
 is no timeout.
 
-The leader stands in for `Ctrl`: each entry is the letter of the chord it
-mirrors, so `\ t` is `Ctrl+t`.
+The default layer below has one rule: the leader stands in for `Ctrl`, so
+each entry is the letter of the chord it mirrors (`\ t` is `Ctrl+t`). You
+can change it in `[keys.leader_map]` — see [[Configuration]] → Leader map
+for the actions, which also include help, close thread, back/forward,
+next/previous unread, next/previous theme, the `:` command line and quit,
+and for a neovim-style setup (`space f f`, `space s g`, `space e`, …).
+Several keys after the leader make a group: the status bar shows `f …`, then
+what can follow it.
 
 | Keys | Action | Same as |
 |---|---|---|
@@ -113,8 +119,12 @@ If the leader you configure already does something (`space` toggles a
 sidebar section), pressing it twice does that: `space space` toggles the
 section (`Enter` on a section header still does too). If the leader is one
 of the letters above (say `b`), the doubled leader is the old action and
-that letter's entry leaves the layer; its `Ctrl` chord still works. The
-help overlay (`?`) lists the leader layer under your leader key.
+that letter's entry leaves the layer; its `Ctrl` chord still works. A
+`[keys.leader_map]` sequence that starts with the leader's key wins over
+both: with `channel_finder = ["space"]` and `leader = "space"`,
+`space space` is the channel finder, and sections toggle with `Enter`.
+The help overlay (`?`) lists the layer you configured under your leader
+key.
 
 Directional focus follows what is on screen. The workspace rail is not a
 pane. When the terminal is too narrow to show messages and thread side by

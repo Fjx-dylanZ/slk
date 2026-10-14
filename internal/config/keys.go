@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/gammons/slk/internal/core"
 )
 
 // Keys is the [keys] section: keybinding settings.
@@ -18,7 +20,8 @@ import (
 // it. Load normalizes every key (normalizeKey) and rejects a key that
 // two actions share. A new configurable action is a new field here plus
 // its entry in the UI's action table (keyActions, internal/ui); cmd/slk
-// tests that the two name the same actions.
+// tests that the two name the same actions. The leader layer is the
+// separate [keys.leader_map] (LeaderMap), whose actions core names.
 type Keys struct {
 	// Leader is the key that starts a leader sequence in normal mode
 	// (<leader>w h, <leader>t, …). Empty keeps the UI's default, "\".
@@ -33,7 +36,25 @@ type Keys struct {
 	// SidebarToggleSection expands or collapses the section header
 	// under the sidebar cursor. Default ["space"].
 	SidebarToggleSection *[]string `toml:"sidebar_toggle_section"`
+
+	// LeaderMap is [keys.leader_map]: which sequences after the leader
+	// run which leader action (core.LeaderActions names them). A
+	// sequence is keys separated by spaces ("f f", "space", "s g"),
+	// each spelled as normalizeKey takes it. An action the map sets has
+	// exactly those sequences ([] removes it from the layer); an unset
+	// one keeps its defaults. Load resolves the effective layer
+	// (LeaderLayer) and rejects what core.ResolveLeaderMap rejects.
+	LeaderMap map[string][]string `toml:"leader_map"`
+
+	// leaderLayer is the effective layer Load resolved from LeaderMap;
+	// nil when LeaderMap is unset.
+	leaderLayer []core.LeaderSeq
 }
+
+// LeaderLayer is the effective leader layer Load resolved from
+// [keys.leader_map], or nil when the map is unset (the UI keeps its
+// default layer).
+func (k Keys) LeaderLayer() []core.LeaderSeq { return k.leaderLayer }
 
 // keysAction is one action binding field of Keys and its [keys] name.
 type keysAction struct {
@@ -46,6 +67,9 @@ func (k *Keys) actions() []keysAction {
 	v := reflect.ValueOf(k).Elem()
 	var out []keysAction
 	for i := range v.NumField() {
+		if !v.Type().Field(i).IsExported() {
+			continue
+		}
 		if p, ok := v.Field(i).Addr().Interface().(**[]string); ok {
 			name, _, _ := strings.Cut(v.Type().Field(i).Tag.Get("toml"), ",")
 			out = append(out, keysAction{name: name, keys: p})
@@ -105,6 +129,13 @@ func (k *Keys) normalize() error {
 			}
 		}
 		*a.keys = &keys
+	}
+	if k.LeaderMap != nil {
+		layer, err := core.ResolveLeaderMap(k.LeaderMap, normalizeKey)
+		if err != nil {
+			return fmt.Errorf("[keys.leader_map] %w", err)
+		}
+		k.leaderLayer = layer
 	}
 	return nil
 }

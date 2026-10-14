@@ -7,7 +7,7 @@ slk is intentionally not a 1:1 port of the desktop client. Some Slack features a
 - Slack-side search (`Ctrl+/` / `:search`)
 - File uploads and downloads
 - Quiet hours and per-channel mute
-- Custom keybinding overrides (today the leader key and the sidebar's open / toggle-section keys are configurable)
+- Custom keybinding overrides (today the leader key, the leader layer and the sidebar's open / toggle-section keys are configurable)
 
 ## Not planned
 

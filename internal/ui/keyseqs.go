@@ -24,12 +24,14 @@ func run(f func() tea.Cmd) keyseq.Action {
 	return func(tea.KeyMsg) tea.Cmd { return f() }
 }
 
-// newKeySequences builds the App's sequence tables from its KeyMap: the
-// root holds the leader and ctrl+w prefixes (the leader first, so it
-// wins a collision); the leader layer's w and ctrl+w share one
-// window-command table. Descriptions are the KeyMap bindings' own, so a
-// leader row in the help overlay sorts next to the chord it mirrors.
-// Rebuilt whenever the KeyMap changes (SetLeader).
+// newKeySequences builds the App's sequence tables from its KeyMap and
+// leader layer: the root holds the leader and ctrl+w prefixes (the
+// leader first, so it wins a collision); the leader layer's
+// window_commands and ctrl+w share one window-command table.
+// Descriptions are the KeyMap bindings' own, so a leader row in the
+// help overlay sorts next to the chord it mirrors. Rebuilt whenever the
+// KeyMap or the layer changes (SetLeader, SetKeyBindings,
+// SetLeaderLayer).
 func (a *App) newKeySequences() *keyseq.Map {
 	km := a.keys
 	desc := func(b key.Binding) string { return b.Help().Desc }
@@ -54,50 +56,8 @@ func (a *App) newKeySequences() *keyseq.Map {
 			Action: run(func() tea.Cmd { a.onlyWindow(); return nil })},
 	)
 
-	// The leader layer: the leader stands in for ctrl, so each entry is
-	// the letter of the ctrl chord it mirrors.
-	var layer []keyseq.Binding
-	leader := km.Leader.Keys()[0]
-	displaced := displacedBindings(km, leader)
-	if len(displaced) > 0 {
-		// <leader><leader> hands the key back to what it did before it
-		// became the leader, which can depend on the focused panel (a
-		// sidebar-scoped key, keyactions.go): handleNormalKey decides,
-		// and the label names every action the key had.
-		descs := make([]string, len(displaced))
-		for i, b := range displaced {
-			descs[i] = desc(b)
-		}
-		label := strings.Join(descs, "; ")
-		layer = append(layer, keyseq.Binding{Keys: []string{leader}, Hint: label, Desc: label,
-			Action: func(msg tea.KeyMsg) tea.Cmd { return handleNormalKey(a, msg) }})
-	}
-	letters := []keyseq.Binding{
-		{Keys: []string{"w"}, Hint: "window", Desc: desc(km.WindowPrefix), Next: windows},
-		{Keys: []string{"t"}, Hint: "channel", Desc: desc(km.FuzzyFinder), Action: run(a.openChannelFinder)},
-		{Keys: []string{"f"}, Hint: "search", Desc: desc(km.WorkspaceSearch), Action: run(a.openWorkspaceSearch)},
-		{Keys: []string{"a"}, Hint: "activity", Desc: desc(km.ActivityView), Action: run(a.toggleActivityView)},
-		{Keys: []string{"n"}, Hint: "new msg", Desc: desc(km.NewMessage), Action: run(a.enterNewMessage)},
-		{Keys: []string{"s"}, Hint: "status", Desc: desc(km.PresenceMenu), Action: run(a.openPresenceMenu)},
-		{Keys: []string{"y"}, Hint: "theme", Desc: desc(km.ThemeSwitcher), Action: run(a.openWorkspaceThemeSwitcher)},
-		{Keys: []string{"Y"}, Hint: "default theme", Desc: desc(km.ThemeSwitcherGlobal), Action: run(a.openGlobalThemeSwitcher)},
-		{Keys: []string{"b"}, Hint: "sidebar", Desc: desc(km.ToggleSidebar),
-			Action: run(func() tea.Cmd { a.ToggleSidebar(); return nil })},
-		{Keys: []string{"]"}, Hint: "thread", Desc: desc(km.ToggleThread),
-			Action: run(func() tea.Cmd { a.ToggleThread(); return nil })},
-	}
-	if len(displaced) > 0 {
-		// <leader><leader> is the displaced key's, so a letter equal to
-		// the leader could never be reached: leave it out of the table,
-		// and so of the hint and the help. Its ctrl chord still works.
-		letters = slices.DeleteFunc(letters, func(b keyseq.Binding) bool {
-			return slices.Contains(b.Keys, leader)
-		})
-	}
-	layer = append(layer, letters...)
-
 	return keyseq.New(
-		keyseq.Binding{Keys: km.Leader.Keys(), Next: keyseq.New(layer...)},
+		keyseq.Binding{Keys: km.Leader.Keys(), Next: a.newLeaderLayer(windows)},
 		keyseq.Binding{Keys: km.WindowPrefix.Keys(), Next: windows},
 	)
 }

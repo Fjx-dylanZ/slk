@@ -320,6 +320,114 @@ section (sidebar)`) and runs the one for the focused panel.
 **Help.** The two actions' rows show their configured keys (`enter/l  open
 row / toggle section (sidebar)`); an unbound action has no row.
 
+### 9. Configurable leader layer (amendment, 2026-10-14)
+
+**Problem.** The layer in §2 is fixed. Users coming from neovim expect
+their own conventions: `<space>ff` / `<space><space>` for the finder,
+`<space>/` or `<space>sg` to search, `<space>e` for the tree, `<space>?`
+for help, `<space>q` to close. The defaults stay exactly as they are.
+
+**Schema.** A sub-table of `[keys]`, named `leader_map` (vim's `map`: a
+mapping from a sequence to an action). `[keys.leader]` is impossible, since
+`leader` is already the key string, and `leader_map` reads as "what follows
+the leader", the same way `nmap <leader>ff` does in vim.
+
+```toml
+[keys.leader_map]
+channel_finder = ["f f", "space"]   # action = sequences after the leader
+workspace_search = ["/", "s g"]
+```
+
+A sequence is keys separated by spaces, each spelled by `normalizeKey`
+(§8): `"f f"`, `"space"`, `"/"`, `"ctrl+x"`, `"enter"`. A set action gets
+exactly its sequences, replacing its defaults; `[]` removes it from the
+layer; an unset action keeps its defaults.
+
+**Registry.** `core.LeaderActions()` names every leader action, with its
+default sequences, in hint order. `leaderActions` (`internal/ui/
+leader_layer.go`) binds each name to its hint label, the `KeyMap` binding
+whose description it shows, and its handler; `TestLeaderActionsMatchCore`
+keeps the two in step. The names live in `core` because both sides need
+them: the config layer validates a map against the layer it changes, and
+the TUI builds the layer. `core` is where the TUI and `cmd/slk`'s
+collaborators already share values, and the table is data (names and
+default sequences) plus one pure function, so the no-I/O and import rules
+hold: `config` already imports `core`, and `ui` reads it.
+
+This registry is separate from §8's `keyActions` on purpose. Those are keys
+scoped to a panel, configured as `[keys]` fields with `KeyMap` defaults, and
+they act on the sidebar selection. These are sequences in the leader layer,
+configured in `[keys.leader_map]` with `core` defaults, and every one is a
+global command. No action is in both, so one registry would leave half of
+each row unused.
+
+Actions: the default layer's `window_commands` (`w`, the shared `ctrl+w`
+table), `channel_finder` (`t`), `workspace_search` (`f`),
+`toggle_activity` (`a`), `new_message` (`n`), `set_status` (`s`),
+`switch_theme` (`y`), `set_default_theme` (`Y`), `toggle_sidebar` (`b`) and
+`toggle_thread` (`]`). With no default: `help` and `close_thread` (the `?`
+and `q` arms, extracted as `openHelp` / `closeThreadView`), plus the other
+global Normal-mode commands that are one existing call: `nav_back` /
+`nav_forward`, `next_unread` / `prev_unread`, `next_theme` / `prev_theme`,
+`command_mode` and `quit`. Left out:
+- anything that acts on the selection or the focused pane (message ops,
+  `i`, `/`, `n`/`N`, scrolling, `gg`/`G`, Tab, reactions);
+- keys that take an argument (marks, `1`–`9`);
+- the sidebar resize keys `[`/`]` (a resize plus a settings save, not one
+  call);
+- the `:ws` / `:marks` commands, which go through the command line.
+
+**Resolution and validation** (`core.ResolveLeaderMap`, called by
+`config.Load` with `normalizeKey`; errors name `[keys.leader_map] <action>`):
+- an unknown action, an empty sequence, or a key `normalizeKey` refuses is
+  an error;
+- two configured sequences that are equal, or where one begins the other
+  (`f` and `f f`: there is no timeout, so the longer could never be typed),
+  are an error, also within one action. A repeat within one action is kept
+  once;
+- **explicit beats implicit**: a default sequence that collides with a
+  configured one is dropped, and its action keeps its ctrl chord and any
+  other sequences. This is what makes the neovim example load: `"s g"`
+  makes `s` a group, so `set_status` loses its default `s`. It also means
+  `channel_finder = ["f f"]` loads on its own and takes `f` from
+  `workspace_search`.
+
+`config.Keys.LeaderLayer()` returns the resolved layer (`[]core.LeaderSeq`,
+each marked explicit or default); `uiSettings.LeaderLayer` →
+`App.SetLeaderLayer` installs it. nil (no map) keeps
+`core.DefaultLeaderLayer()`; a map that removes everything is an empty,
+non-nil layer.
+
+**Building.** `newLeaderLayer` inserts each sequence into a tree. Keys
+before the last make groups: a group binding has the which-key hint `…`
+(the hint after the leader reads `f …`, and after `f`, `space f …  f
+channel`). Bindings take the description of the `KeyMap` binding they
+mirror, so help rows read `space f f  switch channel` and sort next to
+`ctrl+t`. Esc and unbound keys inside a group cancel, as anywhere.
+
+**`<leader><leader>`.** Explicit beats implicit here too. A configured
+sequence that starts with the leader's key wins, and the displaced-key
+fallback is left out: with `leader = "space"` and `channel_finder =
+["space"]`, `space space` opens the finder, and the section toggle it would
+have reached stays on `Enter` / `sidebar_open`. Otherwise the fallback
+still wins over a *default* sequence on the leader's key (the §2 rule:
+`leader = "b"` drops the default `b` sidebar entry).
+
+**The neovim example** (in `wiki/Configuration.md`, run verbatim by
+`cmd/slk`'s `TestNvimExampleConfig`):
+
+```toml
+[keys]
+leader = "space"
+sidebar_open = ["enter", "l"]
+[keys.leader_map]
+channel_finder = ["f f", "space"]
+workspace_search = ["/", "s g"]
+toggle_sidebar = ["e"]
+help = ["?"]
+close_thread = ["q"]
+```
+
 ## Key table (default leader `\`)
 
 | Keys | Action | Mirrors |
@@ -393,13 +501,20 @@ leader is Normal-only).
   the Threads and Activity rows and in the messages pane, unbinding,
   moving the toggle, the leader on a sidebar key, the help rows.
 - `cmd/slk`: config and UI name the same actions; `uiSettings` delivers the
-  leader and the bindings.
+  leader, the bindings and the leader layer; the wiki's neovim example
+  loads and behaves as described.
+- §9: `core` resolution (defaults, removal, replacement, explicit dropping
+  a default, every error, an empty layer); `config` (`[keys.leader_map]`
+  normalization and errors naming the action); `internal/ui` (the registry
+  matches `core`, the neovim layer through `Update`, group hints, help
+  rows, removal and replacement, the extra actions).
 
 ## Out of scope
 
-- **More configurable actions, and user-defined sequences** (`[keys]` maps of
-  sequence → action). §8's table is the place for the former (only the two
-  sidebar actions are configurable now); the latter is a separate design.
+- **More configurable actions, and user-defined sequences outside the
+  leader layer.** §8's table is the place for more panel-scoped keys (only
+  the two sidebar actions are configurable now), and §9's registry for
+  more leader actions.
 - **Moving `gg`, `m`, `'` onto `keyseq`.** `m`/`'` take any letter and `gg`
   re-processes an unmatched key; both need table features (a wildcard, a
   fallback) this feature does not use.

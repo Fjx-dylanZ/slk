@@ -118,6 +118,11 @@ leader = "space"
 sidebar_open = ["enter", "l"]
 sidebar_toggle_section = ["space"]
 
+# The leader layer: which keys after the leader run which action. See
+# "Leader map" below for the actions, the rules and an nvim-style setup.
+[keys.leader_map]
+help = ["?"]
+
 # Glob-based channel sections — only consulted when use_slack_sections
 # is false (globally or per-workspace), or when Slack's section API is
 # unreachable. Otherwise slk reads the user's actual Slack sections.
@@ -316,6 +321,71 @@ tells you the message was not found (a deleted thread reply opens its
 thread with nothing selected); the mark is kept either way. Marks
 are only removed when you remove them, with `:delmarks` or `Backspace`
 in the `:marks` overlay.
+
+## Leader map
+
+`[keys.leader_map]` changes what follows the leader (see
+[[Keybindings]] → Leader key). Each entry is an action and a list of
+sequences: the keys you type after the leader, separated by spaces. Keys
+are spelled as for `leader`, plus key names such as `enter` or `tab`; `"f f"`
+is f twice, and `"space"` is the space bar.
+
+- An action you set gets exactly your sequences, replacing its default.
+  `[]` takes it out of the layer; its `Ctrl` chord still works.
+- An action you leave out keeps its default, unless that default clashes
+  with a sequence you set: the same keys, or one that begins the other
+  (`s` and `s g`). Your sequence wins, and the default is dropped.
+- Two sequences you set may not clash, since slk has no timeout to tell
+  `f` from `f f`. slk refuses to start and names the action.
+- A sequence of several keys makes a group. The status bar shows `f …`
+  after the leader, then what can follow `f`.
+- A sequence that starts with the leader's own key (`"space"` with
+  `leader = "space"`, so `space space`) beats the doubled-leader fallback
+  (which would toggle a sidebar section). That action stays on its other
+  keys (`Enter` on a section header).
+
+| Action | Default | Does |
+|---|---|---|
+| `window_commands` | `w` | the window commands (`h`/`j`/`k`/`l`, `s`, `v`, …), as after `Ctrl+w` |
+| `channel_finder` | `t` | switch channel (`Ctrl+t`) |
+| `workspace_search` | `f` | search workspace (`Ctrl+f`) |
+| `toggle_activity` | `a` | toggle the Activity view (`Ctrl+a`) |
+| `new_message` | `n` | new message (`Ctrl+n`) |
+| `set_status` | `s` | set status (`Ctrl+s`) |
+| `switch_theme` | `y` | switch theme for this workspace (`Ctrl+y`) |
+| `set_default_theme` | `Y` | set the default theme (`Ctrl+Shift+y`) |
+| `toggle_sidebar` | `b` | toggle the sidebar (`Ctrl+b`) |
+| `toggle_thread` | `]` | close the thread panel (`Ctrl+]`) |
+| `help` | — | show keybindings (`?`) |
+| `close_thread` | — | close the thread panel (`q`) |
+| `nav_back` / `nav_forward` | — | back / forward through visited channels (`Ctrl+h` / `Ctrl+l`) |
+| `next_unread` / `prev_unread` | — | next / previous unread channel (`a` / `A`) |
+| `next_theme` / `prev_theme` | — | next / previous theme (`Alt+y` / `Alt+Shift+y`) |
+| `command_mode` | — | the `:` command line |
+| `quit` | — | quit, with confirmation (`Q`) |
+
+### Neovim-style keys
+
+Space as the leader, `l` opening sidebar rows, and telescope-style groups:
+
+```toml
+[keys]
+leader = "space"
+sidebar_open = ["enter", "l"]
+[keys.leader_map]
+channel_finder = ["f f", "space"]
+workspace_search = ["/", "s g"]
+toggle_sidebar = ["e"]
+help = ["?"]
+close_thread = ["q"]
+```
+
+`space f f` and `space space` open the channel finder, `space /` and
+`space s g` search the workspace, `space e` toggles the sidebar, `space ?`
+shows the keybindings and `space q` closes the thread. `space s` is now
+the `s g` group, so `set_status` loses its default `s` (it stays on
+`Ctrl+s`). `space w h/j/k/l` still moves between panes. Section headers
+toggle with `Enter` or `l`, since `space space` is the channel finder.
 
 ## Data paths (XDG)
 

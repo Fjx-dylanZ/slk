@@ -175,11 +175,14 @@ type App struct {
 	winModels map[wintree.LeafID]*messages.Model
 
 	// sequences is Normal mode's key-sequence table (the leader layer
-	// and the ctrl+w window commands, keyseqs.go), built from keys.
-	// pendingSeq is the sequence being typed: Esc or an unbound key
-	// cancels; any mode change resets it (see SetMode).
+	// and the ctrl+w window commands, keyseqs.go), built from keys and
+	// leaderSeqs. pendingSeq is the sequence being typed: Esc or an
+	// unbound key cancels; any mode change resets it (see SetMode).
+	// leaderSeqs is the configured leader layer (SetLeaderLayer); nil
+	// is the default one.
 	sequences  *keyseq.Map
 	pendingSeq keyseq.Sequence
+	leaderSeqs []core.LeaderSeq
 
 	// pendingTop is true between the first and second `g` of the vim
 	// `gg` chord (jump to top). Any other key cancels; any mode change

@@ -579,6 +579,7 @@ func run() error {
 		Leader:           cfg.Keys.Leader,
 		KeyBindings:      cfg.Keys.Bindings(),
 		ComposeVimMode:   cfg.Compose.VimMode,
+		LeaderLayer:      cfg.Keys.LeaderLayer(),
 	})
 	app.SetEditorService(core.NewEditorService(editor.WriteDraft, editor.Edit, editor.TakeDraft))
 	if editor, ok := ui.ResolveEditor(cfg.Compose.Editor); ok {
