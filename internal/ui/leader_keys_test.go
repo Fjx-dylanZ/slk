@@ -456,7 +456,20 @@ func TestConfiguredLeader(t *testing.T) {
 		// the former, so the sidebar stays; the layer still works.
 		a := newTestApp(t, normalOpts()...)
 		a.SetLeader("b")
-		_ = dispatchKeys(a, keyPress('b'), keyPress('b'))
+		_ = dispatchModeKey(a, keyPress('b'))
+		hint := stripANSI(a.statusbar.View(200))
+		if !strings.Contains(hint, "b …  b respond to message buttons  w window") {
+			t.Errorf("hint %q does not offer the displaced action first", hint)
+		}
+		// The layer's own b (sidebar) can never be reached: b b is
+		// taken, so neither the hint nor the help may offer it.
+		if strings.Contains(hint, "b sidebar") {
+			t.Errorf("hint %q offers the unreachable layer entry", hint)
+		}
+		if rows := a.helpEntries(); slices.Contains(rows, help.Entry{Key: "b b", Desc: "toggle sidebar"}) {
+			t.Error(`help lists the unreachable "b b  toggle sidebar"`)
+		}
+		_ = dispatchModeKey(a, keyPress('b'))
 		if !a.sidebarVisible {
 			t.Fatal("b b ran the layer's sidebar toggle, not the displaced binding")
 		}
@@ -541,6 +554,8 @@ func TestHelpEntriesFollowTheLeader(t *testing.T) {
 			},
 		},
 		{
+			// space's own row is gone: space now leads, and the layer's
+			// "space space" row says what toggles the section.
 			leader: "space",
 			want: []help.Entry{
 				{Key: "space", Desc: leaderHelpDesc},
@@ -548,7 +563,47 @@ func TestHelpEntriesFollowTheLeader(t *testing.T) {
 				{Key: "space t", Desc: "switch channel"},
 				{Key: "space w s", Desc: "split window"},
 			},
-			absent: []help.Entry{{Key: `\ t`, Desc: "switch channel"}},
+			absent: []help.Entry{
+				{Key: `\ t`, Desc: "switch channel"},
+				{Key: "space", Desc: "toggle section"},
+			},
+		},
+		{
+			// The ctrl+w chords move under ctrl+w w; ctrl+w s is the
+			// layer's status menu now.
+			leader: "ctrl+w",
+			want: []help.Entry{
+				{Key: "ctrl+w", Desc: leaderHelpDesc},
+				{Key: "ctrl+w w", Desc: "window commands"},
+				{Key: "ctrl+w w s", Desc: "split window"},
+				{Key: "ctrl+w w h/j/k/l", Desc: "focus pane in direction"},
+				{Key: "ctrl+w s", Desc: "set status"},
+			},
+			absent: []help.Entry{
+				{Key: "ctrl+w", Desc: "window commands"},
+				{Key: "ctrl+w s / :sp", Desc: "split window"},
+				{Key: "ctrl+w h/j/k/l", Desc: "focus pane in direction"},
+				{Key: "ctrl+w q / :q", Desc: "close window"},
+				{Key: "ctrl+w o / :only", Desc: "close other windows"},
+				{Key: "ctrl+w w", Desc: "cycle windows"},
+			},
+		},
+		{
+			// A binding with another key keeps a row for it.
+			leader: "Y",
+			want: []help.Entry{
+				{Key: "C", Desc: "copy permalink"},
+				{Key: "Y Y", Desc: "copy permalink"},
+			},
+			absent: []help.Entry{{Key: "Y/C", Desc: "copy permalink"}},
+		},
+		{
+			// Insert mode's ctrl+o is untouched by a Normal-mode leader.
+			leader: "ctrl+o",
+			want: []help.Entry{
+				{Key: "ctrl+o / alt+enter", Desc: "also send reply to channel"},
+				{Key: "ctrl+o t", Desc: "switch channel"},
+			},
 		},
 	}
 	for _, tc := range cases {

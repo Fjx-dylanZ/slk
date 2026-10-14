@@ -210,7 +210,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | An app's "working" status on a thread (Slack's `ai_assistant_status`, from `assistant.threads.setStatus`) | Arrives as `BotStatusMsg`; state on `a.typing` (`internal/ui/typing.go`): `SetBotStatus` (empty clears), `ClearBot` (the app replied), read with `WorkingBots(channel)` for the channel typing row and `ThreadBotStatuses(channel, thread)` for the thread pane. Lapses after `botStatusExpiry` (2 min, Slack's timeout) on the typing tick |
 | Move focus to the pane on screen in a direction (sidebar, split windows, thread) | `(*App).focusPaneDir(nd)` (`internal/ui/pane_focus.go`); `ctrl+w h/j/k/l` and `<leader>w h/j/k/l` both use it |
 | Open the channel finder, workspace search, presence menu or a theme switcher; toggle Activity; start a new message | `openChannelFinder`, `openWorkspaceSearch`, `openPresenceMenu`, `openWorkspaceThemeSwitcher`, `openGlobalThemeSwitcher`, `toggleActivityView`, `enterNewMessage` (`internal/ui/mode_normal.go`); the bindings and the leader layer share them |
-| The help overlay's rows | `(*App).helpEntries()`: the `KeyMap` plus the leader layer under the configured leader, through `help.FromKeyMap(km, extra...)` |
+| The help overlay's rows | `(*App).helpEntries()`: the `KeyMap` rewritten for the leader (`helpKeyMap` drops or relabels rows for the key the leader took over) plus the leader layer under the configured leader, through `help.FromKeyMap(km, extra...)` |
 | The leader key from config | `[keys] leader`, normalized in `internal/config` (`normalizeLeader`), delivered by `uiSettings.Leader` → `(*App).SetLeader` |
 
 ### Test helpers

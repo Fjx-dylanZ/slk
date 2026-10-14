@@ -100,8 +100,10 @@ is an ordinary key.
 
 If the leader you configure already does something (`space` toggles a
 sidebar section), pressing it twice does that: `space space` toggles the
-section (`Enter` on a section header still does too). The help overlay (`?`)
-lists the leader layer under your leader key.
+section (`Enter` on a section header still does too). If the leader is one
+of the letters above (say `b`), the doubled leader is the old action and
+that letter's entry leaves the layer; its `Ctrl` chord still works. The
+help overlay (`?`) lists the leader layer under your leader key.
 
 Directional focus follows what is on screen. The workspace rail is not a
 pane. When the terminal is too narrow to show messages and thread side by

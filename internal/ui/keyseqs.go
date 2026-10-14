@@ -9,6 +9,7 @@ package ui
 import (
 	"reflect"
 	"slices"
+	"strings"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -57,26 +58,36 @@ func (a *App) newKeySequences() *keyseq.Map {
 	// the letter of the ctrl chord it mirrors.
 	var layer []keyseq.Binding
 	leader := km.Leader.Keys()[0]
-	if d, ok := displacedBinding(km, leader); ok {
+	d, displaced := displacedBinding(km, leader)
+	if displaced {
 		// <leader><leader> hands the key back to what it did before it
-		// became the leader. First, so it wins over a layer letter.
+		// became the leader.
 		layer = append(layer, keyseq.Binding{Keys: []string{leader}, Hint: desc(d), Desc: desc(d),
 			Action: func(msg tea.KeyMsg) tea.Cmd { return handleNormalKey(a, msg) }})
 	}
-	layer = append(layer,
-		keyseq.Binding{Keys: []string{"w"}, Hint: "window", Desc: desc(km.WindowPrefix), Next: windows},
-		keyseq.Binding{Keys: []string{"t"}, Hint: "channel", Desc: desc(km.FuzzyFinder), Action: run(a.openChannelFinder)},
-		keyseq.Binding{Keys: []string{"f"}, Hint: "search", Desc: desc(km.WorkspaceSearch), Action: run(a.openWorkspaceSearch)},
-		keyseq.Binding{Keys: []string{"a"}, Hint: "activity", Desc: desc(km.ActivityView), Action: run(a.toggleActivityView)},
-		keyseq.Binding{Keys: []string{"n"}, Hint: "new msg", Desc: desc(km.NewMessage), Action: run(a.enterNewMessage)},
-		keyseq.Binding{Keys: []string{"s"}, Hint: "status", Desc: desc(km.PresenceMenu), Action: run(a.openPresenceMenu)},
-		keyseq.Binding{Keys: []string{"y"}, Hint: "theme", Desc: desc(km.ThemeSwitcher), Action: run(a.openWorkspaceThemeSwitcher)},
-		keyseq.Binding{Keys: []string{"Y"}, Hint: "default theme", Desc: desc(km.ThemeSwitcherGlobal), Action: run(a.openGlobalThemeSwitcher)},
-		keyseq.Binding{Keys: []string{"b"}, Hint: "sidebar", Desc: desc(km.ToggleSidebar),
+	letters := []keyseq.Binding{
+		{Keys: []string{"w"}, Hint: "window", Desc: desc(km.WindowPrefix), Next: windows},
+		{Keys: []string{"t"}, Hint: "channel", Desc: desc(km.FuzzyFinder), Action: run(a.openChannelFinder)},
+		{Keys: []string{"f"}, Hint: "search", Desc: desc(km.WorkspaceSearch), Action: run(a.openWorkspaceSearch)},
+		{Keys: []string{"a"}, Hint: "activity", Desc: desc(km.ActivityView), Action: run(a.toggleActivityView)},
+		{Keys: []string{"n"}, Hint: "new msg", Desc: desc(km.NewMessage), Action: run(a.enterNewMessage)},
+		{Keys: []string{"s"}, Hint: "status", Desc: desc(km.PresenceMenu), Action: run(a.openPresenceMenu)},
+		{Keys: []string{"y"}, Hint: "theme", Desc: desc(km.ThemeSwitcher), Action: run(a.openWorkspaceThemeSwitcher)},
+		{Keys: []string{"Y"}, Hint: "default theme", Desc: desc(km.ThemeSwitcherGlobal), Action: run(a.openGlobalThemeSwitcher)},
+		{Keys: []string{"b"}, Hint: "sidebar", Desc: desc(km.ToggleSidebar),
 			Action: run(func() tea.Cmd { a.ToggleSidebar(); return nil })},
-		keyseq.Binding{Keys: []string{"]"}, Hint: "thread", Desc: desc(km.ToggleThread),
+		{Keys: []string{"]"}, Hint: "thread", Desc: desc(km.ToggleThread),
 			Action: run(func() tea.Cmd { a.ToggleThread(); return nil })},
-	)
+	}
+	if displaced {
+		// <leader><leader> is the displaced key's, so a letter equal to
+		// the leader could never be reached: leave it out of the table,
+		// and so of the hint and the help. Its ctrl chord still works.
+		letters = slices.DeleteFunc(letters, func(b keyseq.Binding) bool {
+			return slices.Contains(b.Keys, leader)
+		})
+	}
+	layer = append(layer, letters...)
 
 	return keyseq.New(
 		keyseq.Binding{Keys: km.Leader.Keys(), Next: keyseq.New(layer...)},
@@ -84,11 +95,15 @@ func (a *App) newKeySequences() *keyseq.Map {
 	)
 }
 
+// insertOnly names the KeyMap bindings only Insert mode handles; a
+// Normal-mode leader on the same key leaves them alone.
+var insertOnly = []string{"ToggleBroadcast", "OpenInEditor"}
+
 // notDisplaceable names the KeyMap bindings a leader on the same key
 // does not take a Normal-mode action from: the leader itself, the
 // sequence prefixes (still reachable through the leader layer, e.g.
-// ctrl+w as <leader>w), and keys only Insert mode handles.
-var notDisplaceable = []string{"Leader", "WindowPrefix", "ToggleBroadcast", "OpenInEditor"}
+// ctrl+w as <leader>w), and the Insert-only keys.
+var notDisplaceable = append([]string{"Leader", "WindowPrefix"}, insertOnly...)
 
 // displacedBinding returns the Normal-mode KeyMap binding whose key the
 // leader takes over, if any (the first, in KeyMap order).
@@ -103,6 +118,38 @@ func displacedBinding(km KeyMap, leader string) (key.Binding, bool) {
 		}
 	}
 	return key.Binding{}, false
+}
+
+// helpKeyMap is km as the help overlay describes it once leader owns its
+// key in Normal mode. A binding on the leader's key loses that key: its
+// row is relabelled with the keys it keeps ("Y/C" → "C" for a Y leader)
+// or dropped when none are left. A keyless chord row under the leader's
+// key ("ctrl+w s / :sp" for a ctrl+w leader) is dropped too. The leader
+// layer's rows say what those keys do now.
+func helpKeyMap(km KeyMap, leader string) KeyMap {
+	v := reflect.ValueOf(&km).Elem()
+	for i := range v.NumField() {
+		name := v.Type().Field(i).Name
+		b, ok := v.Field(i).Interface().(key.Binding)
+		if !ok || name == "Leader" || slices.Contains(insertOnly, name) {
+			continue
+		}
+		h := b.Help()
+		switch keys := b.Keys(); {
+		case slices.Contains(keys, leader):
+			kept := slices.DeleteFunc(slices.Clone(keys), func(k string) bool { return k == leader })
+			b = key.Binding{}
+			if len(kept) > 0 {
+				b = key.NewBinding(key.WithKeys(kept...), key.WithHelp(strings.Join(kept, "/"), h.Desc))
+			}
+		case len(keys) == 0 && (h.Key == leader || strings.HasPrefix(h.Key, leader+" ")):
+			b = key.Binding{}
+		default:
+			continue
+		}
+		v.Field(i).Set(reflect.ValueOf(b))
+	}
+	return km
 }
 
 // SetLeader makes k the leader key: a key string as slk matches keys
@@ -138,8 +185,9 @@ func (a *App) pressKeySeq(msg tea.KeyMsg) (tea.Cmd, bool) {
 	return act(msg), true
 }
 
-// helpEntries is the help overlay's content: the KeyMap's rows plus the
-// leader layer's, generated from the table under the configured leader.
+// helpEntries is the help overlay's content: the KeyMap's rows as the
+// leader leaves them (helpKeyMap) plus the leader layer's, generated
+// from the table under the configured leader.
 func (a *App) helpEntries() []help.Entry {
 	leader := a.keys.Leader.Keys()[0]
 	var rows []help.Entry
@@ -148,5 +196,5 @@ func (a *App) helpEntries() []help.Entry {
 			rows = append(rows, help.Entry{Key: e.Keys, Desc: e.Desc})
 		}
 	}
-	return help.FromKeyMap(a.keys, rows...)
+	return help.FromKeyMap(helpKeyMap(a.keys, leader), rows...)
 }
