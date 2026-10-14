@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -157,6 +158,52 @@ func TestVimViewportFollowsTheCursor(t *testing.T) {
 	m = vimPress(m, "G")
 	if v := ansi.Strip(m.View(40, true)); !strings.Contains(v, "line39") || strings.Contains(v, "line00") {
 		t.Errorf("G: view does not show the bottom:\n%s", v)
+	}
+}
+
+// Writing an edited buffer back rebuilds the textarea around the cursor;
+// the cursor must land exactly where the engine put it, on wrapped,
+// multi-line, wide text, from anywhere.
+func TestVimWriteBackLandsExactly(t *testing.T) {
+	m := vimCompose(t, 20) // wraps at 15
+	var lines []string
+	for i := range 30 {
+		lines = append(lines, fmt.Sprintf("line %d with 日本語 and 😀 words to wrap", i))
+	}
+	text := strings.Join(lines, "\n")
+	m.SetValue(text)
+	for off := 0; off <= len(text); off += 37 {
+		for off < len(text) && !utf8.RuneStart(text[off]) {
+			off++
+		}
+		m.setValueAt(text, off)
+		if got := m.cursorPosition(); got != off || m.Value() != text {
+			t.Fatalf("setValueAt(%d): cursor %d, value changed %v", off, got, m.Value() != text)
+		}
+	}
+	// Moves without a text change: page-sized jumps, to the first and
+	// last lines, and back into the middle.
+	for _, off := range []int{len(text), 0, strings.Index(text, "line 15"), len(text) - 3, 5} {
+		m.setCursorOffset(off)
+		if got := m.cursorPosition(); got != off {
+			t.Fatalf("setCursorOffset(%d) = %d", off, got)
+		}
+	}
+}
+
+// A put the textarea cannot hold whole is cut at the end, as SetValue
+// cuts it, never in the middle.
+func TestVimWriteBackOverTheCharLimit(t *testing.T) {
+	m := vimCompose(t, 60)
+	line := strings.Repeat("x", 30000)
+	m.SetValue(line)
+	m = vimPress(m, "<esc>yyp")
+	got := m.Value()
+	if !strings.HasPrefix(line+"\n"+line, got) || len(got) <= len(line)+1 {
+		t.Fatalf("value after an oversized put is not the put text cut at its end (len %d)", len(got))
+	}
+	if c := m.cursorPosition(); c != len(line)+1 {
+		t.Errorf("cursor %d, want %d (the put line's start)", c, len(line)+1)
 	}
 }
 

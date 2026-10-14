@@ -165,29 +165,65 @@ type vimRepositionMsg struct{}
 // applyVim writes the engine's buffer back into the textarea.
 func (m *Model) applyVim(b vimedit.Buffer) tea.Cmd {
 	if b.Text != m.input.Value() {
-		m.input.SetValue(b.Text)
+		m.setValueAt(b.Text, b.Cursor)
 		// Picker sessions index the old text: a stale offset into a
 		// shorter value is the slice-bounds panic closePickers exists for.
 		m.closePickers()
+	} else {
+		m.setCursorOffset(b.Cursor)
 	}
-	m.setCursorOffset(b.Cursor)
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(vimRepositionMsg{})
 	m.autoGrow()
 	return cmd
 }
 
+// setValueAt replaces the text with s and puts the cursor at byte offset
+// off, in time linear in s. SetValue leaves the cursor at the end, and
+// walking it back costs every row above it at each step; inserting the
+// text before off at the start of the text after it lands the cursor
+// there directly. When the textarea's limits (CharLimit, its line cap)
+// cut the text, that insert would cut in the middle instead of at the
+// end, so it falls back to SetValue and a walk.
+func (m *Model) setValueAt(s string, off int) {
+	off = max(0, min(off, len(s)))
+	m.input.SetValue(s[off:])
+	m.input.MoveToBegin()
+	m.input.InsertString(s[:off])
+	if m.input.Value() != s {
+		m.input.SetValue(s)
+		m.setCursorOffset(off)
+	}
+}
+
 // setCursorOffset moves the textarea cursor to byte offset off of its
 // value. The textarea has no row setter: CursorUp/CursorDown walk
 // visual rows (each call moves at least one), then SetCursorColumn
-// places the column, in runes as the textarea counts them.
+// places the column, in runes as the textarea counts them. Every step
+// re-scrolls the viewport, which costs the rows above the cursor, so
+// the first and last line are reached directly and long distances a
+// page at a time (PageUp/PageDown move h visual rows, so at most h
+// lines, and never past row while more than h lines away).
 func (m *Model) setCursorOffset(off int) {
 	val := m.input.Value()
 	off = max(0, min(off, len(val)))
 	row := strings.Count(val[:off], "\n")
 	lineStart := strings.LastIndexByte(val[:off], '\n') + 1
 	col := utf8.RuneCountInString(val[lineStart:off])
+	switch last := m.input.LineCount() - 1; {
+	case row == 0 && m.input.Line() != 0:
+		m.input.MoveToBegin()
+	case row == last && m.input.Line() != last:
+		m.input.MoveToEnd()
+	}
+	page := max(1, m.input.Height())
 	limit := len(val) + 2 // a visual row per rune at most, plus slack
+	for i := 0; m.input.Line()-row > page && i < limit; i++ {
+		m.input.PageUp()
+	}
+	for i := 0; row-m.input.Line() > page && i < limit; i++ {
+		m.input.PageDown()
+	}
 	for i := 0; m.input.Line() < row && i < limit; i++ {
 		m.input.CursorDown()
 	}
