@@ -55,6 +55,9 @@ func TestHandleKey(t *testing.T) {
 		{"typing a literal space appends", typed("a"), " ", true, true, "a ", true, true},
 		{"typing backspace deletes a rune", typed("café"), "backspace", true, true, "caf", true, true},
 		{"typing backspace on empty is consumed", typed(""), "backspace", true, false, "", true, true},
+		// Regression: delete used to reach the dialog while typing,
+		// where the marks list removes the highlighted mark.
+		{"typing delete is swallowed", typed("ran"), "delete", true, false, "ran", true, true},
 		{"typing enter keeps the filter", typed("dep"), "enter", true, false, "dep", false, true},
 		{"typing enter on empty goes idle", typed(""), "enter", true, false, "", false, false},
 		{"typing esc clears", typed("dep"), "esc", true, true, "", false, false},
@@ -71,6 +74,7 @@ func TestHandleKey(t *testing.T) {
 		{"kept letter is the dialog's", kept("dep"), "q", false, false, "dep", false, true},
 		{"kept enter is the dialog's", kept("dep"), "enter", false, false, "dep", false, true},
 		{"kept backspace is the dialog's", kept("dep"), "backspace", false, false, "dep", false, true},
+		{"kept delete is the dialog's", kept("dep"), "delete", false, false, "dep", false, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

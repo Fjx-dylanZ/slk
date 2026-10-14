@@ -128,8 +128,9 @@ var (
 )
 ```
 
-- **Terms**: whitespace-split, each `text.Fold`ed — the same derivation
-  the FTS path uses (`cmd/slk/main.go` `SearchChannel`).
+- **Terms**: `messages.SearchTerms(query)`: whitespace-split, each
+  `text.Fold`ed. The FTS path (`cmd/slk/main.go` `SearchChannel`) and
+  the demo build their result's terms with the same helper.
 - **Matching**: `messages.MatchesSearchTerms(text, terms)` (new, next to
   `HighlightSearchTerms` in `messages/highlight.go`, sharing its
   word-start rule and `prefixMatchLen`): every term must occur at a word
@@ -159,6 +160,9 @@ var (
   `ActivityItem.Key`.
 - Cards are not highlighted (they are one-line truncated previews); the
   selection marks the match.
+- **No matches**: a client-side search that finds nothing is still
+  installed, with an empty match list, so its `… no matches` segment
+  goes away with its thread or view like any other search.
 - The match list is a snapshot taken at Enter, like the FTS result. A
   key that disappears (a deleted reply, a list refresh) is skipped by
   selection; re-run `/` to refresh.
@@ -241,6 +245,7 @@ keeps its own rows, selection and keys and filters its rows through it
 | idle | `/` | start typing (consumed) |
 | typing | printable rune (incl. `/`, `q`, `j`, `k`, mark letters), `space` | appended |
 | typing | `backspace` | deletes the last rune |
+| typing | `delete` | ignored (consumed): the query has no cursor to delete forward from, and the dialog must not get it (in the marks list it removes a mark) |
 | typing | `enter` | stop typing, keep the filter |
 | typing | `esc` | stop typing, clear the filter |
 | typing | `up`/`down`/`ctrl+n`/`ctrl+p` | not consumed: the dialog moves its selection through the filtered rows |
@@ -254,6 +259,12 @@ kept → `filter: <query>` in `Styles.Empty` (the help overlay's existing
 look); idle → the dialog's idle hint, or no line. Geometry
 (`BoxSize`, `ClickRow` via `chrome.BodyTop(s, hasInput)`) follows whether
 the line is drawn.
+
+Mouse: a click outside a dialog dismisses it through its Esc path,
+repeated while the filter absorbs the Esc (stop typing, clear), so a
+filter never keeps a dialog open. A click on a marks row while the
+filter is typed ends the typing first, so the click jumps like Enter on
+a kept filter.
 
 Survey of every mode in `modeHandlers`:
 
@@ -309,6 +320,11 @@ a byte.
   filter.
 - **Paste in the prompt**: flattened to one line and appended (existing
   `reducer_io` path); in the sidebar scope it live-filters too.
+- **Mouse click while the prompt is open**: the click ends the prompt
+  before it acts. The sidebar prompt is committed (its filter is already
+  applied, and the click is usually on a match); a message-scope prompt
+  is cancelled, since running the query would move the selection the
+  click is about to set.
 - **Thread with no replies**: the parent alone is searched.
 - **Ephemeral replies**: searched like any shown reply.
 - **Thread search, then channel `/` dispatched**: the thread search and

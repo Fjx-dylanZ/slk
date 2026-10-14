@@ -8,7 +8,9 @@
 //
 //   - Click OUTSIDE the box        -> dismiss the modal (synthesised Esc,
 //     reusing each mode handler's esc path:
-//     close + restore mode + any cleanup).
+//     close + restore mode + any cleanup;
+//     repeated while a `/` filter absorbs
+//     it, see dismissModal).
 //   - Click ON a list row          -> move the modal's selection there and
 //     synthesise the modal's activation key
 //     (Enter to choose, Space to toggle for
@@ -101,7 +103,7 @@ func (a *App) activeModalClickTarget() (modalClickTarget, bool) {
 // reduceModalClick handles a left click while a modal overlay is active.
 // See the package-level comment for the routing rules.
 func reduceModalClick(a *App, m tea.MouseClickMsg) tea.Cmd {
-	esc := func() tea.Cmd { return dispatchModeKey(a, tea.KeyPressMsg{Code: tea.KeyEscape}) }
+	esc := func() tea.Cmd { return dismissModal(a) }
 
 	target, ok := a.activeModalClickTarget()
 	if !ok {
@@ -153,4 +155,22 @@ func reduceModalClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		return nil
 	}
 	return dispatchModeKey(a, target.activation)
+}
+
+// dismissModal closes the active modal through its Esc path. A dialog
+// with a `/` filter (bubbles/listfilter) spends an Esc ending the typing
+// or clearing the kept filter before its own Esc closes it, so Esc is
+// repeated until the mode changes: at most once to stop typing and clear
+// the query, once to close, plus one spare. A modal that never leaves on
+// Esc stays open, as before.
+func dismissModal(a *App) tea.Cmd {
+	mode := a.mode
+	var cmds []tea.Cmd
+	for range 3 {
+		cmds = append(cmds, dispatchModeKey(a, tea.KeyPressMsg{Code: tea.KeyEscape}))
+		if a.mode != mode {
+			break
+		}
+	}
+	return tea.Batch(cmds...)
 }

@@ -185,6 +185,12 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 	if a.mode.IsModalOverlay() {
 		return reduceModalClick(a, m)
 	}
+	// A click acts on the panes, so it ends the `/` prompt first (see
+	// endSearchPromptForClick); otherwise ModeSearch would outlive the
+	// action and swallow the next keys as query text.
+	if a.mode == ModeSearch {
+		a.endSearchPromptForClick()
+	}
 	// A click sets the selection absolutely (ClickAt below), so any
 	// pending held-key scroll moves would be immediately overwritten --
 	// discard them rather than apply (and let any in-flight flush tick

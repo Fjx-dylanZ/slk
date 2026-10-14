@@ -111,7 +111,7 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Case/accent-insensitive fold for matching | `text.Fold(s)` |
 | Slack mrkdwn → plain text | `messages.FlattenMrkdwn`, `messages.FlattenMrkdwnWithUserGroups` |
 | Search-term highlighting (ANSI/OSC-safe) | `messages.HighlightSearchTerms`, `messages.SearchHighlightSGR` |
-| Does plain text match a `/` query (every folded term at a word start, the rule the FTS query and the highlighter apply)? | `messages.MatchesSearchTerms(text, terms)` |
+| A `/` query's terms (whitespace-split, each `text.Fold`ed), and does plain text match them (every term at a word start, the rule the FTS query and the highlighter apply)? | `messages.SearchTerms(query)` (the one derivation: `cmd/slk`, the demo and the client-side scopes use it), `messages.MatchesSearchTerms(text, terms)` |
 | Re-assert a background (or background+foreground) after every SGR reset, so nested lipgloss renders don't drop it | `bubbles/ansi.ReapplyAfterResets(text, style)` — the one implementation; `messages.ReapplyBgAfterResets` delegates to it for existing callers. The theme's sequences come from `messages.BgANSI()` / `messages.FgANSI()` |
 | Extract links from message text | `messages.ExtractLinks` |
 | Every link a message offers to `o` (text links + permalinks of messages it shares, from attachment `from_url`) | `messages.MessageLinks(msg)` |

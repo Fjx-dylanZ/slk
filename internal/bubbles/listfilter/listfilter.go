@@ -12,6 +12,10 @@
 //	typing       printable rune       appended (including "/", "q", "j")
 //	typing       "space"              a space appended
 //	typing       "backspace"          deletes the last rune
+//	typing       "delete"             ignored: the query has no cursor to
+//	                                  delete forward from, and the dialog
+//	                                  must not get it (in the marks list
+//	                                  it removes a mark)
 //	typing       "enter"              stop typing, keep the filter
 //	typing       "esc"                stop typing, clear the filter
 //	filter kept  "/"                  resume typing the kept query
@@ -65,6 +69,8 @@ func (f *Filter) HandleKey(key string) (consumed, changed bool) {
 		}
 		f.setQuery("")
 		return true, true
+	case "delete":
+		return true, false
 	case "backspace":
 		if f.query == "" {
 			return true, false

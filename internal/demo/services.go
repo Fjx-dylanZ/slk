@@ -2,14 +2,13 @@ package demo
 
 import (
 	"context"
-	"strings"
 
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/emoji"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/slack/mrkdwn"
-	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui"
+	"github.com/gammons/slk/internal/ui/messages"
 )
 
 // services are the demo's implementations of the internal/core ports.
@@ -159,7 +158,7 @@ func (d *Demo) services() services {
 				return ui.ChannelSearchResultsMsg{
 					ChannelID: string(channelID),
 					Query:     query,
-					Terms:     strings.Fields(text.Fold(query)),
+					Terms:     messages.SearchTerms(query),
 					TSes:      w.search(string(channelID), query),
 				}
 			},

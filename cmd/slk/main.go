@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -35,7 +34,6 @@ import (
 	slackclient "github.com/gammons/slk/internal/slack"
 	"github.com/gammons/slk/internal/slackdesktop"
 	"github.com/gammons/slk/internal/slackhttp"
-	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui"
 	"github.com/gammons/slk/internal/ui/imgrender"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -925,16 +923,11 @@ func run() error {
 					// stuck; surface the failure like searchWorkspaceFunc.
 					return ui.ChannelSearchResultsMsg{ChannelID: string(channelID), Query: query, Err: errors.New("no active workspace")}
 				}
-				terms := strings.Fields(query)
-				folded := make([]string, 0, len(terms))
-				for _, t := range terms {
-					folded = append(folded, text.Fold(t))
-				}
 				tses, err := db.SearchChannelMessages(string(channelID), wctx.Client.TeamID(), query)
 				return ui.ChannelSearchResultsMsg{
 					ChannelID: string(channelID),
 					Query:     query,
-					Terms:     folded,
+					Terms:     messages.SearchTerms(query),
 					TSes:      tses,
 					Err:       err,
 				}

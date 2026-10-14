@@ -16,9 +16,11 @@
 // keystroke to the 'a flow); Enter selects the highlighted row; and
 // backspace/Delete removes the highlighted row (the same removal the
 // :delmarks command uses). "/" filters the rows (listfilter) over the
-// letter, channel, author and excerpt; while the filter is typed,
-// letters are filter text, and Enter and backspace act on the
-// highlighted filtered row.
+// letter, channel, author and excerpt. While the filter is typed it
+// takes letters, backspace, Enter (keeps the filter), Esc (clears it)
+// and Delete (ignored, so it cannot remove a mark mid-query); once the
+// filter is kept, Enter and backspace/Delete act on the highlighted
+// filtered row again.
 package marks
 
 import (
@@ -227,7 +229,10 @@ func (m *Model) BoxSize(termWidth, termHeight int) (int, int) {
 }
 
 // ClickRow moves the selection to the list row at box-local localY
-// (0 is the top border) and reports whether a row was there.
+// (0 is the top border) and reports whether a row was there. A click
+// on a row ends typing the filter (keeping it), so the Enter the App
+// synthesises after it selects the row instead of committing the
+// query.
 func (m *Model) ClickRow(termWidth, termHeight, localY int) bool {
 	row := localY - m.listTopOffset()
 	if row < 0 {
@@ -238,6 +243,9 @@ func (m *Model) ClickRow(termWidth, termHeight, localY int) bool {
 		return false
 	}
 	m.selected = start + row
+	if m.filter.Typing() {
+		m.filter.HandleKey("enter")
+	}
 	return true
 }
 

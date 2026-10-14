@@ -32,6 +32,7 @@ import (
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/text"
+	"github.com/gammons/slk/internal/ui/messages"
 )
 
 // searchScope is what `/` searches, resolved from focus when it is
@@ -83,7 +84,9 @@ func (s searchScope) newestAtTop() bool {
 // its folded terms (for highlighting), the match keys newest first (TSes
 // for the panes, row keys for the lists), and the index of the
 // currently-selected match. target names what a client-side search
-// belongs to (searchTarget); a search whose target is gone is stale.
+// belongs to (searchTarget); a search whose target is gone is stale. A
+// client-side search that found nothing stays installed with no
+// matches, so its "no matches" segment goes away with its target too.
 type activeSearch struct {
 	scope   searchScope
 	target  string
@@ -95,6 +98,9 @@ type activeSearch struct {
 
 // indicator is the status segment of an installed search.
 func (s *activeSearch) indicator() string {
+	if len(s.matches) == 0 {
+		return fmt.Sprintf("%s%s  no matches", s.scope.prefix(), s.query)
+	}
 	return fmt.Sprintf("%s%s  %d/%d", s.scope.prefix(), s.query, s.idx+1, len(s.matches))
 }
 
@@ -172,6 +178,19 @@ func (a *App) cancelSearchPrompt() {
 	a.SetMode(ModeNormal)
 }
 
+// endSearchPromptForClick ends the `/` prompt before a mouse click acts
+// on the panes. The sidebar's prompt is committed: its filter is
+// already applied live, and the click is usually on one of its matches.
+// A message-scope query has not run yet, and running it would move the
+// selection the click is about to set, so that prompt is cancelled.
+func (a *App) endSearchPromptForClick() {
+	if a.searchScope == searchSidebar {
+		_ = a.submitSearchPrompt() // the sidebar scope returns no cmd
+		return
+	}
+	a.cancelSearchPrompt()
+}
+
 // submitSearchPrompt is Enter in the prompt: it runs the query in the
 // prompt's scope. An empty query clears: the active search, or the
 // sidebar filter.
@@ -235,15 +254,11 @@ func (a *App) runListSearch(scope searchScope, query string) tea.Cmd {
 		a.statusbar.SetSearch(a.activeSearchIndicator())
 		return nil
 	}
-	terms := foldedSearchTerms(query)
+	terms := messages.SearchTerms(query)
 	// Bumps searchGen, so an FTS result still in flight cannot
 	// replace this search when it lands.
 	a.dropSearchState()
 	matches, start := clientSearchMatches(l, terms, scope.newestAtTop())
-	if len(matches) == 0 {
-		a.statusbar.SetSearch(fmt.Sprintf("%s%s  no matches", scope.prefix(), query))
-		return nil
-	}
 	a.search = &activeSearch{
 		scope:   scope,
 		target:  a.searchTarget(scope),
@@ -252,20 +267,12 @@ func (a *App) runListSearch(scope searchScope, query string) tea.Cmd {
 		matches: matches,
 		idx:     start,
 	}
+	if len(matches) == 0 {
+		a.statusbar.SetSearch(a.search.indicator())
+		return nil
+	}
 	a.showSearchHighlights(scope, terms)
 	return a.jumpToCurrentMatch()
-}
-
-// foldedSearchTerms splits a query into whitespace-separated terms,
-// each folded (text.Fold) — the derivation the channel FTS path uses
-// (cmd/slk SearchChannel), so the scopes highlight alike.
-func foldedSearchTerms(query string) []string {
-	fields := strings.Fields(query)
-	terms := make([]string, 0, len(fields))
-	for _, f := range fields {
-		terms = append(terms, text.Fold(f))
-	}
-	return terms
 }
 
 // showSearchHighlights paints terms in the content pane scope searches

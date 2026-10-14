@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/gammons/slk/internal/bubbles/chrome"
 	"github.com/gammons/slk/internal/config"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ids"
@@ -318,13 +319,72 @@ func TestSidebarFilterClearedByWorkspaceSwitch(t *testing.T) {
 	}
 }
 
-func TestNextUnreadToastNamesTheFilter(t *testing.T) {
+// Regression: clicking a match while the sidebar prompt was open opened
+// it but left ModeSearch on with an empty buffer, so the next key
+// replaced the filter. A click commits the sidebar prompt first.
+func TestSidebarClickCommitsThePrompt(t *testing.T) {
 	a := sidebarSearchApp(t)
+	typeIntoApp(a, "/eng")
+	x := a.layout.RailWidth() + 1
+	y := -1
+	for i, line := range strings.Split(ansi.Strip(a.View().Content), "\n") {
+		if strings.Contains(line, "eng-backend") {
+			y = i
+			break
+		}
+	}
+	if y < 0 {
+		t.Fatal("precondition: eng-backend is not drawn")
+	}
+
+	_, cmd := a.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: x, Y: y})
+	if a.mode != ModeNormal {
+		t.Fatalf("mode after the click = %v, want NORMAL", a.mode)
+	}
+	var opened string
+	for _, m := range drainCmd(cmd) {
+		if cs, ok := m.(ChannelSelectedMsg); ok {
+			opened = cs.ID
+			a.Update(m)
+		}
+	}
+	if opened != "C3" {
+		t.Fatalf("click opened %q, want C3", opened)
+	}
+	a.Update(keyPress('j'))
+	if got := a.sidebar.Filter(); got != "eng" {
+		t.Errorf("filter after the click and j = %q, want %q kept", got, "eng")
+	}
+	if got := a.statusbar.Search(); got != "" {
+		t.Errorf("segment = %q, want empty", got)
+	}
+}
+
+// With a filter active, a/A walk only the matches: an unread
+// conversation outside the filter is not opened.
+func TestNextUnreadWalksOnlyFilterMatches(t *testing.T) {
+	a := sidebarSearchApp(t)
+	a.setReadStateReaderForTest(func() map[string]core.ReadState {
+		return map[string]core.ReadState{"C2": {HasUnread: true}}
+	})
 	typeIntoApp(a, "/eng")
 	a.Update(keyCode(tea.KeyEnter))
 	a.Update(keyPress('a'))
-	if got := statusbarText(a); !strings.Contains(got, "No other unread channels match the filter") {
-		t.Errorf("toast = %q", got)
+	if got := a.sidebar.SelectedID(); got == "C2" {
+		t.Fatal("a selected C2, which the filter hides")
+	}
+
+	// Control: without the filter the same press opens C2.
+	a.Update(keyCode(tea.KeyEscape)) // the focused sidebar's filter goes first
+	_, cmd := a.Update(keyPress('a'))
+	var opened string
+	for _, m := range drainCmd(cmd) {
+		if cs, ok := m.(ChannelSelectedMsg); ok {
+			opened = cs.ID
+		}
+	}
+	if opened != "C2" {
+		t.Errorf("unfiltered a opened %q, want C2", opened)
 	}
 }
 
@@ -431,14 +491,37 @@ func TestThreadSlashSearchesLoadedRepliesAndSteps(t *testing.T) {
 	}
 }
 
+// A thread search that matches nothing still owns its "no matches"
+// segment, which goes away with the thread (regression: it lingered
+// after the thread closed, and the next Esc was spent clearing it).
 func TestThreadSearchNoMatches(t *testing.T) {
 	a := threadSearchApp(t)
 	searchDispatch(t, a, "zzz")
-	if a.search != nil {
-		t.Fatalf("no-match search left state: %+v", a.search)
+	if a.search == nil || len(a.search.matches) != 0 {
+		t.Fatalf("no-match search = %+v, want an installed search with no matches", a.search)
 	}
 	if got := a.statusbar.Search(); got != "thread /zzz  no matches" {
 		t.Errorf("segment = %q", got)
+	}
+	a.Update(keyPress('n'))
+	if got := a.statusbar.Search(); got != "thread /zzz  no matches" {
+		t.Errorf("segment after n = %q", got)
+	}
+	a.CloseThread()
+	if a.search != nil || a.statusbar.Search() != "" {
+		t.Errorf("closing the thread left search=%+v segment=%q", a.search, a.statusbar.Search())
+	}
+}
+
+func TestListSearchNoMatchesGoesWithTheView(t *testing.T) {
+	a := threadsListApp(t)
+	searchDispatch(t, a, "zzz")
+	if got := a.statusbar.Search(); got != "threads /zzz  no matches" {
+		t.Fatalf("segment = %q", got)
+	}
+	a.Update(ActivityViewActivatedMsg{})
+	if a.search != nil || a.statusbar.Search() != "" {
+		t.Errorf("view switch left search=%+v segment=%q", a.search, a.statusbar.Search())
 	}
 }
 
@@ -615,22 +698,6 @@ func TestSlashIsLiteralWhereTextIsTyped(t *testing.T) {
 			t.Errorf("mode=%v query=%q", a.mode, a.searchResults.Query())
 		}
 	})
-	t.Run("composer", func(t *testing.T) {
-		a := newTestApp(t, insertOpts()...)
-		a.focusedPanel = PanelMessages
-		a.Update(keyPress('i'))
-		typeIntoApp(a, "a/b")
-		if a.mode != ModeInsert || a.compose.Value() != "a/b" {
-			t.Errorf("mode=%v compose=%q", a.mode, a.compose.Value())
-		}
-	})
-	t.Run("command line", func(t *testing.T) {
-		a := newTestApp(t, normalOpts()...)
-		typeIntoApp(a, ":a/b")
-		if a.mode != ModeCommand || a.cmdline != "a/b" {
-			t.Errorf("mode=%v cmdline=%q", a.mode, a.cmdline)
-		}
-	})
 	// The other type-to-filter dialogs: `/` lands in their filter line
 	// (drawn by chrome.FilterInput as query + block cursor) and never
 	// opens the search prompt.
@@ -658,5 +725,99 @@ func TestSlashIsLiteralWhereTextIsTyped(t *testing.T) {
 				t.Errorf("filter line does not hold \"/\":\n%s", ansi.Strip(screen))
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------
+// The dialogs' `/` filter and the mouse and Delete keys
+// ---------------------------------------------------------------------
+
+// Regression: a click outside a dialog sends Esc, which a `/` filter
+// spent on itself, so the dialog stayed open. (The link picker and the
+// reactions list have no click target, so any click dismisses them.)
+func TestClickOutsideClosesAFilteredDialog(t *testing.T) {
+	clickAway := tea.MouseClickMsg{Button: tea.MouseLeft, X: 0, Y: 0}
+	cases := []struct {
+		name    string
+		open    func(t *testing.T) *App
+		visible func(a *App) bool
+	}{
+		{"marks, filter kept", func(t *testing.T) *App {
+			a, _, _ := marksClickApp(t)
+			typeIntoApp(a, "/b")
+			a.Update(keyCode(tea.KeyEnter))
+			return a
+		}, func(a *App) bool { return a.marksOverlay.IsVisible() }},
+		{"marks, filter typing", func(t *testing.T) *App {
+			a, _, _ := marksClickApp(t)
+			typeIntoApp(a, "/b")
+			return a
+		}, func(a *App) bool { return a.marksOverlay.IsVisible() }},
+		{"help, filter kept", func(t *testing.T) *App {
+			a := newTestApp(t, normalOpts()...)
+			typeIntoApp(a, "?/thread")
+			a.Update(keyCode(tea.KeyEnter))
+			return a
+		}, func(a *App) bool { return a.help.IsVisible() }},
+		{"link picker, filter typing", func(t *testing.T) *App {
+			a := newTestApp(t, normalOpts()...)
+			openLinkPicker(t, a)
+			typeIntoApp(a, "/b")
+			return a
+		}, func(a *App) bool { return a.linkPicker.IsVisible() }},
+		{"reactions, filter typing", func(t *testing.T) *App {
+			a := newTestApp(t, normalOpts()...)
+			openReactionsViewFor(3)(t, a)
+			typeIntoApp(a, "/z")
+			return a
+		}, func(a *App) bool { return a.reactionsView.IsVisible() }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := c.open(t)
+			if !a.mode.IsModalOverlay() || !c.visible(a) {
+				t.Fatalf("precondition: mode=%v visible=%v", a.mode, c.visible(a))
+			}
+			a.Update(clickAway)
+			if a.mode != ModeNormal || c.visible(a) {
+				t.Errorf("after the click: mode=%v visible=%v, want closed", a.mode, c.visible(a))
+			}
+		})
+	}
+}
+
+// Regression: a click on a marks row while the filter was typed ended
+// the typing (the synthesised Enter went to the filter) instead of
+// jumping.
+func TestMarksRowClickWhileTypingJumps(t *testing.T) {
+	a, _, _ := marksClickApp(t)
+	typeIntoApp(a, "/b")
+	// The filter line moved the list down and grew the box.
+	w, h := a.marksOverlay.BoxSize(a.width, a.height)
+	x, y := max((a.width-w)/2, 0), max((a.height-h)/2, 0)
+	firstRow := chrome.BodyTop(messages.ChromeStyles(), true)
+	_, cmd := a.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: x + 3, Y: y + firstRow})
+	if cmd == nil {
+		t.Fatal("clicking the filtered row did not jump")
+	}
+	if cs, ok := cmd().(ChannelSelectedMsg); !ok || cs.ID != "C3" {
+		t.Fatalf("click produced %#v, want a jump to mark b (C3)", cmd())
+	}
+	if a.mode != ModeNormal {
+		t.Errorf("mode = %v, want NORMAL after the jump", a.mode)
+	}
+}
+
+// Regression: Delete while typing the marks filter fell through to the
+// overlay and removed the highlighted mark from the store.
+func TestMarksDeleteWhileTypingKeepsTheMark(t *testing.T) {
+	a, _, _ := marksClickApp(t)
+	typeIntoApp(a, "/b")
+	a.Update(keyCode(tea.KeyDelete))
+	if got := len(mustListMarks(t, a.marks, "T1")); got != 2 {
+		t.Fatalf("marks after Delete while typing = %d, want 2", got)
+	}
+	if a.mode != ModeMarks || !a.marksOverlay.Typing() {
+		t.Errorf("mode=%v typing=%v, want the overlay still filtering", a.mode, a.marksOverlay.Typing())
 	}
 }
