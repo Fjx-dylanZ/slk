@@ -66,11 +66,15 @@ smoke).
   last repeatable change. Exhaustively unit-tested on strings.
 - **`compose.Model` adapter** (`internal/ui/compose/vim.go`) — translates
   `tea.KeyMsg` into `vimedit.Key`, hands the engine the textarea's value and
-  cursor, and writes the result back (`SetValue` only when the text
-  changed, then positions the cursor with the textarea's public cursor API,
-  then lets the textarea reposition its viewport). Paints the visual
-  selection. In INSERT the adapter steps aside entirely: typing, pickers,
-  paste and attachments run through the existing code unchanged.
+  cursor, and writes the result back. When the text changed it rebuilds the
+  textarea around the cursor (the text after it, then the text before it
+  inserted at the start), which lands the cursor exactly in linear time;
+  a pure move walks the cursor with the textarea's public API, a page at a
+  time over long distances (each step re-scrolls the viewport, which costs
+  every row above the cursor, so a row-by-row walk is quadratic). Paints
+  the visual selection. In INSERT the adapter steps aside entirely: typing,
+  pickers, paste and attachments run through the existing code unchanged.
+  A blurred composer takes no keys, with vim mode on as with it off.
 - **App glue** (`internal/ui/compose_vim.go`, `mode_insert.go`) — routes
   Esc and Enter, keeps app-level keys working, labels the status bar.
 
@@ -139,8 +143,10 @@ The mode segment shows `INSERT` (unchanged), `C-NORMAL`, `VISUAL` or
 (Esc leaves the composer) from app NORMAL. `C-NORMAL` uses the NORMAL style;
 `VISUAL` / `V-LINE` use the `COMMAND` (warning) style, the way vim themes
 colour visual mode differently. `App.syncComposeModeLabel` sets it after
-every insert-mode key; `SetMode(ModeInsert)` already shows `INSERT`, which is
-the sub-mode every entry lands in.
+every insert-mode key and wherever a selection can end without one (a
+bracketed paste, `$EDITOR` returning, a draft switch);
+`SetMode(ModeInsert)` already shows `INSERT`, which is the sub-mode every
+entry lands in.
 
 Cursor shape: the composer draws the textarea's *virtual* cursor (a
 reverse-video cell; the App never positions the terminal cursor), so it is a
@@ -153,8 +159,14 @@ The visual selection is painted with `styles.SelectionStyle()` over the
 textarea's rendered rows. The rows a byte range occupies come from the
 textarea's own soft wrap: a scratch textarea of the same width reports each
 row's start through its public `LineInfo()`, so the painter cannot drift
-from the textarea's wrapping. `lipgloss.StyleRanges` applies the style by
-cell, ANSI-safe; the cursor cell is left as the textarea drew it.
+from the textarea's wrapping. Only lines that can wrap pay for that: a
+line narrower than the wrap width is one row (the textarea's wrap only
+starts a row once a row plus its pending word reaches the width), a
+shortcut a test holds in step with the textarea; the walk stops below the
+last visible row. `lipgloss.StyleRanges` applies the style by cell,
+ANSI-safe; the cursor cell is left as the textarea drew it. An empty line
+inside the selection shows one painted cell, the last line of a `V`
+selection and an empty last line of the draft included.
 
 ### 3.7 Text model: graphemes
 
@@ -197,7 +209,11 @@ ends at column 0 of a later line stops at the end of the previous line, and
 becomes linewise when it started in the indent (`:help exclusive-linewise`);
 `i{` on a block whose braces sit on their own lines operates on the inner
 lines linewise (`di{` leaves `{` / `}`, `ci{` leaves an empty line to type
-on); `;` after `t` does not get stuck on the adjacent match.
+on), and when only the open brace ends its line the object starts on the
+next line (`di{` on `{⏎  foo }` leaves `{⏎}`); `;` after `t` does not get
+stuck on the adjacent match, unless a count is given; `$` in VISUAL takes
+in the line break (`v$d` joins the line with the next, `v$y` yanks it),
+also on the lines `j`/`k` reach after it.
 
 **Register.** One unnamed register, charwise or linewise, shared by both
 composers (vim's registers are global): yank in a thread, put in the
@@ -235,7 +251,9 @@ are not repeatable (`.` after one does nothing).
 - `Update`: in NORMAL/VISUAL every key goes to the engine; a bracketed paste
   is checkpointed then inserted by the textarea; in INSERT nothing changes.
 - New methods: `SetVimMode(*vimedit.Register)`, `VimMode()`, `VimNormal()`,
-  `VimBusy()`, `VimEscape()`.
+  `VimBusy()`, `VimEscape()` (all report vim off for a blurred composer).
+- The help overlay lists three vim entries while vim mode is on
+  (`KeyMap.setComposeVimHelp`), none when it is off.
 - `handleInsertMode`: Esc asks `VimEscape()` after the picker checks;
   Enter asks `VimBusy()`; newline keys are ignored in NORMAL; Up/Down jumps
   and the typing indicator only in INSERT; the mode label is synced on the
