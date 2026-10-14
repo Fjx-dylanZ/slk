@@ -62,6 +62,10 @@ quiet_hours = "22:00-08:00"   # planned
 
 [compose]
 editor = "nvim"   # Ctrl+E editor, used when $VISUAL and $EDITOR are unset
+# Vim editing inside the composer: Esc while typing goes to a vim NORMAL
+# mode (motions, operators, text objects, visual, undo, `.`) instead of
+# leaving; a second Esc leaves. Enter still sends. Off by default.
+vim_mode = false
 
 [cache]
 message_retention_days = 30
