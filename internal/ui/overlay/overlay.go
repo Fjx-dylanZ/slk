@@ -128,9 +128,9 @@ func DimmedOverlay(width, height int, background string, box string, dimPercent 
 	// Fix: for any modal row that contains a kitty placeholder rune,
 	// splice the ORIGINAL box row (exact byte-for-byte SGR + rune +
 	// diacritic sequence) into the corresponding output row at column
-	// startX. Use ansi-aware Truncate / TruncateLeft so the splice is
-	// width-correct and doesn't break escape sequences in the
-	// surrounding (dimmed background) content.
+	// startX, with splice (the one implementation Place uses too), so
+	// the splice is width-correct and doesn't break escape sequences in
+	// the surrounding (dimmed background) content.
 	hasPlacement := false
 	boxLines := strings.Split(box, "\n")
 	for _, ln := range boxLines {
@@ -152,14 +152,7 @@ func DimmedOverlay(width, height int, background string, box string, dimPercent 
 		if outRow < 0 || outRow >= len(outputLines) {
 			continue
 		}
-		original := outputLines[outRow]
-		prefix := ansi.Truncate(original, startX, "")
-		suffix := ansi.TruncateLeft(original, startX+modalW, "")
-		// Reset between prefix and modal content so the dimmed
-		// background's SGR doesn't leak into the placement; the
-		// placement string itself begins with its own FG SGR. Same
-		// for the trailing edge.
-		outputLines[outRow] = prefix + "\x1b[m" + boxLine + "\x1b[m" + suffix
+		outputLines[outRow] = splice(outputLines[outRow], boxLine, startX)
 	}
 	return strings.Join(outputLines, "\n")
 }
@@ -176,29 +169,79 @@ func DimmedOverlay(width, height int, background string, box string, dimPercent 
 // part of the image while the cells under it show the box. A wide
 // character the box's edge cuts in half becomes a space.
 func Place(background, box string, x, y int) string {
-	lines := strings.Split(background, "\n")
-	for i, row := range strings.Split(box, "\n") {
-		if n := y + i; n >= 0 && n < len(lines) {
-			lines[n] = splice(lines[n], row, x)
+	rows := strings.Split(box, "\n")
+	// Copy the rows above the box and below it as they are: only the
+	// rows it covers are parsed.
+	start := 0
+	for range y {
+		i := strings.IndexByte(background[start:], '\n')
+		if i < 0 {
+			return background // the box is below the last row
 		}
+		start += i + 1
 	}
-	return strings.Join(lines, "\n")
+	var b strings.Builder
+	b.Grow(len(background) + len(box) + 8*len(rows))
+	b.WriteString(background[:start])
+	rest := background[start:]
+	for i, row := range rows {
+		if y+i < 0 {
+			continue // above the first row
+		}
+		line, after, more := strings.Cut(rest, "\n")
+		b.WriteString(splice(line, row, x))
+		if !more {
+			rest = ""
+			break
+		}
+		b.WriteByte('\n')
+		rest = after
+	}
+	b.WriteString(rest)
+	return b.String()
 }
 
-// splice replaces the cells of line from column x on with row, keeping
-// the rest of line's cells and every escape sequence of the parts kept.
+// splice replaces the cells of line from column x on with row: line's
+// cells before x, a reset, row, a reset, then line's cells after the
+// row's width. Every escape sequence of line is kept on both sides, so
+// the cells after the box get back the style (or kitty image colour, or
+// open hyperlink) they had, and whatever line closes after x is closed
+// before the box. A wide character the box's edge cuts in half becomes
+// a space in its style, so the line keeps its width (a line shorter
+// than x is padded to it). One pass over line.
 func splice(line, row string, x int) string {
-	w := ansi.StringWidth(row)
-	prefix := ansi.Truncate(line, x, "")
-	if pw := ansi.StringWidth(prefix); pw < x {
-		prefix += strings.Repeat(" ", x-pw) // a wide character straddled x
+	end := x + ansi.StringWidth(row)
+	var pre, suf strings.Builder
+	pre.Grow(len(line))
+	suf.Grow(len(line))
+	col := 0
+	var state byte
+	for s := line; s != ""; {
+		seq, w, n, next := ansi.DecodeSequence(s, state, nil)
+		if n == 0 {
+			break
+		}
+		state, s = next, s[n:]
+		switch {
+		case w == 0: // an escape sequence or control: both sides keep it
+			pre.WriteString(seq)
+			suf.WriteString(seq)
+		case col+w <= x:
+			pre.WriteString(seq)
+		case col >= end:
+			suf.WriteString(seq)
+		default: // under the box, or cut by one of its edges
+			if col < x {
+				pre.WriteString(strings.Repeat(" ", x-col))
+			}
+			if col+w > end {
+				suf.WriteString(strings.Repeat(" ", col+w-end))
+			}
+		}
+		col += w
 	}
-	right := max(ansi.StringWidth(line)-x-w, 0)
-	suffix := ansi.TruncateLeft(line, x+w, "")
-	if ansi.StringWidth(suffix) > right {
-		// A wide character straddles the box's right edge: drop it and
-		// keep its second column as a space, in the style around it.
-		suffix = ansi.TruncateLeft(line, x+w+1, " ")
+	if col < x {
+		pre.WriteString(strings.Repeat(" ", x-col))
 	}
-	return prefix + "\x1b[m" + row + "\x1b[m" + suffix
+	return pre.String() + "\x1b[m" + row + "\x1b[m" + suf.String()
 }

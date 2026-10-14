@@ -54,21 +54,45 @@ func TestPlaceKeepsEverythingOutsideTheBox(t *testing.T) {
 }
 
 // A wide character the box's edge cuts in half leaves a space in its
-// other column; the row keeps its width.
+// other column; the row keeps its width, also when the cut character
+// ends the line, and a line shorter than the box's left edge is padded.
 func TestPlaceSplitsWideCharacters(t *testing.T) {
-	const bg = "a界bcd" // 界 is columns 1-2
 	for _, tc := range []struct {
-		x    int
+		bg, box string
+		x       int
+		want    string
+	}{
+		{"a界bcd", "X", 0, "X界bcd"}, // 界 is columns 1-2
+		{"a界bcd", "X", 1, "aX bcd"},
+		{"a界bcd", "X", 2, "a Xbcd"},
+		{"a界bcd", "X", 3, "a界Xcd"},
+		{"ab界", "XY", 1, "aXY "}, // the right edge cuts the last character
+		{"a界", "XY", 0, "XY "},
+		{"ab", "X", 4, "ab  X"},
+	} {
+		got := ansi.Strip(overlay.Place(tc.bg, tc.box, tc.x, 0))
+		if got != tc.want {
+			t.Errorf("Place(%q, %q, %d): %q, want %q", tc.bg, tc.box, tc.x, got, tc.want)
+		}
+	}
+}
+
+// Place leaves the rows outside the box alone, also when the box
+// starts above the first row or runs past the last one, and returns the
+// background unchanged for a box below it.
+func TestPlaceRows(t *testing.T) {
+	const bg = "aaa\nbbb\nccc"
+	for _, tc := range []struct {
+		y    int
 		want string
 	}{
-		{0, "X界bcd"},
-		{1, "aX bcd"},
-		{2, "a Xbcd"},
-		{3, "a界Xcd"},
+		{0, "Xaa\nYbb\nccc"},
+		{2, "aaa\nbbb\nXcc"},
+		{-1, "Yaa\nbbb\nccc"},
+		{3, bg},
 	} {
-		got := ansi.Strip(overlay.Place(bg, "X", tc.x, 0))
-		if got != tc.want {
-			t.Errorf("x=%d: %q, want %q", tc.x, got, tc.want)
+		if got := ansi.Strip(overlay.Place(bg, "X\nY", 0, tc.y)); got != tc.want {
+			t.Errorf("y=%d: %q, want %q", tc.y, got, tc.want)
 		}
 	}
 }
