@@ -196,7 +196,10 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 		return nil
 	}
 	a.setView(ViewChannels)
+	// The channel view replaces either list, so neither sidebar row is
+	// the view on screen any more (as in reduceChannelSelected).
 	a.sidebar.SetThreadsActive(false)
+	a.sidebar.SetActivityActive(false)
 	a.lastOpenedChannelID = ""
 	a.lastOpenedThreadTS = ""
 	a.focusedPanel = PanelMessages
