@@ -10,7 +10,7 @@
 - Emoji shortcodes (`:rocket:` → 🚀)
 - Day separators (Today, Yesterday, Monday, full date)
 - Infinite scroll backfill into SQLite cache
-- Search: vim-style in-channel search (`/`, `n`/`N`) over cached history, plus server-side workspace search (`Ctrl+f`) with `from:` / `in:` / `before:` modifiers
+- Search: vim-style `/` that searches whatever has focus — the channel's cached history, the open thread's replies, the Threads / Activity lists, or a live name filter in the sidebar — with `n`/`N` between matches; `/` also filters the help, marks, link and reactions lists; plus server-side workspace search (`Ctrl+f`) with `from:` / `in:` / `before:` modifiers
 - New-message landmark (red `── new ──` line at the unread boundary)
 - Mark-as-read synced to Slack on channel entry
 - Mark-as-unread (`U`) — rolls the read watermark backward to the selected message; thread replies supported. Inbound `channel_marked` / `thread_marked` events from other Slack clients are reflected live.

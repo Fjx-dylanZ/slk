@@ -244,7 +244,9 @@ keeps its own rows, selection and keys and filters its rows through it
 | typing | `enter` | stop typing, keep the filter |
 | typing | `esc` | stop typing, clear the filter |
 | typing | `up`/`down`/`ctrl+n`/`ctrl+p` | not consumed: the dialog moves its selection through the filtered rows |
+| filter kept | `/` | resume typing the kept query |
 | filter kept | `esc` | clear the filter (consumed); the next `esc` is the dialog's own close |
+| filter kept | the dialog's other close keys (`q`, `L`, `?`) | close, as without a filter |
 | any | other keys | not consumed |
 
 Input line: typing → `chrome.FilterInput(query, placeholder)`; filter
