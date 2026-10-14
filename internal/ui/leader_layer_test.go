@@ -228,13 +228,13 @@ func TestNvimLeaderLayer(t *testing.T) {
 	}
 }
 
-// The which-key hint shows a group as "f …" and, inside it, its
-// continuations.
+// The which-key hint shows an unlabelled group as "f +…" and, inside
+// it, its continuations.
 func TestNvimLeaderHints(t *testing.T) {
 	a := nvimApp(t)
 	typeTokens(t, a, "space")
 	h := hint(a)
-	for _, want := range []string{"space …  w window  f …  space channel  / search  s …  a activity", "e sidebar", "? help", "q close thread"} {
+	for _, want := range []string{"space …  w +windows  f +…  space channel  / search  s +…  a activity", "e sidebar", "? help", "q close thread"} {
 		if !strings.Contains(h, want) {
 			t.Errorf("hint %q lacks %q", h, want)
 		}
@@ -289,7 +289,7 @@ func TestLeaderMapRemoveAndReplace(t *testing.T) {
 		a := newTestApp(t, withSize(200, 50))
 		withLeaderMap(t, a, map[string][]string{"window_commands": {}})
 		typeTokens(t, a, `\`)
-		if strings.Contains(hint(a), "w window") {
+		if strings.Contains(hint(a), "w +windows") {
 			t.Errorf("hint %q still offers w", hint(a))
 		}
 		typeTokens(t, a, "w", "v")

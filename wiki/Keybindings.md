@@ -75,17 +75,21 @@
 
 In Normal mode the leader key (default `\`, set with `[keys] leader` — see
 [[Configuration]]) starts a sequence. The status bar lists the keys that can
-follow. `Esc` cancels; any other key cancels too and does nothing else. There
-is no timeout.
+follow and, after a short pause, the key-hints menu does too (see
+[Key hints menu](#key-hints-menu)). `Esc` cancels; `Backspace` goes back a
+level; any other key cancels too and does nothing else. There is no
+timeout.
 
 The default layer below has one rule: the leader stands in for `Ctrl`, so
-each entry is the letter of the chord it mirrors (`\ t` is `Ctrl+t`). You
+each entry is the letter of the chord it mirrors (`\ t` is `Ctrl+t`); `\ ?`,
+the menu of the keys for the focused pane, has no chord to mirror. You
 can change it in `[keys.leader_map]` — see [[Configuration]] → Leader map
 for the actions, which also include help, close thread, back/forward,
 next/previous unread, next/previous theme, the `:` command line and quit,
 and for a neovim-style setup (`space f f`, `space s g`, `space e`, …).
-Several keys after the leader make a group: the status bar shows `f …`, then
-what can follow it.
+Several keys after the leader make a group: the status bar shows `f +…`
+(or `f +find`, labelled in `[keys.leader_groups]`), then what can follow
+it.
 
 | Keys | Action | Same as |
 |---|---|---|
@@ -100,6 +104,7 @@ what can follow it.
 | `\ Y` | Set the default theme | `Ctrl+Shift+y` |
 | `\ b` | Toggle sidebar | `Ctrl+b` |
 | `\ ]` | Close the thread panel | `Ctrl+]` |
+| `\ ?` | The key-hints menu for the focused pane | — |
 
 The leader only works in Normal mode; in Insert mode, prompts and dialogs it
 is an ordinary key.
@@ -121,6 +126,30 @@ side, the thread still counts as being to the right of the messages, so `l`
 brings it to the front and `h` goes back; from the sidebar, `l` enters
 whichever of the two is in front. Moving to another split window closes an
 open thread, as switching windows always has.
+
+## Key hints menu
+
+When you pause after a key that waits for more — the leader, `Ctrl+w`,
+`g` (of `gg`), `m` (set a mark), and `'` when `show_jump_overlay = false`
+— a panel at the bottom right lists every key that can follow, with what
+it does (`m` and `'` list your marks and where they point). It appears
+after 300 ms, so a sequence you type fluently never shows it, and stays
+open as you go deeper.
+
+| Key | In the menu |
+|---|---|
+| a listed key | does what it always does (the menu only shows what is pending) |
+| `Backspace` | back one level; from the first level, close |
+| `Esc` | close (cancel the sequence) |
+| `Ctrl+d` / `Ctrl+u` | next / previous page, when the list is longer than the screen |
+
+`\ ?` (`key_hints` in `[keys.leader_map]`) opens the menu at once with
+the single keys that act where you are: different for the sidebar
+(including your `sidebar_open` / `sidebar_toggle_section` keys), the
+messages, the thread, and the Threads and Activity lists. A key from it
+runs as if typed in Normal mode; a key not listed just closes the menu.
+`[keys] key_hints` and `key_hints_delay` turn the menu off or change the
+pause — see [[Configuration]] → Key hints.
 
 ## Sidebar keys
 

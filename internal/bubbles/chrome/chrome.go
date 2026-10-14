@@ -1,16 +1,18 @@
 // Package chrome is the dialog chrome slk's dialogs and composer popups
 // share: the bordered box, the title / input / body / footer layout, the
-// filter line, the selected-row marker, the list window and the
-// scrollbar gutter. It holds no state. A dialog keeps its own fields,
-// matching, row content and keys, renders its rows as strings, and
-// draws them through this package. The theme arrives as a Styles; the
-// App builds one from its palette (messages.ChromeStyles).
+// filter line, the selected-row marker, the list window, the scrollbar
+// gutter, and the floating panel with its title and footer in the
+// border. It holds no state. A dialog keeps its own fields, matching,
+// row content and keys, renders its rows as strings, and draws them
+// through this package. The theme arrives as a Styles; the App builds
+// one from its palette (messages.ChromeStyles).
 package chrome
 
 import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"github.com/gammons/slk/internal/bubbles/ansi"
 )
@@ -119,4 +121,37 @@ func PopupMarker(s Styles, selected bool) string {
 		return s.PopupMarker.Render("▌ ")
 	}
 	return "  "
+}
+
+// Panel draws a floating panel width columns wide: content inside
+// s.Box's border with one column of padding at each side and none above
+// or below, title set into the top border in s.Title and footer into
+// the bottom one in s.Footer. Either is cut to fit, and left out when
+// empty. Content lines must fit width-4 columns. The which-key menu is
+// one: a box over the screen whose border says what it is.
+func Panel(s Styles, title, footer, content string, width int) string {
+	b := s.Box.GetBorderStyle()
+	edge := lipgloss.NewStyle().
+		Foreground(s.Box.GetBorderTopForeground()).
+		Background(s.Box.GetBorderTopBackground())
+	body := s.Box.BorderTop(false).BorderBottom(false).Padding(0, 1).Width(width).
+		Render(ansi.ReapplyAfterResets(content, s.BaseANSI))
+	return borderLine(edge, b.TopLeft, b.Top, b.TopRight, title, s.Title, width) + "\n" +
+		body + "\n" +
+		borderLine(edge, b.BottomLeft, b.Bottom, b.BottomRight, footer, s.Footer, width)
+}
+
+// borderLine is a horizontal border width columns wide between the
+// corners left and right: text in style after one fill cell, a space
+// either side of it, then fill to the corner. Text that does not fit is
+// cut with "…"; with no room for one cell of it, the line is all fill.
+func borderLine(edge lipgloss.Style, left, fill, right, text string, style lipgloss.Style, width int) string {
+	inner := max(width-2, 0)
+	room := inner - 3 // the fill cell and the spaces around the text
+	if text == "" || room < 1 {
+		return edge.Render(left + strings.Repeat(fill, inner) + right)
+	}
+	text = xansi.Truncate(text, room, "…")
+	rest := room - lipgloss.Width(text)
+	return edge.Render(left+fill+" ") + style.Render(text) + edge.Render(" "+strings.Repeat(fill, rest)+right)
 }

@@ -191,5 +191,6 @@ func DefaultKeyMap() KeyMap {
 // own default, and unbound in slk, so it displaces nothing.
 const defaultLeader = `\`
 
-// leaderHelpDesc describes the Leader binding in the help overlay.
-const leaderHelpDesc = "leader key (the status bar lists what follows)"
+// leaderHelpDesc describes the Leader binding in the help overlay: the
+// status bar and, after a pause, the key-hints menu list what follows.
+const leaderHelpDesc = "leader key (shows what can follow)"

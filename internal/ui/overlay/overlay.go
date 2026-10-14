@@ -163,3 +163,42 @@ func DimmedOverlay(width, height int, background string, box string, dimPercent 
 	}
 	return strings.Join(outputLines, "\n")
 }
+
+// Place composites box onto background with the box's top-left cell at
+// column x of row y, without dimming or centering: a floating panel over
+// the live screen (the which-key menu). Each row the box covers becomes
+// the background up to x, the box row, then the background after it;
+// rows and columns outside the box keep the background's bytes, escape
+// sequences included. That is what keeps kitty images whole around the
+// box: each placeholder cell carries its own row and column diacritics
+// (image.buildPlaceholderLines) and the row's ID colour survives in the
+// kept escapes, so the cells left and right of the box still draw their
+// part of the image while the cells under it show the box. A wide
+// character the box's edge cuts in half becomes a space.
+func Place(background, box string, x, y int) string {
+	lines := strings.Split(background, "\n")
+	for i, row := range strings.Split(box, "\n") {
+		if n := y + i; n >= 0 && n < len(lines) {
+			lines[n] = splice(lines[n], row, x)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// splice replaces the cells of line from column x on with row, keeping
+// the rest of line's cells and every escape sequence of the parts kept.
+func splice(line, row string, x int) string {
+	w := ansi.StringWidth(row)
+	prefix := ansi.Truncate(line, x, "")
+	if pw := ansi.StringWidth(prefix); pw < x {
+		prefix += strings.Repeat(" ", x-pw) // a wide character straddled x
+	}
+	right := max(ansi.StringWidth(line)-x-w, 0)
+	suffix := ansi.TruncateLeft(line, x+w, "")
+	if ansi.StringWidth(suffix) > right {
+		// A wide character straddles the box's right edge: drop it and
+		// keep its second column as a space, in the style around it.
+		suffix = ansi.TruncateLeft(line, x+w+1, " ")
+	}
+	return prefix + "\x1b[m" + row + "\x1b[m" + suffix
+}

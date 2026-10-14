@@ -27,9 +27,11 @@
 //     Q (quit confirm)
 //
 // Pending sub-states are intercepted FIRST (a key sequence, then gg,
-// m, '). The reaction-nav sub-state comes next: while in it, only a
-// narrow set of keys (arrows / Enter / r / Esc) does anything. Then a
-// key may start a sequence; everything else is handleNormalKey's.
+// m, '), after the page keys of a key-hints menu too long for the
+// screen (keyhints.go). The reaction-nav sub-state comes next: while in
+// it, only a narrow set of keys (arrows / Enter / r / Esc) does
+// anything. Then a key may start a sequence; everything else is
+// handleNormalKey's.
 package ui
 
 import (
@@ -42,6 +44,12 @@ import (
 )
 
 func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
+	// ctrl+d / ctrl+u turn the page of a key-hints menu that pages;
+	// the pending key it shows stays pending.
+	if a.pageKeyHints(msg) {
+		return nil
+	}
+
 	// Pending key sequence (ctrl+w, the leader): the key continues it
 	// (intercepted FIRST, like the reaction-nav sub-state below).
 	if a.pendingSeq.Pending() {

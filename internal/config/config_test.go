@@ -1,11 +1,13 @@
 package config
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gammons/slk/internal/core"
 )
@@ -682,9 +684,13 @@ sidebar_open = ["enter", "l"]
 [keys.leader_map]
 channel_finder = ["f f", "space"]
 workspace_search = ["/", "s g"]
+key_hints = ["s k"]
 toggle_sidebar = ["e"]
 help = ["?"]
 close_thread = ["q"]
+[keys.leader_groups]
+f = "find"
+s = "search"
 `
 
 // leaderLayerItems renders a resolved layer as "action=keys" items.
@@ -707,7 +713,7 @@ func TestConfig_KeysLeaderMap(t *testing.T) {
 		want := []string{"window_commands=w", "channel_finder=f f", "channel_finder=space",
 			"workspace_search=/", "workspace_search=s g", "toggle_activity=a", "new_message=n",
 			"switch_theme=y", "set_default_theme=Y", "toggle_sidebar=e", "toggle_thread=]",
-			"help=?", "close_thread=q"}
+			"key_hints=s k", "help=?", "close_thread=q"}
 		if got := leaderLayerItems(cfg.Keys.LeaderLayer()); !slices.Equal(got, want) {
 			t.Fatalf("layer =\n%q\nwant\n%q", got, want)
 		}
@@ -743,6 +749,7 @@ func TestConfig_KeysLeaderMapRejected(t *testing.T) {
 		{"undeliverable", `quit = ["ctrl+["]`, "[keys.leader_map] quit: \"ctrl+[\""},
 		{"the same sequence on two actions", "help = [\"h\"]\nquit = [\"h\"]", "[keys.leader_map] quit: \"h\" is also bound to help"},
 		{"one sequence begins another", "channel_finder = [\"f f\"]\nworkspace_search = [\"f\"]", "[keys.leader_map] workspace_search: \"f\" and channel_finder's \"f f\" overlap"},
+		{"backspace", `help = ["h backspace"]`, "[keys.leader_map] help: \"h backspace\": backspace goes back a level"},
 		{"not a list", `help = "?"`, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -754,6 +761,61 @@ func TestConfig_KeysLeaderMapRejected(t *testing.T) {
 				t.Fatalf("error = %q, want one starting %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// [keys] key_hints and key_hints_delay: unset leaves both to the UI; a
+// delay is milliseconds from 0 to 10000.
+func TestConfig_KeysHints(t *testing.T) {
+	unset := loadConfigString(t, "[keys]\nleader = \"space\"\n").Keys
+	if unset.KeyHints != nil || unset.HintsDelay() != nil {
+		t.Fatalf("unset: key_hints %v, delay %v; want both nil", unset.KeyHints, unset.HintsDelay())
+	}
+	set := loadConfigString(t, "[keys]\nkey_hints = false\nkey_hints_delay = 150\n").Keys
+	if set.KeyHints == nil || *set.KeyHints {
+		t.Fatalf("key_hints = %v, want false", set.KeyHints)
+	}
+	if d := set.HintsDelay(); d == nil || *d != 150*time.Millisecond {
+		t.Fatalf("delay = %v, want 150ms", d)
+	}
+	if d := loadConfigString(t, "[keys]\nkey_hints_delay = 0\n").Keys.HintsDelay(); d == nil || *d != 0 {
+		t.Fatalf("delay 0 = %v, want 0 (immediate), not unset", d)
+	}
+	for _, body := range []string{"key_hints_delay = -1", "key_hints_delay = 10001"} {
+		err := loadConfigErr(t, "[keys]\n"+body+"\n")
+		if err == nil || !strings.HasPrefix(err.Error(), "[keys] key_hints_delay: ") {
+			t.Errorf("%s: error = %v, want one naming [keys] key_hints_delay", body, err)
+		}
+	}
+}
+
+// [keys.leader_groups] labels the groups of the effective layer, keyed
+// by the normalized sequence; anything that is not a group stops
+// startup with an error naming the section and the sequence.
+func TestConfig_KeysLeaderGroups(t *testing.T) {
+	if got := loadConfigString(t, "[keys]\nleader = \"space\"\n").Keys.GroupLabels(); got != nil {
+		t.Fatalf("unset: %v, want nil", got)
+	}
+	if got, want := loadConfigString(t, nvimExampleConfig).Keys.GroupLabels(), map[string]string{"f": "find", "s": "search"}; !maps.Equal(got, want) {
+		t.Fatalf("nvim example labels = %q, want %q", got, want)
+	}
+	if got := loadConfigString(t, "[keys.leader_groups]\nw = \"win\"\n").Keys.GroupLabels(); got["w"] != "win" {
+		t.Fatalf("the default layer's window group: %q", got)
+	}
+	got := loadConfigString(t, "[keys.leader_map]\nhelp = [\"ctrl+x h\"]\n[keys.leader_groups]\n\"Ctrl+X\" = \"ctrl\"\n").Keys.GroupLabels()
+	if got["ctrl+x"] != "ctrl" {
+		t.Fatalf("normalized labels = %q, want ctrl+x", got)
+	}
+	for _, tc := range []struct{ body, want string }{
+		{`t = "x"`, `[keys.leader_groups] "t": not a group: it runs channel_finder`},
+		{`z = "x"`, `[keys.leader_groups] "z": not a group: no leader sequence begins with it`},
+		{`w = " "`, `[keys.leader_groups] "w": an empty label`},
+		{`esc = "x"`, `[keys.leader_groups] "esc": "esc": esc cancels`},
+	} {
+		err := loadConfigErr(t, "[keys.leader_groups]\n"+tc.body+"\n")
+		if err == nil || !strings.HasPrefix(err.Error(), tc.want) {
+			t.Errorf("%s: error = %v, want one starting %q", tc.body, err, tc.want)
+		}
 	}
 }
 

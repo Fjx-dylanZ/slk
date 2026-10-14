@@ -17,6 +17,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/gammons/slk/internal/bubbles/confirmprompt"
+	"github.com/gammons/slk/internal/bubbles/keyhints"
 	"github.com/gammons/slk/internal/bubbles/keyseq"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/debuglog"
@@ -175,14 +176,16 @@ type App struct {
 	winModels map[wintree.LeafID]*messages.Model
 
 	// sequences is Normal mode's key-sequence table (the leader layer
-	// and the ctrl+w window commands, keyseqs.go), built from keys and
-	// leaderSeqs. pendingSeq is the sequence being typed: Esc or an
-	// unbound key cancels; any mode change resets it (see SetMode).
-	// leaderSeqs is the configured leader layer (SetLeaderLayer); nil
-	// is the default one.
-	sequences  *keyseq.Map
-	pendingSeq keyseq.Sequence
-	leaderSeqs []core.LeaderSeq
+	// and the ctrl+w window commands, keyseqs.go), built from keys,
+	// leaderSeqs and leaderGroups. pendingSeq is the sequence being
+	// typed: Esc or an unbound key cancels; any mode change resets it
+	// (see SetMode). leaderSeqs is the configured leader layer
+	// (SetLeaderLayer); nil is the default one. leaderGroups labels its
+	// groups by sequence (SetLeaderGroups).
+	sequences    *keyseq.Map
+	pendingSeq   keyseq.Sequence
+	leaderSeqs   []core.LeaderSeq
+	leaderGroups map[string]string
 
 	// pendingTop is true between the first and second `g` of the vim
 	// `gg` chord (jump to top). Any other key cancels; any mode change
@@ -199,6 +202,15 @@ type App struct {
 	// letter; the next key names the mark to jump to (handleJumpChord,
 	// jump_mark.go). Mirrors pendingMark, including the SetMode disarm.
 	pendingJumpMark bool
+
+	// keyHints is the which-key menu of what may follow the pending key
+	// (keyhints.go), opened keyHintsDelay after it when keyHintsOn, or
+	// at once by the key_hints action. keyHintsSeq names the latest
+	// key, so only its delay tick can open the menu.
+	keyHints      keyhints.Model
+	keyHintsOn    bool
+	keyHintsDelay time.Duration
+	keyHintsSeq   uint64
 
 	// backJump is the vim-style '' back-jump slot: the single most
 	// recently departed location, written immediately before a mark
@@ -882,6 +894,8 @@ func NewApp() *App {
 		sidebarVisible:        true,
 		view:                  ViewChannels,
 		keys:                  DefaultKeyMap(),
+		keyHintsOn:            true,
+		keyHintsDelay:         defaultKeyHintsDelay,
 		selfSend:              newSelfSendDedup(),
 		bootstrap:             newWorkspaceBootstrap(),
 		windowTitle:           "slk",
@@ -1070,6 +1084,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reduceUserProfile,
 		reduceIO,
 		reduceMouse,
+		reduceKeyHints,
 	); handled {
 		if cmd != nil {
 			cmds = append(cmds, cmd)
@@ -1178,6 +1193,11 @@ func (a *App) handleKey(msg tea.KeyMsg) tea.Cmd {
 	// mode_handlers.go; unmapped modes fall back to Normal
 	// (mirrors the pre-Phase-5 `default:` arm).
 	cmd := dispatchModeKey(a, msg)
+	// The key-hints menu follows whatever key is pending now
+	// (keyhints.go): it closes, shows the new level, or waits.
+	if hints := a.syncKeyHints(); hints != nil {
+		cmd = tea.Batch(cmd, hints)
+	}
 	if pre != nil {
 		return tea.Batch(pre, cmd)
 	}
@@ -2121,9 +2141,10 @@ func (a *App) SetMode(mode Mode) {
 	}
 	// A mode change always resets a pending key sequence (ctrl+w, the
 	// leader) — a global intercept (e.g. ctrl+c quit-confirm) must not
-	// strand it armed. The `if` guard scopes the hint restore to chord
-	// disarms only, so other helpHint states aren't clobbered by
-	// unrelated mode changes.
+	// strand it armed — and closes the key-hints menu over it. The `if`
+	// guard scopes the hint restore to chord disarms only, so other
+	// helpHint states aren't clobbered by unrelated mode changes.
+	a.closeKeyHints()
 	if a.pendingSeq.Pending() || a.pendingTop {
 		a.pendingSeq.Reset()
 		a.pendingTop = false
@@ -3517,6 +3538,9 @@ func (a *App) View() tea.View {
 		}
 	}
 
+	// The key-hints menu goes over the finished frame, after the memo,
+	// so the memoized frame stays the one without it.
+	screen, hintsRect := a.placeKeyHints(screen)
 	v := tea.NewView(screen)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
@@ -3532,7 +3556,7 @@ func (a *App) View() tea.View {
 			int(a.focusedPanel), int(a.view), a.mode.String(),
 			a.threadVisible, a.sidebarVisible, previewActive)
 	}
-	return a.finalizeSixelView(v, a.collectSixelPlacements(frame))
+	return a.finalizeSixelView(v, hintsRect.outside(a.collectSixelPlacements(frame)))
 }
 
 // collectSixelPlacements gathers the desired sixel placements for the

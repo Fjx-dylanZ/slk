@@ -332,7 +332,7 @@ func TestLeaderDisplacesConfiguredSidebarKeys(t *testing.T) {
 		var want bool
 		onSidebarHeader(&section, &want)(t, a)
 		_ = dispatchModeKey(a, keyPress('x'))
-		if hint := stripANSI(a.statusbar.View(200)); !strings.Contains(hint, "x …  x toggle section  w window") {
+		if hint := stripANSI(a.statusbar.View(200)); !strings.Contains(hint, "x …  x toggle section  w +windows") {
 			t.Errorf("hint %q does not offer the displaced toggle", hint)
 		}
 		if a.sidebar.IsCollapsed(section) == want {
