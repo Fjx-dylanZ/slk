@@ -276,11 +276,9 @@ func Load(path string) (Config, error) {
 	}
 	cfg.Workspaces = resolved
 
-	leader, err := normalizeLeader(cfg.Keys.Leader)
-	if err != nil {
-		return cfg, fmt.Errorf("[keys] leader: %w", err)
+	if err := cfg.Keys.normalize(); err != nil {
+		return cfg, err
 	}
-	cfg.Keys.Leader = leader
 
 	// Clamp MouseWheelLines: 0 (unset, after a user supplied a partial
 	// [appearance] block without this key) and negative values both fall
