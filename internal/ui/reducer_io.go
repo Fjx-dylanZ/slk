@@ -335,6 +335,8 @@ func reducePaste(a *App, m tea.PasteMsg) tea.Cmd {
 	if a.mode != ModeInsert {
 		return nil
 	}
+	// A paste in vim VISUAL ends the selection.
+	defer a.syncComposeModeLabel()
 	if a.compose.Uploading() || a.threadCompose.Uploading() {
 		// Same in-flight draft invariant as handleInsertMode: a paste
 		// must not alter the uploading composer's caption/attachments.

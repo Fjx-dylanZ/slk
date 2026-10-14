@@ -72,6 +72,8 @@ func (a *App) openComposeInEditor() tea.Cmd {
 }
 
 func reduceEditorFinished(a *App, m EditorFinishedMsg) tea.Cmd {
+	// The text coming back replaces the draft and ends a vim selection.
+	defer a.syncComposeModeLabel()
 	target := &a.compose
 	if m.Panel == PanelThread {
 		target = &a.threadCompose

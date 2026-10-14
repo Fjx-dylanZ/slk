@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -213,6 +214,50 @@ func TestComposeVim_TypingIndicatorOnlyWhileTyping(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("typing in INSERT sent no typing event")
 	}
+}
+
+// VISUAL can end without a key reaching handleInsertMode: the text is
+// replaced from outside. The status bar must follow.
+func TestComposeVim_LabelFollowsAVisualEndedFromOutside(t *testing.T) {
+	inVisual := func(t *testing.T) *App {
+		t.Helper()
+		a := vimApp(t)
+		vimKeys(a, "iabc<esc>v")
+		if modeLabel(a) != "VISUAL" {
+			t.Fatalf("precondition: label %s", modeLabel(a))
+		}
+		return a
+	}
+	t.Run("bracketed paste", func(t *testing.T) {
+		a := inVisual(t)
+		a.Update(tea.PasteMsg{Content: "XY"})
+		if a.compose.Value() != "abXYc" || modeLabel(a) != "C-NORMAL" {
+			t.Errorf("after paste: draft %q label %s", a.compose.Value(), modeLabel(a))
+		}
+	})
+	t.Run("$EDITOR returns", func(t *testing.T) {
+		a := inVisual(t)
+		a.setEditorForTest()
+		f, err := os.CreateTemp(t.TempDir(), "slk-compose-*.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString("edited\n"); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+		a.Update(EditorFinishedMsg{Panel: PanelMessages, Path: f.Name()})
+		if a.compose.Value() != "edited" || modeLabel(a) != "C-NORMAL" {
+			t.Errorf("after the editor: draft %q label %s", a.compose.Value(), modeLabel(a))
+		}
+	})
+	t.Run("draft switch", func(t *testing.T) {
+		a := inVisual(t)
+		a.Update(ChannelSelectedMsg{ID: "C2", Name: "random", Type: "channel"})
+		if a.activeChannelID != "C2" || modeLabel(a) != "C-NORMAL" {
+			t.Errorf("after switching to C2: channel %s label %s", a.activeChannelID, modeLabel(a))
+		}
+	})
 }
 
 func TestComposeVim_PickerEscClosesThePickerFirst(t *testing.T) {

@@ -2069,6 +2069,7 @@ func (a *App) openThreadPanel(parent messages.MessageItem, channelID, threadTS s
 	a.threadCompose.SetChannel(a.threadComposeChannelName(channelID))
 	a.threadCompose.SetActiveChannel(channelID)
 	a.threadCompose.SetDraftContext(a.activeTeamID, channelID, threadTS)
+	a.syncComposeModeLabel() // the draft switch ends a vim selection
 	a.applyThreadBreadcrumb(channelID, "")
 	// A fresh thread must not inherit the previous thread's
 	// "also send to channel" toggle.
@@ -2334,6 +2335,7 @@ func (a *App) openSelectedThreadCmd(debounce bool) tea.Cmd {
 	a.threadCompose.SetChannel(a.threadComposeChannelName(sum.ChannelID))
 	a.threadCompose.SetActiveChannel(sum.ChannelID)
 	a.threadCompose.SetDraftContext(a.activeTeamID, sum.ChannelID, sum.ThreadTS)
+	a.syncComposeModeLabel() // the draft switch ends a vim selection
 	a.applyThreadBreadcrumb(sum.ChannelID, sum.ChannelType)
 	// A fresh thread must not inherit the previous thread's
 	// "also send to channel" toggle.

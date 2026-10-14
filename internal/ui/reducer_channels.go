@@ -308,6 +308,7 @@ func (a *App) retargetActiveChannel(id, name, chType string) {
 	a.compose.SetChannel(name)
 	a.compose.SetActiveChannel(id)
 	a.compose.SetDraftContext(a.activeTeamID, id, "")
+	a.syncComposeModeLabel() // the draft switch ends a vim selection
 	// Fire the membership fetcher on a fresh goroutine so it can't
 	// block the Update loop. Fire-and-forget -- results arrive
 	// later via ChannelMembershipMsg. main.go's MembershipFetch
