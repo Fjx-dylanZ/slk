@@ -66,11 +66,16 @@ func (a *App) newKeySequences() *keyseq.Map {
 // Normal-mode leader on the same key leaves them alone.
 var insertOnly = []string{"ToggleBroadcast", "OpenInEditor"}
 
+// chordTails names the KeyMap bindings whose key only follows g (the p
+// of gp). A leader on the same key leaves them alone too: the pending g
+// is handled before the leader, so gp still works.
+var chordTails = []string{"ViewInChannel"}
+
 // notDisplaceable names the KeyMap bindings a leader on the same key
 // does not take a Normal-mode action from: the leader itself, the
 // sequence prefixes (still reachable through the leader layer, e.g.
-// ctrl+w as <leader>w), and the Insert-only keys.
-var notDisplaceable = append([]string{"Leader", "WindowPrefix"}, insertOnly...)
+// ctrl+w as <leader>w), the Insert-only keys and the chord tails.
+var notDisplaceable = slices.Concat([]string{"Leader", "WindowPrefix"}, insertOnly, chordTails)
 
 // displacedBindings returns the Normal-mode KeyMap bindings whose key
 // the leader takes over, in KeyMap order. More than one when the key
@@ -95,13 +100,14 @@ func displacedBindings(km KeyMap, leader string) []key.Binding {
 // row is relabelled with the keys it keeps ("Y/C" → "C" for a Y leader)
 // or dropped when none are left. A keyless chord row under the leader's
 // key ("ctrl+w s / :sp" for a ctrl+w leader) is dropped too. The leader
-// layer's rows say what those keys do now.
+// layer's rows say what those keys do now. A chord tail keeps its row
+// ("gp" with a p leader): its key follows g, which the leader leaves.
 func helpKeyMap(km KeyMap, leader string) KeyMap {
 	v := reflect.ValueOf(&km).Elem()
 	for i := range v.NumField() {
 		name := v.Type().Field(i).Name
 		b, ok := v.Field(i).Interface().(key.Binding)
-		if !ok || name == "Leader" || slices.Contains(insertOnly, name) {
+		if !ok || name == "Leader" || slices.Contains(insertOnly, name) || slices.Contains(chordTails, name) {
 			continue
 		}
 		h := b.Help()

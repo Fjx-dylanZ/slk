@@ -375,8 +375,11 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 	a.sidebar.SetActivityActive(false)
 	a.lastOpenedChannelID = ""
 	a.lastOpenedThreadTS = ""
-	// Close thread panel when switching channels.
-	a.CloseThread()
+	// Close thread panel when switching channels, except the thread a
+	// view in channel is switching to the channel of: it belongs there.
+	if p := a.pendingLinkNav; p == nil || string(p.ChannelID) != m.ID || !p.keepsOpenThread(a) {
+		a.CloseThread()
+	}
 	a.clearSelections()
 	// Search state is per-channel: drop highlights, match list, and
 	// the status-line segment on every switch.

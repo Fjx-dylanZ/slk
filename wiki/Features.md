@@ -63,7 +63,14 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
   sends with broadcast in a single keystroke. An accent-colored
   `↪ also send to #channel` line under the input shows when it's armed; the
   toggle is non-sticky (cleared after send or when opening another thread).
-- Closes on channel switch
+- Closes on channel switch, except a switch to its own channel by view in
+  channel
+- **View in channel** (`gp` in the thread pane, or click the channel name in
+  the thread header): Slack's "View in channel" — from a thread opened in the
+  Activity or Threads view, by a permalink or a mark, switches to the channel
+  or DM the thread lives in with the parent message selected (loading the
+  history around it when needed) and keeps the thread open beside it, on the
+  reply you were reading. `Ctrl+h` returns to the channel you were in
 - **Threads view** (`⚑ Threads` at top of sidebar): scrollable list of every
   thread you authored, replied to, or were @-mentioned in for the active
   workspace. Unread first, then newest activity. Selecting a thread opens

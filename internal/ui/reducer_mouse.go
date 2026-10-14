@@ -328,6 +328,10 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		if !ok || panel != PanelThread || py < 0 {
 			return nil
 		}
+		// The channel name in the header breadcrumb is view in channel.
+		if a.threadPanel.BreadcrumbChannelAt(px, py) {
+			return a.viewThreadInChannel()
+		}
 		// Hit-test reactions and inline images first on the thread
 		// pane too.
 		if cmd, hit := a.toggleReactionAt(a.threadPanel, a.threadPanel.ChannelID(), a.threadPanel.Replies(), px, py); hit {

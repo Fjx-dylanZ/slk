@@ -69,31 +69,37 @@ navigation, not a `Location` field: a `Location` stays the shape of a
 permalink, and nothing records this shape (history and marks record
 positions, not panes).
 
-What `besideThread` changes:
+What `besideThread` changes: the thread pane is **kept**, not closed and
+reopened. `pendingLinkNav.keepsOpenThread` is true while the pane shows
+the navigation's thread, and in that case:
 
 - **In place** (the thread's channel is the active one): the channel view
   is shown and focus moves to the channel pane as for any in-place jump,
-  but the thread is not closed when it is the thread being kept
-  (`pendingLinkNav.keepsOpenThread`). The parent is selected; with the
-  channel's fetch still running it stays pending and the
+  but the thread is not closed. The parent is selected; if the channel's
+  fetch is still running, the target stays pending and the
   `MessagesLoadedMsg` arm re-selects it.
 - **Another channel**: `ChannelSelectedMsg` switches as usual (history
-  push, thread closed like every switch). On the first
-  `completePendingLinkNav` pass (the cache render) the thread is reopened
-  through `openThreadForPermalink` — parent row from the new buffer, the
-  thread cache, or a stub the replies fetch backfills, cached replies at
-  once — and focus goes back to the channel pane. Later passes find it
-  open and leave it.
-- **Parent not in the buffer**: unchanged pipeline — the authoritative
-  pass `FetchAround`s the parent (the thread open command is batched with
-  it), `MessagesAroundLoadedMsg` selects it, or toasts
-  `Message not found in loaded history` and keeps the position.
+  push, view, focus, compose retarget), except that
+  `reduceChannelSelected` does not close this thread. "A channel switch
+  closes the thread" exists because the old channel's thread does not
+  belong beside the new one. This thread does belong there, since the
+  switch goes to its channel. `completePendingLinkNav` then selects the
+  parent as for any jump.
+- **Parent not in the buffer**: unchanged pipeline. The authoritative
+  pass `FetchAround`s the parent, and `MessagesAroundLoadedMsg` either
+  selects it or toasts `Message not found in loaded history` and keeps
+  the position.
+
+Keeping the pane rather than reopening it keeps the reply the user was
+reading, the thread's scroll and its draft. It costs no refetch. It also
+can't come back as a stub: a reopen takes the parent row from the new
+buffer or the thread cache, and with both cold (the demo, a never-opened
+channel) the parent row comes up blank until a cache read fills it.
 
 Inherited unchanged: the `Upload in progress` refusal, the workspace guard
 (`TeamID` on the pending navigation and on `ChannelSelectedMsg`), the
-stale guards (a pending navigation for another channel is dropped; late
-`MessagesAroundLoadedMsg` and thread loads for a closed or other thread
-are ignored).
+stale guards (a pending navigation for another channel is dropped; a late
+`MessagesAroundLoadedMsg` for a channel left since is ignored).
 
 ### 3. Focus: the channel pane, on the parent
 
@@ -184,9 +190,9 @@ the same as before.
 - A successful navigation does not toast; the switch is the feedback.
   The messages-pane header and the status bar name the channel the way
   `ChannelSelectedMsg` always does (the `ChannelService.Lookup` name: the
-  sidebar's human name for a DM or group DM). The thread breadcrumb, set
-  again on the reopen by `applyThreadBreadcrumb`, shows the same name and
-  glyph (`● Priya Shah › Thread …`).
+  sidebar's human name for a DM or group DM). The kept thread's
+  breadcrumb already names the same conversation (`applyThreadBreadcrumb`
+  when it opened): `● Priya Shah › Thread …`.
 - Refusals toast: `No thread open`, `Upload in progress`,
   `Channel for this thread is unavailable`. A parent that cannot be found
   gets the existing `Message not found in loaded history`.
@@ -196,13 +202,16 @@ the same as before.
 1. **`currentPosition` with another channel's thread focused.** History
    records the active channel's position, but a focused thread opened
    from Activity or Threads can belong to any channel. Its location was
-   handed to `UpdateCurrent`, which dropped it because the channels differ,
-   so the active channel's entry kept a stale or channel-only position.
-   `Ctrl+h` after view in channel then landed on that channel's newest
-   message, not where the user was. Now, when the focused thread's channel
-   is not the active one, `currentPosition` reads the messages pane behind
-   it. Every departure from such a thread benefits (mark jumps, walks,
-   switches). A thread of the active channel still records the reply.
+   handed to `UpdateCurrent`, which dropped it because the channels
+   differ, so the active channel's entry kept a stale or channel-only
+   position. `Ctrl+h` after view in channel then landed on that channel's
+   newest message, not where the user was. Now, when the focused thread
+   is another channel's, `currentPosition` reads the messages pane behind
+   it. Every history departure from such a thread benefits (channel
+   switches, mark jumps and permalinks into another channel, walks); the
+   `''` slot, which records what is on screen, is unaffected. A thread of
+   the active channel still records its selected row. This is a separate
+   `fix(ui)` commit.
 2. **The Activity row's active marker.** `completePendingLinkNav` showed
    the channel view and cleared the Threads row's marker but not the
    Activity row's. An in-place completion from the Activity view (this
@@ -222,18 +231,19 @@ the same as before.
 ## Tests
 
 Through the real `Update` chain (keys `g`, `p` sent to `App.Update`,
-commands fed back by `feed`), on a `navFixtureApp`-style fixture with a
-thread service:
+commands fed back by `feed`), on `viewInChannelApp`, a fixture with
+channel and thread services that record thread fetches and FetchAround
+calls:
 
 - Activity → thread (another channel) → `gp`: channel view, active
-  channel is the thread's, parent selected, thread open on the same
-  thread, focus on the channel pane, Activity row not marked, history
-  `[C1 C2]`.
-- Threads view → thread → `gp`: same.
+  channel is the thread's, parent selected, focus on the channel pane,
+  the same thread kept (the reply being read still selected, no thread
+  fetch), Activity row not marked, history `[C1 C2]`.
+- Threads view → thread → `gp`: same end state.
 - Channel view, after a permalink into another channel's thread (the
   permalink switched to that channel, thread focused): `gp` completes in
-  place: no reload, the thread is not reopened (no thread fetch), the
-  parent is selected, history unchanged by `gp`.
+  place: no reload, no thread fetch, the parent is selected, history
+  unchanged by `gp`.
 - Channel view showing another channel's thread (Activity → thread, then
   `Ctrl+a` back to the channel view): switches to the thread's channel.
 - Parent not in the buffer: `FetchAround` for the parent, selected after.

@@ -71,6 +71,8 @@ var leaderActions = map[string]leaderAction{
 		run: (*App).openHelp},
 	"close_thread": {hint: "close thread", binding: func(km *KeyMap) *key.Binding { return &km.CloseThreadView },
 		run: (*App).closeThreadView},
+	"view_in_channel": {hint: "in channel", binding: func(km *KeyMap) *key.Binding { return &km.ViewInChannel },
+		run: (*App).viewThreadInChannel},
 	"nav_back": {hint: "back", binding: func(km *KeyMap) *key.Binding { return &km.NavBack },
 		run: (*App).navigateBack},
 	"nav_forward": {hint: "forward", binding: func(km *KeyMap) *key.Binding { return &km.NavForward },

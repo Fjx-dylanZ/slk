@@ -48,6 +48,7 @@ func LeaderActions() []LeaderAction {
 		{Name: "key_hints", Defaults: []string{"?"}},
 		{Name: "help"},
 		{Name: "close_thread"},
+		{Name: "view_in_channel"},
 		{Name: "nav_back"},
 		{Name: "nav_forward"},
 		{Name: "next_unread"},
