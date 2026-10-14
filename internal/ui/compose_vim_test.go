@@ -4,7 +4,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -221,23 +220,21 @@ func TestComposeVim_ArrowsAreMotionsInNormal(t *testing.T) {
 	}
 }
 
+// A typing event is dispatched synchronously into the throttle (the
+// HTTP call runs on a goroutine), so CanSend going false is the proof
+// that one was sent, and staying true that none was.
 func TestComposeVim_TypingIndicatorOnlyWhileTyping(t *testing.T) {
 	a := vimApp(t)
 	a.SetTypingEnabled(true)
-	sent := make(chan string, 8)
-	wireTypingSender(a, func(channelID string) { sent <- channelID })
+	wireTypingSender(a, func(string) {})
 	a.SetMode(ModeInsert)
 	_ = a.compose.Focus()
 	vimKeys(a, "<esc>hhlwbx")
-	select {
-	case ch := <-sent:
-		t.Fatalf("vim commands sent a typing event for %s", ch)
-	case <-time.After(100 * time.Millisecond):
+	if !a.typingOut.CanSend() {
+		t.Fatal("vim commands sent a typing event")
 	}
 	vimKeys(a, "ix")
-	select {
-	case <-sent:
-	case <-time.After(2 * time.Second):
+	if a.typingOut.CanSend() {
 		t.Fatal("typing in INSERT sent no typing event")
 	}
 }
