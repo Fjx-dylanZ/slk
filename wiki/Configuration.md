@@ -95,6 +95,24 @@ show_jump_overlay = true
 # pressing it twice still does.
 leader = "space"
 
+# Sidebar keys. Each is a list of keys; leaving it out keeps the default,
+# [] unbinds it. They only apply while the sidebar has focus, where they
+# win over the key's usual job: with "l" below, l opens in the sidebar
+# and still moves focus everywhere else. Besides the spellings the leader
+# takes, these accept key names: enter, tab, backspace, delete, insert,
+# home, end, pgup, pgdown, up, down, left, right. esc, ctrl+c and ctrl+w
+# are refused, and so is a key both lists share. If the leader is one of
+# these keys, the leader wins and pressing it twice does the sidebar action.
+#
+# sidebar_open: open the selected channel, DM, Threads or Activity row, or
+# expand / collapse a section header. Default ["enter"].
+# sidebar_toggle_section: expand / collapse the section header under the
+# cursor. Default ["space"].
+#
+# nvim-tree / neo-tree style — l or Enter opens and expands:
+sidebar_open = ["enter", "l"]
+sidebar_toggle_section = ["space"]
+
 # Glob-based channel sections — only consulted when use_slack_sections
 # is false (globally or per-workspace), or when Slack's section API is
 # unreachable. Otherwise slk reads the user's actual Slack sections.

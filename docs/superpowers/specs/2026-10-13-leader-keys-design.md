@@ -252,6 +252,74 @@ to its ctrl chord. `KeyMap` gains one real binding, `Leader`. The wiki
 Keybindings page gets the leader table and the `ctrl+w` rows it lacked;
 Configuration documents `[keys]`.
 
+### 8. Configurable sidebar keys (amendment, 2026-10-14)
+
+**Problem.** In the sidebar, Enter activates the selected row and space
+toggles a section header. Tree pickers in neovim (nvim-tree, neo-tree) use
+`l` or Enter to open a file and expand or collapse a directory. Upstream uses
+space for a reason (`ToggleSection`, issue #184), so the defaults stay; the
+keys become configurable.
+
+**Current behavior.** `handleEnter` (`internal/ui/app.go`) had a sidebar
+branch: the Threads row → `ThreadsViewActivatedMsg`, the Activity row →
+`ActivityViewActivatedMsg`, a section header → `ToggleCollapseSelected`, a
+channel or DM → `ChannelSelectedMsg` (whose reducer moves focus to the
+messages pane). `KeyMap.ToggleSection` (space) was an arm in
+`handleNormalMode` that toggled a header only with the sidebar focused. `h`/`l`
+(`Left`/`Right`) are `FocusPrev`/`FocusNext` everywhere.
+
+**Config.** Two `[keys]` lists:
+
+```toml
+[keys]
+sidebar_open = ["enter", "l"]       # default ["enter"]
+sidebar_toggle_section = ["space"]  # default ["space"]; [] unbinds
+```
+
+Each is a `*[]string` in `config.Keys`: nil (unset) keeps the default, an
+empty list unbinds the action. `config.Keys.Bindings()` hands the UI the
+set ones by name. Keys go through the leader's normalizer, now shared:
+`normalizeKey` accepts a single character, the named keys `space`,
+`enter`, `tab`, `backspace`, `delete`, `insert`, `home`, `end`, `pgup`,
+`pgdown` and the arrows, and a character or space after `ctrl+`/`alt+`. It
+rejects `esc`, `ctrl+c`, `shift+`, modifiers on other named keys, and the
+spellings a terminal delivers as another key (§6). `normalizeLeader` adds the
+leader's own rules (no named key but space, no 1–9). A binding also refuses
+`ctrl+w` (window commands take it first) and a key that another action
+already has (one key cannot do two things). A key repeated within one list is
+kept once. Errors name the field (`[keys] sidebar_open: …`).
+
+**Action table.** `internal/ui/keyactions.go` lists the configurable actions:
+`{name, KeyMap binding, scope panel, run}`. `KeyMap` gains `SidebarOpen`
+(default `enter`, "open row / toggle section (sidebar)"); `ToggleSection`
+keeps space. `App.SetKeyBindings(map[string][]string)` rebinds by name and
+rebuilds the sequence tables. The sidebar branch of `handleEnter` became
+`openSidebarRow`, the `sidebar_open` action; `handleEnter` is Enter in the
+content panes only, so with `sidebar_open = ["l"]` Enter in the sidebar does
+nothing. The `ToggleSection` arm left `handleNormalMode`. A future
+configurable action is a table row, a `KeyMap` binding and a `config.Keys`
+field; `cmd/slk` tests that config and UI name the same actions.
+
+**Scope and precedence.** `handleNormalKey` first offers the key to the
+actions scoped to the focused panel, so in the sidebar `l` opens when
+configured, and everywhere else it is still `FocusNext`. Before that come
+key sequences: the leader wins a sidebar key, and `ctrl+w` (refused in
+config) keeps window commands. Leaving the sidebar stays possible through
+Tab, `ctrl+w l`, `<leader>w l` or opening a channel. A scoped key always
+consumes the press in its panel: `l` configured to toggle does nothing on a
+channel row rather than moving focus.
+
+**Leader interplay.** `<leader><leader>` is built from the configured keys
+(`displacedBindings` walks the live `KeyMap`), not from space: with
+`sidebar_toggle_section = ["x"]` and `leader = "x"`, `x x` toggles; with the
+toggle moved off space, `space space` offers nothing. When the displaced key
+means different things in different panels (leader `l` with `sidebar_open`
+on `l`), the entry is labelled with every action (`right; open row / toggle
+section (sidebar)`) and runs the one for the focused panel.
+
+**Help.** The two actions' rows show their configured keys (`enter/l  open
+row / toggle section (sidebar)`); an unbound action has no row.
+
 ## Key table (default leader `\`)
 
 | Keys | Action | Mirrors |
@@ -310,21 +378,28 @@ leader is Normal-only).
 - `statusbar.SetKeyHint`: fits, truncates with `…`, drops when the lead does
   not fit, `SetHelpHint` replaces it.
 - `wintree`: `Adjacent`, `Nearest` (the former `NavigateDir` cases).
-- `config`: `[keys] leader` normalization and every rejection.
+- `config`: `[keys] leader` normalization and every rejection; the action
+  bindings (unset vs `[]`, normalization, repeats, every rejection,
+  conflicts between actions).
 - `internal/ui` (`runKeyCases` and the real `Update` chain): default leader
   dispatch for each layer entry; configured leaders including `space` with
   `space space` and `Enter` toggling a section; `<leader>w`/`ctrl+w`
   h/j/k/l across sidebar, messages, thread and splits, stacked layout,
   Threads view, hidden sidebar, focused-window preference and §7; Esc and
   unbound keys cancel without side effects; the leader is ignored in Insert
-  mode and in modals; the hint; the help overlay rows.
+  mode and in modals; the hint; the help overlay rows. §8: the defaults
+  (`l` still moves focus in the sidebar), `sidebar_open = ["enter", "l"]` on
+  headers, channels (through `Update`: the channel opens and focus moves),
+  the Threads and Activity rows and in the messages pane, unbinding,
+  moving the toggle, the leader on a sidebar key, the help rows.
+- `cmd/slk`: config and UI name the same actions; `uiSettings` delivers the
+  leader and the bindings.
 
 ## Out of scope
 
-- **User-defined sequences** (`[keys]` maps of sequence → action). This
-  change makes the leader configurable and puts sequences in a table that
-  such a feature would extend; mapping action names from config is a
-  separate design.
+- **More configurable actions, and user-defined sequences** (`[keys]` maps of
+  sequence → action). §8's table is the place for the former (only the two
+  sidebar actions are configurable now); the latter is a separate design.
 - **Moving `gg`, `m`, `'` onto `keyseq`.** `m`/`'` take any letter and `gg`
   re-processes an unmatched key; both need table features (a wildcard, a
   fallback) this feature does not use.

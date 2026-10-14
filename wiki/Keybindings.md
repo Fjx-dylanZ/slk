@@ -11,8 +11,8 @@
 | `Ctrl+w` `q` / `c` | Normal | Close the window (`:q`) |
 | `Ctrl+w` `o` | Normal | Close every other window (`:only`) |
 | `\` | Normal | Leader key — see [Leader key](#leader-key) |
-| `Enter` | Normal (sidebar) | Open selected channel, or toggle a section header |
-| `Space` | Normal (sidebar) | Toggle the selected section header (collapse/expand) |
+| `Enter` | Normal (sidebar) | Open the selected channel, DM, Threads or Activity row, or toggle a section header (`[keys] sidebar_open`) |
+| `Space` | Normal (sidebar) | Toggle the selected section header (collapse/expand) (`[keys] sidebar_toggle_section`) |
 | `Enter` | Normal (message) | Open thread |
 | `i` | Normal | Enter insert mode |
 | `Esc` | Insert / Command | Return to normal mode |
@@ -111,5 +111,18 @@ side, the thread still counts as being to the right of the messages, so `l`
 brings it to the front and `h` goes back; from the sidebar, `l` enters
 whichever of the two is in front. Moving to another split window closes an
 open thread, as switching windows always has.
+
+## Sidebar keys
+
+`Enter` and `Space` in the sidebar can be changed in `[keys]` (see
+[[Configuration]]): `sidebar_open` (default `["enter"]`) and
+`sidebar_toggle_section` (default `["space"]`); an empty list unbinds one.
+These keys only work while the sidebar has focus, and there they take over
+from the key's usual job. A neovim tree-picker setup,
+`sidebar_open = ["enter", "l"]`, makes `l` open a channel or view, or
+expand / collapse a section header, in the sidebar, while `l` still moves
+focus right everywhere else. To leave the sidebar then, use `Tab`,
+`Ctrl+w l` / `\ w l`, or open a channel. The help overlay (`?`) shows the
+keys you configured.
 
 Other custom keybinding overrides are on the roadmap — see [[Tradeoffs and Non-Goals|Tradeoffs-and-Non-Goals]].
