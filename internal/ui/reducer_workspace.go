@@ -201,7 +201,7 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 	// is a defensive one-shot guard against any future bug that
 	// delivers InitialActive=true twice.
 	if m.InitialActive && a.bootstrap.ClaimInitialActive() {
-		a.view = ViewChannels
+		a.setView(ViewChannels)
 		a.sidebar.SetThreadsActive(false)
 		a.threadsView.SetSummaries(nil)
 		a.sidebar.SetThreadsUnreadCount(0)
@@ -345,7 +345,7 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	// moved to the restored channel below (after SetChannels);
 	// only fall back to the Threads row when the new workspace
 	// has no channels at all.
-	a.view = ViewChannels
+	a.setView(ViewChannels)
 	a.sidebar.SetThreadsActive(false)
 	a.sidebar.SetActivityActive(false)
 	a.threadsView.SetSummaries(nil)
@@ -373,6 +373,9 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	a.resetActionPrompts()
 	a.SetMode(ModeNormal)
 	a.compose.Blur()
+	// A sidebar `/` filter was typed against the outgoing workspace's
+	// conversations; drop it before the new list arrives.
+	a.sidebar.SetFilter("")
 	a.sidebar.SetSectionsProvider(m.SectionsProvider)
 	// Forget the previous workspace's live DM presence before loading
 	// the new one, so its cache-seeded item presence isn't overwritten

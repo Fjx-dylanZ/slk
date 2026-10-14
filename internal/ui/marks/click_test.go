@@ -50,16 +50,16 @@ func TestClickRowSelectsRow(t *testing.T) {
 	m.SetRows(clickRows())
 	m.Open()
 
-	if !m.ClickRow(80, 24, listTopOffset()+2) {
+	if !m.ClickRow(80, 24, m.listTopOffset()+2) {
 		t.Fatal("ClickRow on a row should return true")
 	}
 	if m.selected != 2 {
 		t.Errorf("selected = %d, want 2", m.selected)
 	}
-	if m.ClickRow(80, 24, listTopOffset()-1) {
+	if m.ClickRow(80, 24, m.listTopOffset()-1) {
 		t.Error("ClickRow above the list should return false")
 	}
-	if m.ClickRow(80, 24, listTopOffset()+3) {
+	if m.ClickRow(80, 24, m.listTopOffset()+3) {
 		t.Error("ClickRow past the last row should return false")
 	}
 	if m.selected != 2 {
@@ -84,7 +84,7 @@ func TestClickRowScrolledWindow(t *testing.T) {
 	if start == 0 {
 		t.Fatal("fixture should scroll the window")
 	}
-	if !m.ClickRow(80, 24, listTopOffset()) {
+	if !m.ClickRow(80, 24, m.listTopOffset()) {
 		t.Fatal("ClickRow on the first visible row should return true")
 	}
 	if m.selected != start {
@@ -96,7 +96,7 @@ func TestClickRowScrolledWindow(t *testing.T) {
 func TestClickRowEmptyList(t *testing.T) {
 	m := New()
 	m.Open()
-	if m.ClickRow(80, 24, listTopOffset()) {
+	if m.ClickRow(80, 24, m.listTopOffset()) {
 		t.Error("ClickRow on the empty-state line should return false")
 	}
 }
@@ -129,11 +129,55 @@ func TestShortTerminalKeepsSelectionOnScreen(t *testing.T) {
 			t.Errorf("height %d: the selected row %q is not drawn:\n%s", termHeight, last, box)
 		}
 		start, end := m.visibleWindow(termHeight)
-		if !m.ClickRow(80, termHeight, listTopOffset()+end-start-1) || m.selected != end-1 {
+		if !m.ClickRow(80, termHeight, m.listTopOffset()+end-start-1) || m.selected != end-1 {
 			t.Errorf("height %d: a click on the last drawn row selected %d, want %d", termHeight, m.selected, end-1)
 		}
-		if m.ClickRow(80, termHeight, listTopOffset()+end-start) {
+		if m.ClickRow(80, termHeight, m.listTopOffset()+end-start) {
 			t.Errorf("height %d: a click below the drawn rows hit a row", termHeight)
+		}
+	}
+}
+
+// TestFilterGeometry checks that the filter line moves the list down a
+// row in BoxSize, the render and ClickRow alike, while it is typed and
+// while it is kept, and that clicks map onto the filtered rows.
+func TestFilterGeometry(t *testing.T) {
+	for _, keys := range [][]string{{"/", "e"}, {"/", "e", "enter"}} {
+		m := New()
+		m.SetRows(clickRows())
+		m.Open()
+		idleTop := m.listTopOffset()
+		_, idleH := m.BoxSize(80, 24)
+		for _, k := range keys {
+			m.HandleKey(k)
+		}
+		if got := m.listTopOffset(); got != idleTop+1 {
+			t.Errorf("%v: listTopOffset = %d, want %d", keys, got, idleTop+1)
+		}
+		box := m.renderBox(80, 24)
+		w, h := m.BoxSize(80, 24)
+		if gw, gh := lipgloss.Width(box), lipgloss.Height(box); w != gw || h != gh {
+			t.Errorf("%v: BoxSize = %dx%d, rendered %dx%d", keys, w, h, gw, gh)
+		}
+		// "e" leaves general and dev ("three"): two rows where three
+		// were, plus the filter line, so the box keeps its height.
+		if h != idleH {
+			t.Errorf("%v: box is %d rows, want %d", keys, h, idleH)
+		}
+		lines := strings.Split(ansi.Strip(box), "\n")
+		if !strings.Contains(lines[m.listTopOffset()], "#general") {
+			t.Errorf("%v: row %d is %q, want the first filtered row", keys, m.listTopOffset(), lines[m.listTopOffset()])
+		}
+		if !m.ClickRow(80, 24, m.listTopOffset()+1) || m.selected != 1 {
+			t.Fatalf("%v: click on the second filtered row selected %d", keys, m.selected)
+		}
+		if m.ClickRow(80, 24, m.listTopOffset()+2) {
+			t.Errorf("%v: a click below the two filtered rows hit a row", keys)
+		}
+		if !m.filter.Typing() {
+			if got := m.HandleKey("enter"); got == nil || got.Select != "c" {
+				t.Errorf("%v: enter after the click = %+v, want Select=c", keys, got)
+			}
 		}
 	}
 }

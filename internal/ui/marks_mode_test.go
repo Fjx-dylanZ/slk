@@ -239,3 +239,129 @@ func TestMarksOverlay_ClickOutsideCloses(t *testing.T) {
 		t.Errorf("an outside click must close the list: mode=%v visible=%v", app.mode, app.marksOverlay.IsVisible())
 	}
 }
+
+// filterMarksApp opens the marks list over a (#general, C2), b (#random,
+// C3) and c (#ranch, C1) and presses keys through App.Update, returning
+// the last key's cmd.
+func filterMarksApp(t *testing.T, keys ...tea.KeyMsg) (*App, tea.Cmd) {
+	t.Helper()
+	app := jumpMarkTestApp(t)
+	for _, m := range []struct{ letter, ch, ts, name string }{
+		{"a", "C2", "10.0", "general"}, {"b", "C3", "20.0", "random"}, {"c", "C1", "1.0", "ranch"},
+	} {
+		loc := Location{TeamID: "T1", ChannelID: ids.ChannelID(m.ch), MessageTS: ids.MessageTS(m.ts)}
+		if err := app.marks.Set("T1", m.letter, Mark{Location: loc, Letter: m.letter, ChannelName: m.name}); err != nil {
+			t.Fatalf("seed mark %s: %v", m.letter, err)
+		}
+	}
+	app.Update(keyPress('\''))
+	if app.mode != ModeMarks {
+		t.Fatalf("precondition: mode = %v, want ModeMarks", app.mode)
+	}
+	var cmd tea.Cmd
+	for _, k := range keys {
+		_, cmd = app.Update(k)
+	}
+	return app, cmd
+}
+
+// runeKeys returns a key press for each rune of s.
+func runeKeys(s string) []tea.KeyMsg {
+	var out []tea.KeyMsg
+	for _, r := range s {
+		out = append(out, keyPress(r))
+	}
+	return out
+}
+
+// TestMarksOverlay_FilterTypesLettersAndQuotes: while the filter is
+// typed, mark letters, ' and ` are filter text, not jumps or the
+// back-jump.
+func TestMarksOverlay_FilterTypesLettersAndQuotes(t *testing.T) {
+	app, cmd := filterMarksApp(t, runeKeys("/ra'`")...)
+	if app.mode != ModeMarks || !app.marksOverlay.IsVisible() || !app.marksOverlay.Typing() {
+		t.Fatalf("mode=%v visible=%v typing=%v, want the list open and typing", app.mode, app.marksOverlay.IsVisible(), app.marksOverlay.Typing())
+	}
+	if cmd != nil {
+		if _, ok := cmd().(ChannelSelectedMsg); ok {
+			t.Fatal("a key typed into the filter jumped")
+		}
+	}
+	if view := app.marksOverlay.View(80, 24); !strings.Contains(view, "ra'`█") {
+		t.Errorf("the filter line does not show the typed query:\n%s", view)
+	}
+}
+
+func TestMarksOverlay_FilterEnterSelectsFilteredRow(t *testing.T) {
+	keys := append(runeKeys("/rand"), keyCode(tea.KeyEnter), keyCode(tea.KeyEnter))
+	app, cmd := filterMarksApp(t, keys...)
+	if cmd == nil {
+		t.Fatal("enter on the kept filter must jump to the highlighted row")
+	}
+	if cs, ok := cmd().(ChannelSelectedMsg); !ok || cs.ID != "C3" {
+		t.Fatalf("jumped with %T %+v, want C3 (#random, the only match)", cmd(), cmd())
+	}
+	if app.mode != ModeNormal {
+		t.Errorf("mode = %v, want Normal after the jump", app.mode)
+	}
+}
+
+// TestMarksOverlay_FilterKeptLettersJump: after Enter keeps the filter,
+// a mark letter jumps again, even to a mark the filter hides.
+func TestMarksOverlay_FilterKeptLettersJump(t *testing.T) {
+	keys := append(runeKeys("/ran"), keyCode(tea.KeyEnter), keyPress('a'))
+	_, cmd := filterMarksApp(t, keys...)
+	if cmd == nil {
+		t.Fatal("a mark letter with a kept filter must jump")
+	}
+	if cs, ok := cmd().(ChannelSelectedMsg); !ok || cs.ID != "C2" {
+		t.Fatalf("jumped with %T %+v, want C2", cmd(), cmd())
+	}
+}
+
+func TestMarksOverlay_FilterKeptBackJumpCloses(t *testing.T) {
+	keys := append(runeKeys("/ran"), keyCode(tea.KeyEnter), keyPress('\''))
+	app, _ := filterMarksApp(t, keys...)
+	if app.mode != ModeNormal || app.marksOverlay.IsVisible() {
+		t.Errorf("' with a kept filter must take the back-jump: mode=%v visible=%v", app.mode, app.marksOverlay.IsVisible())
+	}
+}
+
+// TestMarksOverlay_FilterDeleteKeepsFilter: backspace on a kept filter
+// deletes the highlighted filtered row, and the refreshed list is still
+// filtered.
+func TestMarksOverlay_FilterDeleteKeepsFilter(t *testing.T) {
+	keys := append(runeKeys("/ran"), keyCode(tea.KeyEnter), keyCode(tea.KeyDown), keyCode(tea.KeyBackspace))
+	app, _ := filterMarksApp(t, keys...)
+	if _, ok, _ := app.marks.Load("T1", "c"); ok {
+		t.Fatal("mark c (#ranch, the second filtered row) must be deleted")
+	}
+	for _, l := range []string{"a", "b"} {
+		if _, ok, _ := app.marks.Load("T1", l); !ok {
+			t.Fatalf("mark %s must remain", l)
+		}
+	}
+	if app.mode != ModeMarks {
+		t.Fatalf("mode = %v, want the list to stay open", app.mode)
+	}
+	view := app.marksOverlay.View(80, 24)
+	if !strings.Contains(view, "filter: ran") || !strings.Contains(view, "#random") || strings.Contains(view, "#general") {
+		t.Errorf("the refreshed list must keep the filter:\n%s", view)
+	}
+}
+
+func TestMarksOverlay_FilterEscClearsThenCloses(t *testing.T) {
+	app, _ := filterMarksApp(t, append(runeKeys("/ran"), keyCode(tea.KeyEscape))...)
+	if view := app.marksOverlay.View(80, 24); app.mode != ModeMarks || app.marksOverlay.Typing() || strings.Contains(view, "ran█") || !strings.Contains(view, "#general") {
+		t.Fatalf("esc while typing must clear the filter and keep the list: mode=%v", app.mode)
+	}
+
+	app, _ = filterMarksApp(t, append(runeKeys("/ran"), keyCode(tea.KeyEnter), keyCode(tea.KeyEscape))...)
+	if app.mode != ModeMarks || strings.Contains(app.marksOverlay.View(80, 24), "filter:") {
+		t.Fatalf("esc with a kept filter must clear it and keep the list: mode=%v", app.mode)
+	}
+	app.Update(keyCode(tea.KeyEscape))
+	if app.mode != ModeNormal || app.marksOverlay.IsVisible() {
+		t.Errorf("esc with no filter must close: mode=%v visible=%v", app.mode, app.marksOverlay.IsVisible())
+	}
+}

@@ -234,6 +234,123 @@ func TestSearchEnterExitsSearchKeepsFilter(t *testing.T) {
 	}
 }
 
+// TestEscAfterEnterClearsFilterThenCloses pins the uniform listfilter
+// rule: with a filter kept, the first esc clears it and the second closes.
+func TestEscAfterEnterClearsFilterThenCloses(t *testing.T) {
+	m := New()
+	m.SetEntries(sampleEntries())
+	m.Open()
+	for _, k := range []string{"/", "d", "o", "w", "n", "enter"} {
+		m.HandleKey(k)
+	}
+	if n := len(m.VisibleEntries()); n != 1 {
+		t.Fatalf("precondition: kept filter shows %d entries, want 1", n)
+	}
+	m.HandleKey("esc")
+	if !m.IsVisible() {
+		t.Fatal("first esc after enter closed the modal; it should clear the filter")
+	}
+	if m.Query() != "" || m.IsSearching() {
+		t.Errorf("after esc: query %q, searching %v; want cleared and idle", m.Query(), m.IsSearching())
+	}
+	if n := len(m.VisibleEntries()); n != len(sampleEntries()) {
+		t.Errorf("after esc: %d entries visible, want all %d", n, len(sampleEntries()))
+	}
+	m.HandleKey("esc")
+	if m.IsVisible() {
+		t.Error("second esc should close the modal")
+	}
+}
+
+func TestQuestionMarkTypesWhileSearching(t *testing.T) {
+	m := New()
+	m.SetEntries(sampleEntries())
+	m.Open()
+	m.HandleKey("/")
+	m.HandleKey("?")
+	if !m.IsVisible() {
+		t.Fatal("? while searching closed the modal")
+	}
+	if m.Query() != "?" {
+		t.Errorf("Query = %q, want ?", m.Query())
+	}
+	if v := m.VisibleEntries(); len(v) != 1 || v[0].Key != "?" {
+		t.Errorf("visible = %v, want the ? entry alone", v)
+	}
+}
+
+func TestQClosesWithAKeptFilter(t *testing.T) {
+	m := New()
+	m.SetEntries(sampleEntries())
+	m.Open()
+	for _, k := range []string{"/", "d", "enter", "q"} {
+		m.HandleKey(k)
+	}
+	if m.IsVisible() {
+		t.Error("q with a kept filter (not typing) should close the modal")
+	}
+}
+
+func TestSearchTakesAnyPrintableRuneAndSpace(t *testing.T) {
+	m := New()
+	m.SetEntries(append(sampleEntries(), Entry{Key: "x", Desc: "café menu"}))
+	m.Open()
+	for _, k := range []string{"/", "c", "a", "f", "é", "space", "m"} {
+		m.HandleKey(k)
+	}
+	if m.Query() != "café m" {
+		t.Fatalf("Query = %q, want %q", m.Query(), "café m")
+	}
+	if v := m.VisibleEntries(); len(v) != 1 || v[0].Desc != "café menu" {
+		t.Errorf("visible = %v, want the café entry alone", v)
+	}
+	m.HandleKey("backspace")
+	m.HandleKey("backspace")
+	if m.Query() != "café" {
+		t.Errorf("Query after two backspaces = %q, want %q: backspace deletes a rune", m.Query(), "café")
+	}
+	m.HandleKey("backspace")
+	if m.Query() != "caf" {
+		t.Errorf("Query after backspace over é = %q, want %q", m.Query(), "caf")
+	}
+}
+
+func TestArrowsNavigateWhileSearching(t *testing.T) {
+	m := New()
+	m.SetEntries(sampleEntries())
+	m.Open()
+	m.HandleKey("/")
+	m.HandleKey("down")
+	if !m.IsSearching() {
+		t.Error("down left search mode")
+	}
+	if m.Selected() != 1 {
+		t.Errorf("Selected after down while searching = %d, want 1", m.Selected())
+	}
+	m.HandleKey("up")
+	if m.Selected() != 0 {
+		t.Errorf("Selected after up while searching = %d, want 0", m.Selected())
+	}
+}
+
+func TestInputLineFollowsTheFilter(t *testing.T) {
+	m := New()
+	m.SetEntries(sampleEntries())
+	m.Open()
+	if box := m.renderBox(80, 24); !strings.Contains(box, "Press / to search") {
+		t.Error("idle: the search hint is missing")
+	}
+	m.HandleKey("/")
+	m.HandleKey("d")
+	if box := m.renderBox(80, 24); !strings.Contains(box, "d█") {
+		t.Error("typing: the filter input is missing")
+	}
+	m.HandleKey("enter")
+	if box := m.renderBox(80, 24); !strings.Contains(box, "filter: d") {
+		t.Error("kept: the filter: line is missing")
+	}
+}
+
 func TestFromKeyMap(t *testing.T) {
 	// FromKeyMap should derive entries from any struct of key.Binding fields.
 	type sampleMap struct {

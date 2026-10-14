@@ -2,6 +2,7 @@
 // reactions on a message, grouped by emoji, with the display names of the
 // users who reacted with it. Data is supplied by the App (assembled from the
 // cached per-user reaction data); the modal does not fetch anything itself.
+// "/" filters the list (listfilter) by emoji name and user name.
 package reactionsview
 
 import (
@@ -13,6 +14,7 @@ import (
 	"github.com/muesli/reflow/truncate"
 
 	"github.com/gammons/slk/internal/bubbles/chrome"
+	"github.com/gammons/slk/internal/bubbles/listfilter"
 	slkemoji "github.com/gammons/slk/internal/emoji"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
@@ -37,9 +39,18 @@ type ReactionGroup struct {
 // Model is the reactions-list overlay state.
 type Model struct {
 	groups  []ReactionGroup
+	shown   []shownGroup // the groups and users the filter keeps
+	filter  listfilter.Filter
 	visible bool
 	offset  int // scroll offset in rendered content lines
 	maxOff  int // last computed maximum offset (set during render)
+}
+
+// shownGroup is a group the filter keeps: groups[group], with the users
+// it keeps. The header still counts the whole group.
+type shownGroup struct {
+	group int
+	users []string
 }
 
 var _ chrome.Dialog = (*Model)(nil)
@@ -47,9 +58,12 @@ var _ chrome.Dialog = (*Model)(nil)
 // New creates an empty, hidden modal.
 func New() *Model { return &Model{} }
 
-// Open shows the modal for the given reaction groups and resets scroll.
+// Open shows the modal for the given reaction groups and resets scroll and
+// the filter.
 func (m *Model) Open(groups []ReactionGroup) {
 	m.groups = groups
+	m.filter.Reset()
+	m.applyFilter()
 	m.offset = 0
 	m.maxOff = 0
 	m.visible = true
@@ -59,6 +73,8 @@ func (m *Model) Open(groups []ReactionGroup) {
 func (m *Model) Close() {
 	m.visible = false
 	m.groups = nil
+	m.filter.Reset()
+	m.applyFilter()
 	m.offset = 0
 	m.maxOff = 0
 }
@@ -69,12 +85,55 @@ func (m *Model) IsVisible() bool { return m.visible }
 // Offset returns the current scroll offset (exported for tests).
 func (m *Model) Offset() int { return m.offset }
 
-// HandleKey processes a key for the modal. esc/q/L closes it; up/down and j/k
-// scroll. Scroll is clamped to [0, maxOff], where maxOff is recomputed on each
-// render; before the first render maxOff is 0 so scrolling is inert.
+// Query returns the filter text, typed or kept.
+func (m *Model) Query() string { return m.filter.Query() }
+
+// Typing reports whether the user is typing the filter.
+func (m *Model) Typing() bool { return m.filter.Typing() }
+
+// applyFilter rebuilds shown: a group whose emoji name matches keeps all
+// its users, any other group keeps only the users who match, and a group
+// left with none is dropped.
+func (m *Model) applyFilter() {
+	m.shown = m.shown[:0]
+	for i, g := range m.groups {
+		if m.filter.Matches(g.Emoji) {
+			m.shown = append(m.shown, shownGroup{group: i, users: g.Users})
+			continue
+		}
+		var users []string
+		for _, u := range g.Users {
+			if m.filter.Matches(u) {
+				users = append(users, u)
+			}
+		}
+		if len(users) > 0 {
+			m.shown = append(m.shown, shownGroup{group: i, users: users})
+		}
+	}
+}
+
+// HandleKey processes a key for the modal. The filter takes its keys first:
+// while it is typed, printable keys are filter text, and esc clears a kept
+// filter. Otherwise esc/q/L close it, and up/down and j/k scroll. A filter
+// change scrolls back to the top. Scroll is clamped to [0, maxOff], where
+// maxOff is recomputed on each render; before the first render maxOff is 0
+// so scrolling is inert.
 func (m *Model) HandleKey(keyStr string) {
+	if keyStr == "escape" {
+		keyStr = "esc"
+	}
+	if consumed, changed := m.filter.HandleKey(keyStr); consumed {
+		if changed {
+			m.offset = 0
+			m.applyFilter()
+		}
+		return
+	}
 	switch keyStr {
-	case "esc", "escape", "q", "L":
+	case "esc", "q", "L":
+		// Over a kept filter esc clears it first (consumed above);
+		// q and L close, as in the help overlay and the link picker.
 		m.Close()
 	case "up", "k":
 		if m.offset > 0 {
@@ -109,10 +168,11 @@ func (m *Model) contentLines(bg color.Color, innerWidth int) []string {
 	userStyle := lipgloss.NewStyle().Background(bg).Foreground(styles.TextPrimary)
 
 	var lines []string
-	for _, g := range m.groups {
+	for _, sg := range m.shown {
+		g := m.groups[sg.group]
 		header := emojiGlyph(g.Emoji) + "  (" + countLabel(len(g.Users), g.Count) + ")"
 		lines = append(lines, headerStyle.Width(innerWidth).Render(fit(header, innerWidth)))
-		for _, u := range g.Users {
+		for _, u := range sg.users {
 			lines = append(lines, userStyle.Width(innerWidth).Render(fit("  "+u, innerWidth)))
 		}
 	}
@@ -181,8 +241,12 @@ func (m *Model) renderBox(termWidth, termHeight int) string {
 
 	all := m.contentLines(bg, innerWidth)
 
-	// Visible window: leave headroom for title, blank, footer (~6 lines).
+	// Visible window: leave headroom for title, blank, footer (~6 lines),
+	// and one more for the filter line while it is drawn.
 	maxVisible := termHeight - 8
+	if m.filter.Active() {
+		maxVisible--
+	}
 	if maxVisible < 3 {
 		maxVisible = 3
 	}
@@ -204,9 +268,14 @@ func (m *Model) renderBox(termWidth, termHeight int) string {
 	}
 	window := all[m.offset:end]
 
-	return chrome.Frame{
+	f := chrome.Frame{
 		Title:  "Reactions",
+		Input:  m.filter.Input(s, "Type to filter...", ""),
 		Body:   window,
-		Footer: s.Footer.Render("\u2191/\u2193 scroll   esc close"),
-	}.Render(s, overlayWidth)
+		Footer: s.Footer.Render("\u2191/\u2193 scroll   / filter   esc close"),
+	}
+	if m.filter.Query() != "" {
+		f.Empty = "No matching reactions"
+	}
+	return f.Render(s, overlayWidth)
 }

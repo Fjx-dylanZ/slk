@@ -173,6 +173,51 @@ func HighlightSearchTerms(s string, terms []string, hlStart, hlEnd string) strin
 	return out.String()
 }
 
+// SearchTerms derives the terms of a `/` query: whitespace-separated,
+// each folded (text.Fold). It is the one derivation: the channel FTS
+// result carries it (cmd/slk, the demo), and the client-side scopes
+// match and highlight with it, so every scope highlights alike.
+func SearchTerms(query string) []string {
+	fields := strings.Fields(query)
+	terms := make([]string, 0, len(fields))
+	for _, f := range fields {
+		terms = append(terms, text.Fold(f))
+	}
+	return terms
+}
+
+// MatchesSearchTerms reports whether plain text s contains a word-start
+// occurrence of every term (AND): the rule HighlightSearchTerms paints
+// and the in-channel FTS query `"foo"* "bar"*` applies, so a client-side
+// search over loaded messages agrees with both. terms must already be
+// folded (text.Fold); no terms matches nothing. s must be plain text
+// (FlattenMrkdwn output, a name), not ANSI.
+func MatchesSearchTerms(s string, terms []string) bool {
+	if len(terms) == 0 {
+		return false
+	}
+	runes := []rune(s)
+	folded := make([]string, len(runes))
+	for i, r := range runes {
+		folded[i] = text.Fold(string(r))
+	}
+	for _, term := range terms {
+		found := false
+		prev := rune(0)
+		for i, r := range runes {
+			if !unicode.IsLetter(prev) && !unicode.IsDigit(prev) && prefixMatchLen(folded, i, term) > 0 {
+				found = true
+				break
+			}
+			prev = r
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
 // prefixMatchLen reports how many runes starting at folded[i] are
 // consumed matching term, or 0 if term is not a prefix there.
 func prefixMatchLen(folded []string, i int, term string) int {

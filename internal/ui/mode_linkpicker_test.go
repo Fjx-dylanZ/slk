@@ -351,3 +351,45 @@ func TestLinkPickerModeKeys(t *testing.T) {
 		},
 	})
 }
+
+// linkPickerFiltering returns a setup that opens the picker with open
+// and types "/" then typed into its filter, and enter when keep.
+func linkPickerFiltering(open func(*testing.T, *App), typed string, keep bool) func(*testing.T, *App) {
+	return func(t *testing.T, a *App) {
+		open(t, a)
+		_ = dispatchModeKey(a, keyPress('/'))
+		for _, r := range typed {
+			_ = dispatchModeKey(a, keyPress(r))
+		}
+		if keep {
+			_ = dispatchModeKey(a, keyCode(tea.KeyEnter))
+		}
+		if a.linkPicker.Typing() == keep || a.linkPicker.Query() != typed {
+			t.Fatalf("precondition: typing %v, query %q; want typing %v, %q", a.linkPicker.Typing(), a.linkPicker.Query(), !keep, typed)
+		}
+	}
+}
+
+// TestLinkPickerModeFilter is the / filter's integration through
+// handleLinkPickerMode (its key table is listfilter's): `/` narrows the
+// rows, and a choice through the filter maps back to the source data.
+func TestLinkPickerModeFilter(t *testing.T) {
+	runKeyCases(t, ModeLinkPicker, []keyCase{
+		{
+			// The only match is the second file; its Index must still
+			// pick pickerFiles[1], not the first file.
+			name:     "enter on a kept filter downloads the filtered file by its source index",
+			setup:    linkPickerFiltering(openFilePicker, "b.pdf", true),
+			key:      keyCode(tea.KeyEnter),
+			wantMode: ModeNormal,
+			assert: func(t *testing.T, a *App, cmd tea.Cmd) {
+				if cmd == nil {
+					t.Fatal("cmd = nil, want a DownloadFileMsg cmd")
+				}
+				if msg, ok := cmd().(DownloadFileMsg); !ok || msg.Attachment.Name != "b.pdf" {
+					t.Errorf("cmd() = %#v, want DownloadFileMsg for b.pdf", cmd())
+				}
+			},
+		},
+	})
+}

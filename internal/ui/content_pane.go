@@ -29,6 +29,8 @@ type contentPane interface {
 	ScrollHintForDrag(y int) int
 	ScrollUp(n int)
 	ScrollDown(n int)
+	// SetSearchTerms paints a `/` search's folded terms (nil clears).
+	SetSearchTerms(terms []string)
 }
 
 var (

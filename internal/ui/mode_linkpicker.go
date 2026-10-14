@@ -4,7 +4,8 @@
 // keybinding (multiple links) or the `d` keybinding (multiple file
 // attachments). Enter dispatches OpenLinkMsg or DownloadFileMsg
 // depending on the kind recorded when the picker was opened; esc/q
-// closes.
+// closes. "/" filters the rows; the chosen item's Index still maps to
+// pickerFiles, whatever the filter hid.
 package ui
 
 import (

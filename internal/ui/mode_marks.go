@@ -7,6 +7,8 @@
 // backtick takes the back-jump. backspace/Delete removes the
 // highlighted row via the same marksStore.Delete the :delmarks command
 // will use, and the overlay stays open showing the remaining marks.
+// "/" filters the list; while the filter is typed, letters, ' and `
+// are filter text, not jumps.
 package ui
 
 import (
@@ -18,8 +20,9 @@ import (
 func handleMarksMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	keyStr := normalizeFinderKey(msg)
 
-	// A second ' or backtick is the back-jump, not a row action.
-	if keyStr == "'" || keyStr == "`" {
+	// A second ' or backtick is the back-jump, not a row action —
+	// unless it is filter text.
+	if (keyStr == "'" || keyStr == "`") && !a.marksOverlay.Typing() {
 		a.marksOverlay.Close()
 		a.SetMode(ModeNormal)
 		return a.takeBackJump()

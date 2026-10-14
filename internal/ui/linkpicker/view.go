@@ -38,11 +38,12 @@ func (m *Model) renderBox(termWidth int) string {
 	}
 	innerWidth := overlayWidth - 4 // border + padding
 
-	list := chrome.List{Start: 0, End: len(m.items), Total: len(m.items)}
+	list := chrome.List{Start: 0, End: len(m.shown), Total: len(m.shown)}
 	badgeStyle := s.Row.Foreground(styles.Accent)
 
-	rows := make([]string, 0, len(m.items))
-	for i, it := range m.items {
+	rows := make([]string, 0, len(m.shown))
+	for i, idx := range m.shown {
+		it := m.items[idx]
 		var parts []string
 		if it.Label != "" {
 			parts = append(parts, it.Label)
@@ -72,9 +73,15 @@ func (m *Model) renderBox(termWidth int) string {
 		rows = append(rows, style.Width(budget).Render(text)+badgeStyle.Render(badge))
 	}
 
-	return chrome.Frame{
-		Title:  m.title,
-		Body:   list.Rows(s, m.selected, rows),
-		Footer: s.Footer.Render("j/k move   enter select   esc/q close"),
-	}.Render(s, overlayWidth)
+	f := chrome.Frame{
+		Title: m.title,
+		Input: m.filter.Input(s, "Type to filter...", ""),
+		Body:  list.Rows(s, m.selected, rows),
+		// A narrow box wraps the footer onto a second line.
+		Footer: s.Footer.Render("j/k move   enter select   / filter   esc/q close"),
+	}
+	if m.filter.Query() != "" {
+		f.Empty = "No matching items"
+	}
+	return f.Render(s, overlayWidth)
 }

@@ -1510,6 +1510,43 @@ func goldenScenarios() []goldenScenario {
 			},
 		},
 		{
+			// Base's geometry: the sidebar (focused, as in base) after
+			// `/en` Enter. Pins the " /en" indicator row under
+			// Activity, the sections without a match (DMs) dropping
+			// out, and the cursor on the first match.
+			name: "sidebar_filter", w: goldenBaseW, h: goldenBaseH,
+			build: func(t *testing.T) *App {
+				a := newGoldenApp(t, goldenFixtureOpts()...)
+				a.focusedPanel = PanelSidebar
+				for _, k := range []tea.KeyMsg{keyPress('/'), keyPress('e'), keyPress('n'), keyCode(tea.KeyEnter)} {
+					_, _ = a.Update(k)
+				}
+				if a.sidebar.Filter() != "en" {
+					t.Fatalf("precondition: sidebar filter = %q, want %q", a.sidebar.Filter(), "en")
+				}
+				_ = a.View()
+				return a
+			},
+		},
+		{
+			// thread_open after `/wrap` Enter in the focused thread:
+			// the match highlighted in the reply, which is selected,
+			// and the "thread /wrap  1/1" status segment.
+			name: "thread_search", w: 120, h: 30, layout: goldenStackedThread,
+			build: func(t *testing.T) *App {
+				a := goldenThreadApp(t, 120, 30)
+				a.focusedPanel = PanelThread
+				for _, k := range []tea.KeyMsg{keyPress('/'), keyPress('w'), keyPress('r'), keyPress('a'), keyPress('p'), keyCode(tea.KeyEnter)} {
+					_, _ = a.Update(k)
+				}
+				if a.search == nil || a.search.scope != searchThread {
+					t.Fatalf("precondition: active search = %+v, want a thread search", a.search)
+				}
+				_ = a.View()
+				return a
+			},
+		},
+		{
 			// The scenario that justifies storing raw ANSI: the
 			// selection highlight is a run of SGR bytes laid over
 			// text that does not change by a single character.

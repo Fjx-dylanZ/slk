@@ -35,11 +35,14 @@
 | `v` / `V` | Compose normal | Visual / visual-line selection; `d` `c` `y` `p` `~` `u` `U` `J` `r` `o` act on it, `Esc` ends it |
 | `Enter` | Compose normal | Send; with a half-typed command or a selection up, cancels that instead |
 | `gg` / `G` | Normal | Jump to top / bottom |
-| `/` | Normal | Search in channel (vim-style; searches cached history of the current channel) |
-| `n` / `N` | Normal | Next / previous search match (wraps) |
-| `a` / `A` | Normal | Jump to next / previous unread channel (wraps) |
+| `/` | Normal | Search whatever has focus (vim-style). Messages pane: the current channel's cached history. Thread pane: the open thread's loaded replies. Threads / Activity view: the list's cards. Sidebar: filter channels and DMs by name as you type. The status line names the scope (`/`, `thread /`, `threads /`, `activity /`, `channels /`) |
+| `Enter` / `Esc` | `/` prompt | Run the search (sidebar: keep the filter) / cancel (sidebar: restore the previous filter) |
+| `n` / `N` | Normal (searched pane focused) | Next older / newer search match (wraps) |
+| `a` / `A` | Normal | Jump to next / previous unread channel (wraps; with a sidebar filter, among its matches) |
 | `Ctrl+h` / `Ctrl+l` | Normal | Navigate back / forward through visited channels, returning to the message you were reading when you left (`Ctrl+k` also works) |
+| `Esc` | Normal (sidebar focused, filter active) | Clear the sidebar filter |
 | `Esc` | Normal (search active) | Clear active search |
+| `/` | Help, marks, link picker, reactions | Filter the list; `Enter` keeps the filter, `Esc` clears it (a second `Esc` closes) |
 | `m{a-z}` | Normal (message) | Set a session mark on the selected message — lost when slk exits |
 | `m{A-Z}` | Normal (message) | Set a persistent mark — survives a restart |
 | `'{letter}` / `` `{letter} `` | Normal | Jump to a mark: opens the channel, loads history if needed, opens the thread and selects the reply |

@@ -12,7 +12,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
 	"github.com/gammons/slk/internal/bubbles/chrome"
-	"github.com/gammons/slk/internal/text"
+	"github.com/gammons/slk/internal/bubbles/listfilter"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -32,13 +32,12 @@ type Entry struct {
 
 // Model is the help overlay state.
 type Model struct {
-	entries   []Entry
-	filtered  []int // indices into entries that match the current query
-	query     string
-	selected  int // index into filtered
-	visible   bool
-	searching bool   // true while typing in the / search input
-	footer    string // optional attribution line rendered above the controls footer
+	entries  []Entry
+	filtered []int // indices into entries that match the filter
+	filter   listfilter.Filter
+	selected int // index into filtered
+	visible  bool
+	footer   string // optional attribution line rendered above the controls footer
 }
 
 // New creates a new help overlay.
@@ -49,7 +48,7 @@ func New() Model {
 // SetEntries replaces the list of help entries.
 func (m *Model) SetEntries(entries []Entry) {
 	m.entries = entries
-	m.filter()
+	m.applyFilter()
 }
 
 // SetFooter sets an optional attribution line rendered above the
@@ -98,27 +97,25 @@ func FromKeyMap(km any, extra ...Entry) []Entry {
 // Open shows the overlay and resets transient state.
 func (m *Model) Open() {
 	m.visible = true
-	m.query = ""
-	m.searching = false
+	m.filter.Reset()
 	m.selected = 0
-	m.filter()
+	m.applyFilter()
 }
 
 // Close hides the overlay.
 func (m *Model) Close() {
 	m.visible = false
-	m.searching = false
-	m.query = ""
+	m.filter.Reset()
 }
 
 // IsVisible reports whether the overlay is showing.
 func (m Model) IsVisible() bool { return m.visible }
 
 // IsSearching reports whether the user is currently typing in the search box.
-func (m Model) IsSearching() bool { return m.searching }
+func (m Model) IsSearching() bool { return m.filter.Typing() }
 
 // Query returns the current filter string.
-func (m Model) Query() string { return m.query }
+func (m Model) Query() string { return m.filter.Query() }
 
 // Selected returns the index of the highlighted row within the filtered list.
 func (m Model) Selected() int { return m.selected }
@@ -132,18 +129,18 @@ func (m Model) VisibleEntries() []Entry {
 	return out
 }
 
-// HandleKey processes a key event for the help modal.
-//
-// Behavior:
-//   - While searching (/-mode): printable runes append to the query, backspace
-//     deletes, enter exits search mode keeping the filter, esc exits search
-//     mode and clears the query.
-//   - Otherwise: j/k/arrows scroll, / enters search mode, esc/q/? close the modal.
-//
-// Returns the model unchanged for chaining clarity; mutations happen in place.
+// HandleKey processes a key event for the help modal. The / filter
+// (listfilter) takes its keys first: while typing, printable runes
+// (including j, k, q and ?) are query text, enter keeps the filter and
+// esc clears it; with a filter kept, esc clears it. Otherwise j/k and
+// the arrows move the selection (the arrows while typing too) and
+// esc/q/? close the modal.
 func (m *Model) HandleKey(keyStr string) {
-	if m.searching {
-		m.handleSearchKey(keyStr)
+	if consumed, changed := m.filter.HandleKey(keyStr); consumed {
+		if changed {
+			m.selected = 0
+			m.applyFilter()
+		}
 		return
 	}
 	switch keyStr {
@@ -157,47 +154,15 @@ func (m *Model) HandleKey(keyStr string) {
 		if m.selected > 0 {
 			m.selected--
 		}
-	case "/":
-		m.searching = true
 	}
 }
 
-func (m *Model) handleSearchKey(keyStr string) {
-	switch keyStr {
-	case "esc":
-		// First esc: leave search and clear query (but keep modal open).
-		m.searching = false
-		m.query = ""
-		m.selected = 0
-		m.filter()
-	case "enter":
-		// Exit search, keep filter applied so user can navigate.
-		m.searching = false
-	case "backspace":
-		if len(m.query) > 0 {
-			m.query = m.query[:len(m.query)-1]
-			m.selected = 0
-			m.filter()
-		}
-	default:
-		// Single printable rune — append to query.
-		if len(keyStr) == 1 && keyStr[0] >= 32 && keyStr[0] <= 126 {
-			m.query += keyStr
-			m.selected = 0
-			m.filter()
-		}
-	}
-}
-
-// filter rebuilds the filtered index list from the current query, matching
-// against both the key label and the description (case-insensitive substring).
-func (m *Model) filter() {
+// applyFilter rebuilds the filtered index list from the filter, matching
+// against both the key label and the description.
+func (m *Model) applyFilter() {
 	m.filtered = m.filtered[:0]
-	q := text.Fold(m.query)
 	for i, e := range m.entries {
-		if q == "" ||
-			strings.Contains(text.Fold(e.Desc), q) ||
-			strings.Contains(text.Fold(e.Key), q) {
+		if m.filter.Matches(e.Key, e.Desc) {
 			m.filtered = append(m.filtered, i)
 		}
 	}
@@ -282,17 +247,8 @@ func (m Model) renderBox(termWidth, termHeight int) string {
 	}
 	innerWidth := overlayWidth - 4 // account for border + padding
 
-	// Search input line: the active prompt, the filter left behind after
-	// leaving search, or a hint.
-	var inputLine string
-	switch {
-	case m.searching:
-		inputLine = chrome.FilterInput(s, m.query, "Type to filter...")
-	case m.query != "":
-		inputLine = s.Empty.Render("filter: " + m.query)
-	default:
-		inputLine = s.Footer.Render("Press / to search")
-	}
+	// The input line is always drawn: the filter, or the hint for it.
+	inputLine := m.filter.Input(s, "Type to filter...", "Press / to search")
 
 	start, end := m.visibleWindow(termHeight)
 	list := chrome.List{Start: start, End: end, Total: len(m.filtered)}
@@ -350,7 +306,7 @@ func (m Model) renderBox(termWidth, termHeight int) string {
 		Body:   list.Rows(s, m.selected, rows),
 		Footer: footer,
 	}
-	if m.query != "" {
+	if m.filter.Query() != "" {
 		f.Empty = "No matching keybindings"
 	}
 	return f.Render(s, overlayWidth)

@@ -155,9 +155,9 @@ func TestHelpModeKeys(t *testing.T) {
 			},
 		},
 		{
-			// help.HandleKey has no "enter" arm; only handleSearchKey
-			// does (help/model.go:165), so the enter normalisation is
-			// observable in search mode only.
+			// help.HandleKey has no "enter" arm of its own; enter is
+			// the listfilter's while searching, so the enter
+			// normalisation is observable in search mode only.
 			name: "ctrl+enter while searching commits: the Code switch strips the modifier",
 			setup: func(t *testing.T, a *App) {
 				openHelpSearching(t, a)
@@ -290,8 +290,8 @@ func TestHelpModeKeys(t *testing.T) {
 		},
 		{
 			// j/k are navigation OUTSIDE search but plain query text
-			// INSIDE it: help.handleSearchKey's default arm takes any
-			// printable byte. Pins that the two regimes really are
+			// INSIDE it: the listfilter takes any printable rune while
+			// it is typed. Pins that the two regimes really are
 			// disjoint.
 			name:     "j while searching types instead of navigating",
 			setup:    openHelpSearching,

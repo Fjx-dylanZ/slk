@@ -184,6 +184,7 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// fetch never contains them, and opening a thread clears the
 		// panel first, so any still shown belong to this thread.
 		a.threadPanel.SetThread(parentMsg, keepEphemerals(m.Replies, a.threadPanel.Replies()), channelID, m.ThreadTS)
+		a.dropStaleSearch()
 		if linkNav != nil {
 			if string(linkNav.MessageTS) == m.ThreadTS {
 				a.threadPanel.GoToTop()
@@ -209,7 +210,7 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 
 	case ThreadsViewActivatedMsg:
 		_ = m
-		a.view = ViewThreads
+		a.setView(ViewThreads)
 		a.sidebar.SetThreadsActive(true)
 		a.focusedPanel = PanelMessages
 		var batch []tea.Cmd

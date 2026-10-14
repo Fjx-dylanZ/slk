@@ -167,3 +167,41 @@ func BenchmarkHighlightSearchTerms_ASCII(b *testing.B) {
 		HighlightSearchTerms(line, terms, "\x1b[7m", "\x1b[27m")
 	}
 }
+
+func TestMatchesSearchTerms(t *testing.T) {
+	cases := []struct {
+		name  string
+		text  string
+		terms []string
+		want  bool
+	}{
+		{"word start", "the deploy went fine", []string{"dep"}, true},
+		{"mid-word is not a match", "redeploy", []string{"deploy"}, false},
+		{"after punctuation is a word start", "(deploy)", []string{"deploy"}, true},
+		{"every term must match", "deploy went fine", []string{"deploy", "fine"}, true},
+		{"one missing term fails", "deploy went fine", []string{"deploy", "lunch"}, false},
+		{"case folded", "Deploy", []string{"deploy"}, true},
+		{"accent folded", "Café open", []string{"cafe"}, true},
+		{"decomposed accent", "Cafe\u0301 open", []string{"cafe"}, true},
+		{"no terms matches nothing", "anything", nil, false},
+		{"empty text", "", []string{"x"}, false},
+	}
+	for _, c := range cases {
+		if got := MatchesSearchTerms(c.text, c.terms); got != c.want {
+			t.Errorf("%s: MatchesSearchTerms(%q, %q) = %v, want %v", c.name, c.text, c.terms, got, c.want)
+		}
+	}
+}
+
+// The matcher and the highlighter agree: a text matches exactly when
+// highlighting it with the same single term changes it.
+func TestMatchesSearchTermsAgreesWithHighlight(t *testing.T) {
+	for _, s := range []string{"deploy", "redeploy", "x deploy", "Déploy", "de-ploy"} {
+		for _, term := range []string{"deploy", "ploy", "de"} {
+			highlighted := HighlightSearchTerms(s, []string{term}, "[", "]") != s
+			if got := MatchesSearchTerms(s, []string{term}); got != highlighted {
+				t.Errorf("%q / %q: match=%v, highlight=%v", s, term, got, highlighted)
+			}
+		}
+	}
+}

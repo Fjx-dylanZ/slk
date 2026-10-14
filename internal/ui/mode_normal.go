@@ -127,7 +127,13 @@ func handleNormalKey(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.enterCommandMode()
 
 	case key.Matches(msg, a.keys.Escape):
-		// An active `/` search absorbs the first Esc: clear it and
+		// The focused pane's search state goes first: with the sidebar
+		// focused, Esc clears its `/` filter.
+		if a.focusedPanel == PanelSidebar && a.sidebar.Filter() != "" {
+			a.sidebar.SetFilter("")
+			return nil
+		}
+		// An active `/` search absorbs the next Esc: clear it and
 		// stop, leaving thread panels / edits untouched. v1
 		// limitation: Esc during the in-flight window doesn't cancel
 		// a local channel search; acceptable because local FTS is
@@ -146,22 +152,15 @@ func handleNormalKey(a *App, msg tea.KeyMsg) tea.Cmd {
 		}
 
 	case key.Matches(msg, a.keys.SearchMode):
-		// Spec scopes `/` to the channel message pane in v1: no-op
-		// while the thread panel has focus.
-		if a.focusedPanel == PanelThread {
-			return nil
-		}
-		a.searchInput = ""
-		a.statusbar.SetSearch("/")
-		a.SetMode(ModeSearch)
-		return nil
+		// `/` searches whatever has focus; see searchScopeForFocus.
+		return a.openSearchPrompt()
 
-	// n/N match navigation: like `/`, scoped to the channel message
-	// pane in v1 — a no-op while the thread panel has focus.
-	case key.Matches(msg, a.keys.SearchNext) && a.search != nil && a.focusedPanel != PanelThread:
+	// n/N step the active search only where it is drawn: see
+	// searchStepsHere.
+	case key.Matches(msg, a.keys.SearchNext) && a.searchStepsHere():
 		return a.searchStep(1)
 
-	case key.Matches(msg, a.keys.SearchPrev) && a.search != nil && a.focusedPanel != PanelThread:
+	case key.Matches(msg, a.keys.SearchPrev) && a.searchStepsHere():
 		return a.searchStep(-1)
 
 	case key.Matches(msg, a.keys.WorkspaceSearch):
@@ -402,6 +401,10 @@ func handleNormalKey(a *App, msg tea.KeyMsg) tea.Cmd {
 func (a *App) jumpToUnread(dir int) tea.Cmd {
 	id, name, chType, ok := a.sidebar.NextUnread(a.activeChannelID, dir)
 	if !ok {
+		if a.sidebar.Filter() != "" {
+			// The walk covers the filter's matches only.
+			return toastWithClear(a, "No other unread channels match the filter", 2*time.Second)
+		}
 		return toastWithClear(a, "No other unread channels", 2*time.Second)
 	}
 	a.sidebar.SelectByID(id)
@@ -433,7 +436,7 @@ func (a *App) openWorkspaceSearch() tea.Cmd {
 // :activity and clicking the sidebar row.
 func (a *App) toggleActivityView() tea.Cmd {
 	if a.view == ViewActivity {
-		a.view = ViewChannels
+		a.setView(ViewChannels)
 		a.sidebar.SetActivityActive(false)
 		if a.activeChannelID != "" {
 			a.sidebar.SelectByID(a.activeChannelID)

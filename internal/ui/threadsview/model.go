@@ -316,6 +316,57 @@ func (m *Model) selectedKey() (string, string, bool) {
 	return s.ChannelID, s.ThreadTS, true
 }
 
+// The Search* methods let the App's `/` search the list client-side
+// (internal/ui's searchableList). Rows are the cards in display order.
+
+// SearchRows returns the number of cards.
+func (m *Model) SearchRows() int { return len(m.summaries) }
+
+// SearchText returns what card i shows, as plain text: the channel, the
+// parent's author, the parent text (mrkdwn flattened, mentions
+// resolved) and the last replier.
+func (m *Model) SearchText(i int) string {
+	if i < 0 || i >= len(m.summaries) {
+		return ""
+	}
+	s := m.summaries[i]
+	user := func(id string) (string, bool) { n, ok := m.userNames[id]; return n, ok }
+	channel := func(id string) (string, bool) { n, ok := m.channelNames[id]; return n, ok }
+	return strings.Join([]string{
+		s.ChannelName,
+		m.resolveUser(s.ParentUserID),
+		messages.FlattenMrkdwnWithUserGroups(s.ParentText, user, channel, m.userGroups),
+		m.resolveUser(s.LastReplyBy),
+	}, " ")
+}
+
+// SearchKey returns card i's identity, "channelID/threadTS": stable
+// across the re-rankings SetSummaries applies.
+func (m *Model) SearchKey(i int) string {
+	if i < 0 || i >= len(m.summaries) {
+		return ""
+	}
+	return m.summaries[i].ChannelID + "/" + m.summaries[i].ThreadTS
+}
+
+// SearchCursor returns the selected card's index.
+func (m *Model) SearchCursor() int { return m.selected }
+
+// SelectSearchKey selects the card with that key, as j/k do, and
+// reports whether it is in the list.
+func (m *Model) SelectSearchKey(key string) bool {
+	for i := range m.summaries {
+		if m.SearchKey(i) == key {
+			if m.selected != i {
+				m.selected = i
+				m.dirty()
+			}
+			return true
+		}
+	}
+	return false
+}
+
 // MoveDown advances the cursor by one row, clamping at the bottom.
 func (m *Model) MoveDown() {
 	if m.selected < len(m.summaries)-1 {

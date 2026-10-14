@@ -45,6 +45,12 @@ type Model struct {
 	// set HasReacted only for the current user's own reactions.
 	currentUserID string
 
+	// searchTerms are the folded word-prefix terms of a thread-scope `/`
+	// search; non-empty enables highlight rendering, as in the channel
+	// pane (messages.Model.searchTerms). They belong to one thread:
+	// SetThread drops them when the thread changes, and Clear drops them.
+	searchTerms []string
+
 	// Reply cache: the payload and the list entry of every reply,
 	// index-aligned with m.replies, rebuilt when the replies or the width
 	// change. nil means the cache was discarded and the next View
@@ -250,6 +256,7 @@ func (m *Model) HandleAvatarReady(userID string) {
 func (m *Model) SetThread(parent messages.MessageItem, replies []messages.MessageItem, channelID, threadTS string) {
 	if channelID != m.channelID || threadTS != m.threadTS {
 		m.unreadBoundaryTS = ""
+		m.searchTerms = nil
 	}
 	m.ClearSelection()
 	m.parent = parent
@@ -407,6 +414,7 @@ func (m *Model) Clear() {
 	m.channelID = ""
 	m.threadTS = ""
 	m.selected = parentSelected
+	m.searchTerms = nil
 	m.InvalidateCache()
 }
 
@@ -738,6 +746,88 @@ func (m *Model) SelectByIndex(i int) {
 		m.selected = i
 		m.InvalidateCache()
 	}
+}
+
+// SetSearchTerms sets (or clears, with nil) the folded terms whose
+// word-prefix occurrences get highlighted in the parent and the
+// replies. Mirrors messages.Model.SetSearchTerms: a redundant call
+// keeps the render cache, and the slice is cloned.
+func (m *Model) SetSearchTerms(terms []string) {
+	if slices.Equal(terms, m.searchTerms) {
+		return
+	}
+	m.searchTerms = slices.Clone(terms)
+	m.InvalidateCache()
+	m.dirty()
+}
+
+// The Search* methods let the App's `/` search the loaded thread
+// client-side (internal/ui's searchableList). Rows are in display
+// order: row 0 is the parent, row i+1 is reply i.
+
+// SearchRows returns the number of searchable rows: the parent plus
+// the replies.
+func (m *Model) SearchRows() int { return 1 + len(m.replies) }
+
+func (m *Model) searchRow(i int) (messages.MessageItem, bool) {
+	switch {
+	case i == 0:
+		return m.parent, true
+	case i > 0 && i <= len(m.replies):
+		return m.replies[i-1], true
+	}
+	return messages.MessageItem{}, false
+}
+
+// SearchText returns row i's message text as drawn, as plain text:
+// mrkdwn flattened with mentions, channels and usergroups resolved.
+func (m *Model) SearchText(i int) string {
+	msg, ok := m.searchRow(i)
+	if !ok {
+		return ""
+	}
+	user := func(id string) (string, bool) { n, ok := m.userNames[id]; return n, ok }
+	channel := func(id string) (string, bool) { n, ok := m.channelNames[id]; return n, ok }
+	return messages.FlattenMrkdwnWithUserGroups(msg.Text, user, channel, m.userGroups)
+}
+
+// SearchKey returns row i's message TS.
+func (m *Model) SearchKey(i int) string {
+	msg, _ := m.searchRow(i)
+	return msg.TS
+}
+
+// SearchCursor returns the selected row: 0 for the parent.
+func (m *Model) SearchCursor() int { return m.selected + 1 }
+
+// SelectSearchKey selects the parent or the reply with TS key, the way
+// j/k move the cursor, and reports whether one was found.
+func (m *Model) SelectSearchKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	idx := -2
+	if key == m.parent.TS {
+		idx = parentSelected
+	} else {
+		for i, r := range m.replies {
+			if r.TS == key {
+				idx = i
+				break
+			}
+		}
+	}
+	if idx == -2 {
+		return false
+	}
+	if m.nav.Active {
+		m.ExitReactionNav()
+	}
+	if m.selected != idx {
+		m.selected = idx
+		m.dirty()
+	}
+	return true
 }
 
 // MoveUp moves the selection cursor up one reply.
@@ -1366,6 +1456,7 @@ func (m *Model) renderContext() *messages.RenderContext {
 		Emoji:            m.emojiCtx,
 		Images:           m.imgRenderer,
 		ImageChannel:     m.channelID,
+		SearchTerms:      m.searchTerms,
 		Nav:              m.nav,
 	}
 }

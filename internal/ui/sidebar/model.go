@@ -239,9 +239,12 @@ type navItem struct {
 }
 
 type Model struct {
-	items    []ChannelItem
-	width    int // configurable panel width; 0 means defaultWidth
-	yOffset  int // own scroll state -- replaces bubbles/viewport
+	items   []ChannelItem
+	width   int // configurable panel width; 0 means defaultWidth
+	yOffset int // own scroll state -- replaces bubbles/viewport
+	// filter is the live name filter (the sidebar's `/` scope). While it
+	// is non-empty, filtered holds only the matches, every section is
+	// drawn expanded (sectionCollapsed) and staleness is not applied.
 	filter   string
 	filtered []int // indices into items that match filter
 
@@ -422,6 +425,10 @@ func (m *Model) UnreadChannelCount() int {
 // desktop client, which also surfaces unread channels regardless of
 // section collapse; it's an intentional "catch up on all unreads" skim,
 // not just "what's on screen".
+//
+// With a name filter active m.filtered holds only the matches, so a/A
+// walk the unread conversations among them (and every section is drawn
+// expanded, so SelectByID never needs to expand one).
 func (m *Model) NextUnread(afterID string, dir int) (id, name, chType string, ok bool) {
 	if m.readStateReader == nil {
 		return "", "", "", false
@@ -522,7 +529,9 @@ func (m *Model) sectionFor(item ChannelItem) string {
 // modelOrderedSections returns the section keys in display order for
 // the current model state. Slack mode: provider's verbatim list,
 // returning IDs of sections that have at least one filtered item OR
-// are standard-typed. Config mode: legacy algorithm.
+// are standard-typed. Standard sections are kept only while no name
+// filter is active: a filter shows just the sections holding matches.
+// Config mode: legacy algorithm, which already omits empty sections.
 func (m *Model) modelOrderedSections(filtered []int) []string {
 	if !m.useSlackSections() {
 		return orderedSectionsLegacy(m.items, filtered)
@@ -534,7 +543,7 @@ func (m *Model) modelOrderedSections(filtered []int) []string {
 	}
 	out := make([]string, 0, len(metas))
 	for _, meta := range metas {
-		if meta.Type == "standard" || hasItem[meta.ID] {
+		if (meta.Type == "standard" && m.filter == "") || hasItem[meta.ID] {
 			out = append(out, meta.ID)
 		}
 	}
@@ -762,14 +771,28 @@ func (m *Model) ToggleCollapse(section string) {
 }
 
 // ToggleCollapseSelected toggles the section currently under the cursor.
-// No-op if the cursor isn't on a section header.
+// No-op if the cursor isn't on a section header, and while a name filter
+// is active: every section is drawn expanded then, so flipping the
+// persisted state would change nothing visible until the filter clears.
 func (m *Model) ToggleCollapseSelected() bool {
+	if m.filter != "" {
+		return false
+	}
 	name, ok := m.IsSectionHeaderSelected()
 	if !ok {
 		return false
 	}
 	m.ToggleCollapse(name)
 	return true
+}
+
+// sectionCollapsed reports whether a section is drawn collapsed: its
+// persisted state, except that a name filter draws every section
+// expanded so the matches inside are visible and navigable. Rendering
+// and nav use this; IsCollapsed and the collapse maps keep the
+// persisted state, which returns when the filter clears.
+func (m *Model) sectionCollapsed(section string) bool {
+	return m.filter == "" && m.IsCollapsed(section)
 }
 
 // SetThreadsUnreadCount updates the badge count shown next to the Threads row.
@@ -1102,13 +1125,69 @@ func (m *Model) Items() []ChannelItem {
 	return m.items
 }
 
+// SetFilter sets the live name filter (a folded substring of
+// ChannelItem.Name; "" clears it). A changed non-empty filter puts the
+// cursor on the first matching conversation, or on the Threads row when
+// nothing matches. Clearing keeps the cursor on the row it was on
+// (conversation, header, Threads or Activity); a conversation in a
+// collapsed section is selected the way SelectByID does, expanding the
+// section, and one that is gone (hidden as stale again) falls back to
+// the Threads row. Setting the current value again changes nothing, so
+// the cursor the user moved stays put.
 func (m *Model) SetFilter(filter string) {
+	if filter == m.filter {
+		return
+	}
+	key, hadKey := m.currentCursorKey()
 	m.filter = filter
 	m.rebuildFilter()
-	m.rebuildNav()
-	// Filter changes reset the cursor to the top so j/k starts from a
-	// sensible place after a typed search.
-	m.cursor = 0
+	if filter != "" {
+		m.rebuildNav()
+		m.cursor = 0
+		for i, n := range m.nav {
+			if n.kind == navChannel {
+				m.cursor = i
+				break
+			}
+		}
+	} else {
+		m.rebuildNavWithCursor(key, hadKey)
+		if hadKey && key.kind == navChannel && m.SelectedID() != key.id {
+			m.SelectByID(key.id)
+			if m.SelectedID() != key.id {
+				m.cursor = 0
+			}
+		}
+	}
+	m.cacheValid = false
+	m.dirty()
+}
+
+// Filter returns the live name filter; "" when none is active.
+func (m *Model) Filter() string { return m.filter }
+
+// FilterState is an opaque snapshot of the name filter and the cursor's
+// identity, taken by SnapshotFilter and put back by RestoreFilter (used
+// to cancel the `/` prompt).
+type FilterState struct {
+	filter string
+	key    cursorKey
+	hadKey bool
+}
+
+// SnapshotFilter captures the current filter and the row the cursor is on.
+func (m *Model) SnapshotFilter() FilterState {
+	key, hadKey := m.currentCursorKey()
+	return FilterState{filter: m.filter, key: key, hadKey: hadKey}
+}
+
+// RestoreFilter puts back a SnapshotFilter result: the filter and the
+// cursor on the same logical row, falling back to the Threads row when
+// that row no longer exists.
+func (m *Model) RestoreFilter(s FilterState) {
+	m.filter = s.filter
+	m.rebuildFilter()
+	m.rebuildNavWithCursor(s.key, s.hadKey)
 	m.cacheValid = false
 	m.dirty()
 }
@@ -1234,6 +1313,10 @@ func (m *Model) ExpireStatuses(now time.Time) bool {
 	return changed
 }
 
+// SelectByID puts the cursor on the conversation with the given ID,
+// expanding its section when that is collapsed. A conversation not in
+// m.filtered (hidden as stale, or not matching an active name filter) is
+// a no-op and never touches collapse state.
 func (m *Model) SelectByID(id string) {
 	// Fast path: the channel is already in nav (its section is expanded).
 	for i, n := range m.nav {
@@ -1256,7 +1339,7 @@ func (m *Model) SelectByID(id string) {
 			continue
 		}
 		section := m.sectionFor(m.items[idx])
-		if m.IsCollapsed(section) {
+		if m.sectionCollapsed(section) {
 			// ToggleCollapse handles both name-keyed (config mode) and
 			// ID-keyed (Slack mode) maps and rebuilds nav + invalidates
 			// cache as a side effect.
@@ -1308,9 +1391,11 @@ func (m *Model) rebuildFilter() {
 		}
 		// Staleness filter: drop items the user hasn't read in a long
 		// time, with the active channel always exempt so it can't
-		// disappear out from under them.
+		// disappear out from under them. A name filter bypasses it: it
+		// searches every conversation the sidebar holds, and finding one
+		// that was auto-hidden as stale is the point.
 		state := readState[item.ID]
-		if item.ID != m.activeID && IsStale(item, state.HasUnread, state.LastReadTS, m.staleThreshold, now) {
+		if m.filter == "" && item.ID != m.activeID && IsStale(item, state.HasUnread, state.LastReadTS, m.staleThreshold, now) {
 			continue
 		}
 		m.filtered = append(m.filtered, i)
@@ -1418,7 +1503,7 @@ func (m *Model) rebuildNav() {
 	nav = append(nav, navItem{kind: navActivity})
 	for _, name := range sectionOrder {
 		nav = append(nav, navItem{kind: navHeader, header: name})
-		if m.IsCollapsed(name) {
+		if m.sectionCollapsed(name) {
 			continue
 		}
 		for _, fi := range bucket[name] {
@@ -1733,8 +1818,9 @@ func (m *Model) buildCache(width int) {
 	})
 
 	// Blank separator between the Threads/Activity rows and the first
-	// section (or below them when there are no channels at all).
-	m.cacheRows = append(m.cacheRows, renderRow{height: 1, navIdx: -1})
+	// section (or below them when there are no channels at all). An
+	// active name filter is shown here; with none the row stays blank.
+	m.cacheRows = append(m.cacheRows, m.filterIndicatorRow(width, bgAnsi))
 
 	// Pre-build the per-section channel rows so we can flatten with
 	// section headers below. Channels in a collapsed section are still
@@ -1752,7 +1838,7 @@ func (m *Model) buildCache(width int) {
 	for fi, idx := range m.filtered {
 		item := m.items[idx]
 		sectionName := m.sectionFor(item)
-		if m.IsCollapsed(sectionName) {
+		if m.sectionCollapsed(sectionName) {
 			continue
 		}
 		// Defense-in-depth: if sectionFor returns a section name that
@@ -1987,6 +2073,31 @@ func (m *Model) buildCache(width int) {
 	}
 }
 
+// filterIndicatorRow is the row under the Activity row: blank (the
+// themed filler) without a name filter, else " /<filter>" plus "  no
+// matches" when nothing matches, truncated to one line. Never navigable,
+// so clicks on it select nothing.
+func (m *Model) filterIndicatorRow(width int, bgAnsi string) renderRow {
+	if m.filter == "" {
+		return renderRow{height: 1, navIdx: -1}
+	}
+	label := " /" + m.filter
+	if len(m.filtered) == 0 {
+		label += "  no matches"
+	}
+	// The row renders at width-2 like the section headers, inside the
+	// style's own padding; wrapping would overflow its one-line slot.
+	budget := width - 2 - styles.SectionHeader.GetHorizontalFrameSize()
+	if budget < 1 {
+		budget = 1
+	}
+	if lipgloss.Width(label) > budget {
+		label = truncate.StringWithTail(label, uint(budget), "…")
+	}
+	row := styles.SectionHeader.Width(width - 2).Render(messages.ReapplyBgAfterResets(label, bgAnsi))
+	return renderRow{normal: row, selected: row, height: 1, navIdx: -1}
+}
+
 // sectionDisplayMeta returns the user-visible name and emoji shortcode
 // for a section as currently identified in the nav. In Slack mode the
 // nav header is the section ID; in config mode it's the section name
@@ -2055,7 +2166,7 @@ func (m *Model) renderSectionHeaderLabel(name, cursor string, dotStyle lipgloss.
 	}
 
 	glyph := "▾" // expanded
-	if m.IsCollapsed(name) {
+	if m.sectionCollapsed(name) {
 		glyph = "▸"
 	}
 
@@ -2069,7 +2180,7 @@ func (m *Model) renderSectionHeaderLabel(name, cursor string, dotStyle lipgloss.
 	// drift apart, and the cursor landing on a header must not change
 	// what the header reports.
 	aggregates := ""
-	if m.IsCollapsed(name) {
+	if m.sectionCollapsed(name) {
 		unread, mentions, mentionsAllMuted := m.aggregateForSection(name)
 		if unread > 0 {
 			aggregates += " " + dotStyle.Render("•"+fmt.Sprintf("%d", unread))
