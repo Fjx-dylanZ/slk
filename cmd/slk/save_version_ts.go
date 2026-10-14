@@ -27,25 +27,12 @@ func seedVersionTS(env *slackhttp.Envelope, cfg config.Config, teamID string) {
 	env.SetVersionTS(ws.VersionTS)
 }
 
-// workspaceTOMLKey returns the literal TOML key of the [workspaces.*]
-// block configured for teamID. Blocks are keyed either by a user-chosen
-// slug (with team_id set) or, for legacy configs, by the raw team ID.
-// When no block exists we fall back to the team ID, which is the key
-// the saveWorkspace* helpers use when they append a new block.
-func workspaceTOMLKey(cfg config.Config, teamID string) string {
-	for k, w := range cfg.Workspaces {
-		if w.TeamID == teamID {
-			return k
-		}
-	}
-	return teamID
-}
-
-// saveWorkspaceVersionTS rewrites or appends a version_ts entry in
-// [workspaces.<tomlKey>]. Mirrors saveWorkspaceWidth / saveWorkspaceTheme:
-// a textual line rewrite rather than a TOML re-marshal, so user comments
-// and field ordering survive the write.
-func saveWorkspaceVersionTS(configPath, tomlKey, teamID, teamName, versionTS string) error {
+// saveWorkspaceVersionTS rewrites or adds the version_ts entry in the
+// [workspaces.*] block that configures teamID. Mirrors
+// saveWorkspaceWidth / saveWorkspaceTheme: a textual line rewrite
+// rather than a TOML re-marshal, so user comments and field ordering
+// survive the write.
+func saveWorkspaceVersionTS(configPath, teamID, teamName, versionTS string) error {
 	configWriteMu.Lock()
 	defer configWriteMu.Unlock()
 
@@ -60,14 +47,9 @@ func saveWorkspaceVersionTS(configPath, tomlKey, teamID, teamName, versionTS str
 	}
 	lines := strings.Split(string(data), "\n")
 
-	header := fmt.Sprintf("[workspaces.%s]", tomlKey)
-
-	sectionStart := -1
-	for i, line := range lines {
-		if strings.TrimSpace(line) == header {
-			sectionStart = i
-			break
-		}
+	sectionStart, err := workspaceSectionStart(data, lines, teamID)
+	if err != nil {
+		return err
 	}
 
 	if sectionStart >= 0 {

@@ -255,16 +255,22 @@ func Default() Config {
 }
 
 func Load(path string) (Config, error) {
-	cfg := Default()
-
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return cfg, nil
+			return Default(), nil
 		}
-		return cfg, err
+		return Default(), err
 	}
+	return Parse(data)
+}
 
+// Parse decodes the contents of a config.toml exactly as Load does,
+// for a caller that already holds the bytes: one about to rewrite the
+// file must judge it by the same rules Load will apply at the next
+// launch.
+func Parse(data []byte) (Config, error) {
+	cfg := Default()
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return cfg, err
 	}
@@ -330,15 +336,27 @@ func expandHome(path string) (string, error) {
 // team ID, scanning c.Workspaces (which is keyed by either slug or
 // legacy team ID). Returns false if no workspace matches.
 func (c Config) WorkspaceByTeamID(teamID string) (Workspace, bool) {
-	if teamID == "" {
+	key, ok := c.WorkspaceKey(teamID)
+	if !ok {
 		return Workspace{}, false
 	}
-	for _, ws := range c.Workspaces {
+	return c.Workspaces[key], true
+}
+
+// WorkspaceKey returns the key of teamID's block in c.Workspaces: the
+// slug of a [workspaces.<slug>] block whose team_id is teamID, or, for
+// a legacy block, the team ID itself. Returns false if no workspace
+// matches.
+func (c Config) WorkspaceKey(teamID string) (string, bool) {
+	if teamID == "" {
+		return "", false
+	}
+	for key, ws := range c.Workspaces {
 		if ws.TeamID == teamID {
-			return ws, true
+			return key, true
 		}
 	}
-	return Workspace{}, false
+	return "", false
 }
 
 // TeamIDForDefaultWorkspace resolves general.default_workspace to a
