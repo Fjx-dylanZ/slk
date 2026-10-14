@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/gammons/slk/internal/bubbles/vimedit"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/emoji"
 	"github.com/gammons/slk/internal/ui/channelpicker"
@@ -122,6 +123,10 @@ type Model struct {
 	// editingExternally is true while Ctrl+E's editor is open. Update()
 	// refuses all key input while set.
 	editingExternally bool
+
+	// vim is the vim editing engine ([compose] vim_mode, see vim.go);
+	// nil when vim mode is off, and then no vim code runs.
+	vim *vimedit.Editor
 
 	// version increments on every Update / state mutation. Used by App's
 	// panel-cache layer so the wrapped compose panel only re-renders when
@@ -243,11 +248,19 @@ func (m *Model) SetPlaceholderOverride(text string) {
 
 func (m *Model) Focus() tea.Cmd {
 	m.input.Placeholder = "" // hide placeholder when focused
+	if m.vim != nil {
+		// Every way into insert mode focuses the composer: vim lands
+		// in INSERT, keeping a session already open.
+		m.vim.EnterInsert(m.vimBuffer())
+	}
 	m.dirty()
 	return m.input.Focus()
 }
 
 func (m *Model) Blur() {
+	if m.vim != nil {
+		m.vim.Blur(m.vimBuffer())
+	}
 	m.input.Placeholder = m.effectivePlaceholder()
 	m.input.Blur()
 	m.dirty()
@@ -257,8 +270,11 @@ func (m *Model) Value() string {
 	return m.input.Value()
 }
 
+// SetValue replaces the text. With vim mode on this starts a fresh undo
+// history: the text came from outside the editor.
 func (m *Model) SetValue(s string) {
 	m.input.SetValue(s)
+	m.vimReset()
 	m.dirty()
 }
 
@@ -463,6 +479,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	if isKey && m.editingExternally {
 		return m, nil
+	}
+	if m2, cmd, ok := m.vimUpdate(msg); ok {
+		return m2, cmd
 	}
 
 	// Backspace at column 0 of an empty textarea removes the last
@@ -958,6 +977,7 @@ func (m *Model) saveVisibleDraft() {
 func (m *Model) clearVisibleDraft() {
 	m.input.Reset()
 	m.input.SetHeight(1)
+	m.vimReset()
 	m.closePickers()
 	m.pending = nil
 	m.uploading = false
@@ -969,6 +989,7 @@ func (m *Model) clearVisibleDraft() {
 // takes ownership of its attachment slice.
 func (m *Model) restoreDraft(d draft) {
 	m.input.SetValue(d.text)
+	m.vimReset()
 	m.pending = d.attachments
 	// Recompute the visible height for the restored text; SetValue
 	// already recalcs internally, but autoGrow enforces our row cap.
@@ -1522,7 +1543,7 @@ func (m Model) View(width int, focused bool) string {
 			Background(innerBG).
 			Foreground(styles.TextPrimary).
 			Width(innerWidth).
-			Render(m.input.View())
+			Render(m.inputView(focused))
 	}
 
 	hint := m.renderBroadcastHint(innerWidth, innerBG)

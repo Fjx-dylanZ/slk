@@ -213,7 +213,9 @@ func (m Model) View(width int) string {
 	switch m.mode {
 	case "INSERT":
 		modeStyle = styles.StatusModeInsert
-	case "COMMAND":
+	case "COMMAND", "VISUAL", "V-LINE":
+		// VISUAL / V-LINE: the composer's vim selection modes
+		// ([compose] vim_mode), set apart from NORMAL as vim themes do.
 		modeStyle = styles.StatusModeCommand
 	default:
 		modeStyle = styles.StatusMode

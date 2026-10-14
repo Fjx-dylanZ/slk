@@ -77,6 +77,10 @@ type KeyMap struct {
 	WinOnly             key.Binding
 	ToggleBroadcast     key.Binding
 	OpenInEditor        key.Binding
+	// Help-only: the composer's vim editing ([compose] vim_mode).
+	ComposeVimNormal  key.Binding
+	ComposeVimMotions key.Binding
+	ComposeVimEdits   key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -173,5 +177,10 @@ func DefaultKeyMap() KeyMap {
 		ToggleBroadcast: key.NewBinding(key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o / alt+enter", "also send reply to channel")),
 		// Shadows the textarea's own ctrl+e (LineEnd); "End" still works.
 		OpenInEditor: key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "edit message in $EDITOR")),
+		// Keyless help-only entries for [compose] vim_mode; the composer
+		// handles the keys itself (compose/vim.go, mode_insert.go).
+		ComposeVimNormal:  key.NewBinding(key.WithHelp("esc (vim_mode)", "compose: vim normal mode, esc again leaves")),
+		ComposeVimMotions: key.NewBinding(key.WithHelp("hjkl w b e f t", "compose vim: motions, also 0 ^ $ gg G ; ,")),
+		ComposeVimEdits:   key.NewBinding(key.WithHelp("d c y p u . v V", "compose vim: operators, put, undo, repeat, visual")),
 	}
 }

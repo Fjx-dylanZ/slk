@@ -19,6 +19,8 @@ type uiSettings struct {
 	MouseWheelLines  int
 	ColoredUsernames bool
 	ThemeOverrides   core.Theme
+	// ComposeVimMode is [compose] vim_mode: vim editing in the composer.
+	ComposeVimMode bool
 }
 
 // applyUISettings installs s on app. The timestamp formatter feeds the
@@ -36,4 +38,5 @@ func applyUISettings(app *ui.App, s uiSettings) {
 	app.SetColoredUsernames(s.ColoredUsernames)
 	app.SetThemeItems(styles.ThemeNames())
 	app.SetThemeOverrides(s.ThemeOverrides)
+	app.SetComposeVimMode(s.ComposeVimMode)
 }

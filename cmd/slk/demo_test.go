@@ -56,7 +56,7 @@ func TestDemoAppRendersItsFirstFrame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := newDemoApp(d)
+	app := newDemoApp(d, false)
 	deliverDemo(t, app, tea.WindowSizeMsg{Width: 120, Height: 40}, 0)
 	for _, msg := range d.StartupMsgs() {
 		deliverDemo(t, app, msg, 0)
@@ -85,7 +85,7 @@ func TestDemoImageOpensFullScreen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := newDemoApp(d)
+	app := newDemoApp(d, false)
 	deliverDemo(t, app, tea.WindowSizeMsg{Width: 120, Height: 40}, 0)
 	for _, msg := range d.StartupMsgs() {
 		deliverDemo(t, app, msg, 0)
@@ -127,5 +127,40 @@ func TestRunDemoRejectsUnknownImageProtocol(t *testing.T) {
 	t.Setenv("SLK_DEMO_IMAGES", "kitty")
 	if err := runDemo("hero"); err == nil || !strings.Contains(err.Error(), "SLK_DEMO_IMAGES") {
 		t.Fatalf("runDemo with SLK_DEMO_IMAGES=kitty = %v, want an error naming the variable", err)
+	}
+}
+
+func TestDemoComposeVimFromEnv(t *testing.T) {
+	for value, want := range map[string]bool{"": false, "0": false, "1": true} {
+		got, err := demoComposeVim(value)
+		if err != nil || got != want {
+			t.Errorf("demoComposeVim(%q) = %v, %v; want %v", value, got, err, want)
+		}
+	}
+	t.Setenv("SLK_DEMO_COMPOSE_VIM", "yes")
+	if err := runDemo("hero"); err == nil || !strings.Contains(err.Error(), "SLK_DEMO_COMPOSE_VIM") {
+		t.Fatalf("runDemo with SLK_DEMO_COMPOSE_VIM=yes = %v, want an error naming the variable", err)
+	}
+}
+
+// The demo switch reaches the composer: Esc from typing stays in the
+// composer, in vim NORMAL.
+func TestDemoAppComposeVimMode(t *testing.T) {
+	d, err := demo.New("hero", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newDemoApp(d, true)
+	deliverDemo(t, app, tea.WindowSizeMsg{Width: 120, Height: 40}, 0)
+	for _, msg := range d.StartupMsgs() {
+		deliverDemo(t, app, msg, 0)
+	}
+	for _, k := range []tea.KeyPressMsg{
+		{Code: 'i', Text: "i"}, {Code: 'h', Text: "h"}, {Code: 'i', Text: "i"}, {Code: tea.KeyEscape},
+	} {
+		deliverDemo(t, app, k, 0)
+	}
+	if frame := ansi.Strip(app.View().Content); !strings.Contains(frame, "C-NORMAL") {
+		t.Errorf("Esc after typing should show compose NORMAL:\n%s", frame)
 	}
 }

@@ -31,6 +31,10 @@ func runDemo(scenario string) error {
 	if err != nil {
 		return err
 	}
+	vim, err := demoComposeVim(os.Getenv("SLK_DEMO_COMPOSE_VIM"))
+	if err != nil {
+		return err
+	}
 	styles.Apply(d.InitialTheme(), core.Theme{})
 	emojiwidth.SetImageMode(false, 2)
 
@@ -47,7 +51,7 @@ func runDemo(scenario string) error {
 		frames = imgpkg.NewSixelFrameStore()
 		opts = append(opts, tea.WithOutput(imgpkg.NewFrameOutput(os.Stdout, frames)))
 	}
-	app := newDemoApp(d)
+	app := newDemoApp(d, vim)
 	if frames != nil {
 		app.SetSixelFrameStore(frames)
 	}
@@ -86,15 +90,30 @@ func demoImageProtocol(value string) (imgpkg.Protocol, error) {
 	return imgpkg.ProtoOff, fmt.Errorf("SLK_DEMO_IMAGES=%q: want halfblock or sixel", value)
 }
 
+// demoComposeVim reads SLK_DEMO_COMPOSE_VIM, the demo's stand-in for
+// [compose] vim_mode (the demo reads no config): "1" turns vim editing on
+// in the composer.
+func demoComposeVim(value string) (bool, error) {
+	switch value {
+	case "", "0":
+		return false, nil
+	case "1":
+		return true, nil
+	}
+	return false, fmt.Errorf("SLK_DEMO_COMPOSE_VIM=%q: want 0 or 1", value)
+}
+
 // newDemoApp builds the demo's App. It takes no config, token store or
-// cache handle, so demo mode cannot reach the user's real data.
-func newDemoApp(d *demo.Demo) *ui.App {
+// cache handle, so demo mode cannot reach the user's real data. vim is
+// SLK_DEMO_COMPOSE_VIM.
+func newDemoApp(d *demo.Demo, vim bool) *ui.App {
 	app := ui.NewApp()
 	applyUISettings(app, uiSettings{
 		TimestampFormat:  demo.TimestampFormat,
 		TypingIndicators: true,
 		MouseWheelLines:  3,
 		ColoredUsernames: true,
+		ComposeVimMode:   vim,
 	})
 	d.Install(app)
 	return app
