@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -367,85 +368,17 @@ func TestReactionsViewModeKeys(t *testing.T) {
 			wantMode: ModeNormal,
 		},
 		{
-			name:     "/ starts the filter and stays in the view",
-			setup:    openView,
-			key:      keyPress('/'),
+			// The / filter's integration (its key table is
+			// listfilter's): typed text narrows the listed reactions.
+			name:     "/ filter narrows the listed reactions",
+			setup:    reactionsFiltering("zz"),
+			key:      keyPress('z'),
 			wantMode: ModeReactionsView,
 			assert: func(t *testing.T, a *App, _ tea.Cmd) {
-				if !a.reactionsView.Typing() {
-					t.Error("Typing = false after /")
+				if out := a.reactionsView.ViewOverlay(120, 30, ""); !strings.Contains(out, "No matching reactions") {
+					t.Errorf("filter %q did not narrow the list:\n%s", a.reactionsView.Query(), out)
 				}
 			},
-		},
-		{
-			name:     "q while filtering is filter text, not close",
-			setup:    reactionsFiltering(""),
-			key:      keyPress('q'),
-			wantMode: ModeReactionsView,
-			assert: func(t *testing.T, a *App, _ tea.Cmd) {
-				if got := a.reactionsView.Query(); got != "q" {
-					t.Errorf("query = %q, want q", got)
-				}
-			},
-		},
-		{
-			name:     "L and j while filtering are filter text",
-			setup:    reactionsFiltering("L"),
-			key:      keyPress('j'),
-			wantMode: ModeReactionsView,
-			assert: func(t *testing.T, a *App, _ tea.Cmd) {
-				if got := a.reactionsView.Query(); got != "Lj" {
-					t.Errorf("query = %q, want Lj", got)
-				}
-			},
-		},
-		{
-			name:     "enter keeps the filter",
-			setup:    reactionsFiltering("t"),
-			key:      keyCode(tea.KeyEnter),
-			wantMode: ModeReactionsView,
-			assert: func(t *testing.T, a *App, _ tea.Cmd) {
-				if a.reactionsView.Typing() || a.reactionsView.Query() != "t" {
-					t.Errorf("typing %v, query %q; want false, t", a.reactionsView.Typing(), a.reactionsView.Query())
-				}
-			},
-		},
-		{
-			name:     "esc while filtering clears it and keeps the view",
-			setup:    reactionsFiltering("t"),
-			key:      keyCode(tea.KeyEscape),
-			wantMode: ModeReactionsView,
-			assert: func(t *testing.T, a *App, _ tea.Cmd) {
-				if a.reactionsView.Typing() || a.reactionsView.Query() != "" {
-					t.Errorf("typing %v, query %q; want idle and cleared", a.reactionsView.Typing(), a.reactionsView.Query())
-				}
-			},
-		},
-		{
-			name:     "q with a kept filter closes, as in help and the link picker",
-			setup:    reactionsKept("t"),
-			key:      keyPress('q'),
-			wantMode: ModeNormal,
-		},
-		{
-			name:     "esc with a kept filter clears it and keeps the view",
-			setup:    reactionsKept("t"),
-			key:      keyCode(tea.KeyEscape),
-			wantMode: ModeReactionsView,
-			assert: func(t *testing.T, a *App, _ tea.Cmd) {
-				if !a.reactionsView.IsVisible() || a.reactionsView.Query() != "" {
-					t.Errorf("visible %v, query %q; want open and cleared", a.reactionsView.IsVisible(), a.reactionsView.Query())
-				}
-			},
-		},
-		{
-			name: "esc after the kept filter is cleared closes",
-			setup: func(t *testing.T, a *App) {
-				reactionsKept("t")(t, a)
-				_ = dispatchModeKey(a, keyCode(tea.KeyEscape))
-			},
-			key:      keyCode(tea.KeyEscape),
-			wantMode: ModeNormal,
 		},
 	})
 }
@@ -461,18 +394,6 @@ func reactionsFiltering(typed string) func(*testing.T, *App) {
 		}
 		if !a.reactionsView.Typing() || a.reactionsView.Query() != typed {
 			t.Fatalf("precondition: typing %v, query %q; want true, %q", a.reactionsView.Typing(), a.reactionsView.Query(), typed)
-		}
-	}
-}
-
-// reactionsKept is reactionsFiltering followed by enter, which keeps the
-// filter.
-func reactionsKept(typed string) func(*testing.T, *App) {
-	return func(t *testing.T, a *App) {
-		reactionsFiltering(typed)(t, a)
-		_ = dispatchModeKey(a, keyCode(tea.KeyEnter))
-		if a.reactionsView.Typing() || a.reactionsView.Query() != typed {
-			t.Fatalf("precondition: enter did not keep the filter %q", typed)
 		}
 	}
 }
