@@ -278,19 +278,29 @@ func (e *Editor) Normalize(b Buffer) Buffer {
 }
 
 // Selection is the visual selection as a byte range [from, to) of
-// b.Text; ok is false outside VISUAL and V-LINE. A linewise selection
-// covers its lines' text, not the final line break.
+// b.Text; ok is false outside VISUAL and V-LINE. The line breaks inside
+// it are selected: a linewise selection takes in the line break ending
+// its last line, and an empty line at byte p is selected when
+// from <= p < to. So that an empty last line can be, to may be
+// len(b.Text)+1.
 func (e *Editor) Selection(b Buffer) (from, to int, ok bool) {
 	if !e.visual() {
 		return 0, 0, false
 	}
 	t := newText(b.Text)
 	st := &state{t: t, cur: t.clampNormal(t.cellAt(b.Cursor))}
-	sp := e.visualSpan(st)
+	// $ is remembered only while the cursor stays where it left it,
+	// as Handle's load forgets it otherwise.
+	sp := e.selectionSpan(st, e.wantsEOL() && b.Cursor == e.lastCursor)
 	if sp.lines {
-		return st.t.byteOf(st.t.lineStart(sp.from)), st.t.byteOf(st.t.lineEnd(sp.to)), true
+		from, to = t.byteOf(t.lineStart(sp.from)), t.byteOf(t.lineEnd(sp.to))+1
+	} else {
+		from, to = t.byteOf(sp.from), t.byteOf(sp.to)
+		if sp.to > t.n() {
+			to = len(b.Text) + 1
+		}
 	}
-	return st.t.byteOf(sp.from), st.t.byteOf(sp.to), true
+	return from, to, true
 }
 
 // state is the buffer while one key runs.

@@ -197,6 +197,9 @@ func (t *text) blockObject(cur int, open, close string, inner bool) (span, bool)
 		if closeLine > s+1 && t.blank(closeLine, e) {
 			return span{from: s + 1, to: closeLine - 1, lines: true}, true
 		}
+		// The open bracket ends its line: the object starts on the
+		// next one, as in vim (`di{` on "{\n  foo }" keeps "{\n").
+		s++
 	}
 	return span{from: s, to: e}, true
 }

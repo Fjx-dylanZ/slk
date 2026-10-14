@@ -103,15 +103,15 @@ func (e *Editor) gotoLine(st *state, def int) motion {
 }
 
 // findMotion is f/F/t/T: the count-th target on the cursor's line.
-// repeat (; and ,) keeps t/T from sticking on the match next to the
-// cursor.
+// repeat (; and ,) with no count keeps t/T from sticking on the match
+// next to the cursor; a counted repeat does not skip it (vim's cpo-;).
 func (e *Editor) findMotion(st *state, cmd, target string, repeat bool) motion {
 	t, cur, n := st.t, st.cur, e.total()
 	ls, le := t.lineStart(cur), t.lineEnd(cur)
 	p := cur
 	switch cmd {
 	case "f", "t":
-		if cmd == "t" && repeat {
+		if cmd == "t" && repeat && n == 1 {
 			p++
 		}
 		for range n {
@@ -128,7 +128,7 @@ func (e *Editor) findMotion(st *state, cmd, target string, repeat bool) motion {
 		}
 		return motion{pos: p, kind: inclusive, ok: true}
 	default: // F, T
-		if cmd == "T" && repeat {
+		if cmd == "T" && repeat && n == 1 {
 			p--
 		}
 		for range n {

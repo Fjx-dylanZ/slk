@@ -299,12 +299,27 @@ func repeatCapped(s, sep string, n int) string {
 // inclusive (an empty line's selected line break included, as in vim),
 // or every line between them.
 func (e *Editor) visualSpan(st *state) span {
+	return e.selectionSpan(st, e.wantsEOL())
+}
+
+// wantsEOL reports whether the cursor was put at the end of its line by
+// $ (and kept there by j and k).
+func (e *Editor) wantsEOL() bool { return e.wantSet && e.want == endCol }
+
+// selectionSpan is visualSpan; eol: after $, a charwise selection runs
+// through the line break of the cursor's line, as vim's does. The end
+// may be n+1 (one past the buffer): the selection takes in an empty
+// last line, or the end of the last line after $.
+func (e *Editor) selectionSpan(st *state, eol bool) span {
 	a := st.t.cellAt(e.anchor)
 	s, x := min(a, st.cur), max(a, st.cur)
 	if e.mode == VisualLine {
 		return span{from: s, to: x, lines: true}
 	}
-	return span{from: s, to: min(x+1, st.t.n())}
+	if eol && st.cur >= a {
+		x = max(x, st.t.lineEnd(x))
+	}
+	return span{from: s, to: x + 1}
 }
 
 // endVisual leaves VISUAL for a change made from it, which is not

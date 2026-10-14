@@ -159,6 +159,27 @@ func TestVimViewportFollowsTheCursor(t *testing.T) {
 	}
 }
 
+// V-LINE paints an empty line as one cell, also when it is the last
+// line of the selection.
+func TestVimVisualLinePaintsAnEmptyLastLine(t *testing.T) {
+	m := vimCompose(t, 40)
+	m.SetValue("abc\n\nxyz")
+	m = vimPress(m, "<esc>ggjVk")
+	painted := strings.Split(m.View(40, true), "\n")
+	m = vimPress(m, "<esc>") // same cursor, no selection
+	unpainted := strings.Split(m.View(40, true), "\n")
+	// Rows: top padding, abc, the empty line, xyz.
+	if len(painted) < 4 || len(unpainted) != len(painted) {
+		t.Fatalf("unexpected view shape:\n%s", strings.Join(painted, "\n"))
+	}
+	if painted[2] == unpainted[2] {
+		t.Errorf("the empty line in the V-LINE selection is not painted:\n%q", painted[2])
+	}
+	if painted[3] != unpainted[3] {
+		t.Errorf("the line after the selection is painted:\n%q", painted[3])
+	}
+}
+
 func TestVimKeysNeverReachTheTextarea(t *testing.T) {
 	m := vimCompose(t, 40)
 	m = vimPress(m, "abc<esc>")

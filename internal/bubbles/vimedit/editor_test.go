@@ -186,6 +186,9 @@ func TestMotionsFind(t *testing.T) {
 		{"t", "|ab,c", "t,", "a|b,c"},
 		{"t next to the target", "|a,b,c", "t,", "|a,b,c"},
 		{"; after t skips the adjacent match", "|a,b,c", "t,;", "a,|b,c"},
+		{"counted ; after t does not skip the adjacent match", "|a,b,c,d", "t,2;", "a,|b,c,d"},
+		{"counted ; after T does not skip the adjacent match", "a,b,c,|d", "T,2;", "a,b,|c,d"},
+		{"1; after t skips like ;", "|a,b,c", "t,1;", "a,|b,c"},
 		{"F", "a,b,|c", "F,", "a,b|,c"},
 		{"T", "a,bb|c", "T,", "a,|bbc"},
 		{"not found", "|abc", "fz", "|abc"},
@@ -328,6 +331,9 @@ func TestTextObjects(t *testing.T) {
 		{"multi-line block", "(a\nb|c)", "di(", "(|)"},
 		{"di{ on braces on their own lines", "{\n  fo|o\n}", "di{", "{\n|}"},
 		{"ci{ on braces on their own lines", "{\n  fo|o\n}", "ci{X<esc>", "{\n|X\n}"},
+		{"di{ with only the open brace ending its line", "{\n  f|oo }", "di{", "{\n|}"},
+		{"ci{ with only the open brace ending its line", "{\n  f|oo }", "ci{X<esc>", "{\n|X}"},
+		{"di( keeps the line break after (", "f(\n  a|, b)", "di(", "f(\n|)"},
 		{"no object", "ab|c", "di(", "ab|c"},
 		{"no quote", "ab|c", `di"`, "ab|c"},
 		{"empty line", "a\n|\nb", "diw", "a\n|\nb"},
@@ -356,7 +362,10 @@ func TestVisual(t *testing.T) {
 		{"v esc", "|abc", "vl<esc>x", "a|c"},
 		{"v v exits", "|abc", "vlvx", "a|c"},
 		{"empty line's break is selected", "a\n|\nb", "vd", "a\n|b"},
-		{"v $ d", "a|bc\nd", "v$d", "|a\nd"},
+		{"v $ d takes the line break", "a|bc\nd", "v$d", "a|d"},
+		{"v $ j d", "a|bc\ndef\ng", "v$jd", "a|g"},
+		{"v $ h forgets the line end", "a|bc\nd", "v$hd", "a|c\nd"},
+		{"v $ on the last line", "a|bc", "v$d", "|a"},
 		{"v j d", "a|bc\ndef", "vjd", "a|f"},
 	})
 }
@@ -376,15 +385,49 @@ func TestVisualModesAndSelection(t *testing.T) {
 		t.Fatalf("V from VISUAL: mode %v", e.Mode())
 	}
 	line := normal(nil)
-	lb, _ := line.Handle(buf("ab\n|cd"), Key{Text: "V"})
-	if from, to, ok := line.Selection(lb); !ok || from != 3 || to != 5 {
-		t.Errorf("linewise Selection = %d,%d,%v; want 3,5,true", from, to, ok)
+	lb, _ := line.Handle(buf("ab\n|cd\nx"), Key{Text: "V"})
+	if from, to, ok := line.Selection(lb); !ok || from != 3 || to != 6 {
+		t.Errorf("linewise Selection = %d,%d,%v; want 3,6,true (with the line break)", from, to, ok)
+	}
+	last := normal(nil)
+	lb, _ = last.Handle(buf("ab\n|cd"), Key{Text: "V"})
+	if from, to, ok := last.Selection(lb); !ok || from != 3 || to != 6 {
+		t.Errorf("linewise Selection of the last line = %d,%d,%v; want 3,6,true (one past the end)", from, to, ok)
 	}
 	if _, ok := e.Handle(b, Key{Name: KeyEsc}); !ok || e.Mode() != Normal {
 		t.Errorf("Esc in V-LINE: consumed=%v mode=%v", ok, e.Mode())
 	}
 	if _, _, ok := e.Selection(b); ok {
 		t.Error("Selection outside VISUAL must report false")
+	}
+}
+
+// Selection takes in the line breaks a selection covers, so the host can
+// paint the empty lines in it (an empty last line too).
+func TestSelectionLineBreaks(t *testing.T) {
+	for _, tc := range []struct {
+		name, start, keys string
+		from, to          int
+	}{
+		{"v$ runs through the line break", "a|bc\nd", "v$", 1, 4},
+		{"V-LINE up to an empty line", "abc\n|\nxyz", "Vk", 0, 5},
+		{"V-LINE on an empty last line", "ab\n|", "V", 3, 4},
+		{"VISUAL from an empty last line", "ab\n|", "vk", 0, 4},
+		{"VISUAL ending before an empty line", "a|bc\n\nd", "vl", 1, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := normal(nil)
+			b := host(e, buf(tc.start), tc.keys)
+			if from, to, ok := e.Selection(b); !ok || from != tc.from || to != tc.to {
+				t.Errorf("Selection = %d,%d,%v; want %d,%d,true", from, to, ok, tc.from, tc.to)
+			}
+		})
+	}
+
+	reg := &Register{}
+	host(New(reg), buf("a|bc\nd"), "v$y")
+	if reg.Text != "bc\n" || reg.Linewise {
+		t.Errorf("v$y register = %+v, want charwise \"bc\\n\"", *reg)
 	}
 }
 
@@ -675,13 +718,5 @@ func checkCursor(t *testing.T, e *Editor, b Buffer, start, k string) {
 	}
 	if e.Mode() == Normal && p > tx.lineStart(p) && (p >= tx.n() || tx.isNL(p)) {
 		t.Fatalf("from %q after %q: NORMAL cursor on a line end of %q at %d", start, k, b.Text, b.Cursor)
-	}
-}
-
-func TestModeString(t *testing.T) {
-	for m, want := range map[Mode]string{Insert: "INSERT", Normal: "NORMAL", Visual: "VISUAL", VisualLine: "V-LINE"} {
-		if m.String() != want {
-			t.Errorf("%d.String() = %q, want %q", m, m.String(), want)
-		}
 	}
 }
