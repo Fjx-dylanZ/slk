@@ -507,23 +507,27 @@ func TestConfiguredLeader(t *testing.T) {
 	})
 }
 
-func TestDisplacedBinding(t *testing.T) {
+func TestDisplacedBindings(t *testing.T) {
 	km := DefaultKeyMap()
 	for _, tc := range []struct {
-		key      string
-		wantDesc string // "" = nothing displaced
+		key       string
+		wantDescs []string // nil = nothing displaced
 	}{
-		{`\`, ""},
-		{"space", "toggle section"},
-		{"q", "close thread view"},
-		{"ctrl+t", "switch channel"},
-		{"ctrl+w", ""}, // a sequence prefix, reachable as <leader>w
-		{"ctrl+o", ""}, // insert mode only
-		{"ctrl+e", ""}, // insert mode only
+		{`\`, nil},
+		{"space", []string{"toggle section"}},
+		{"q", []string{"close thread view"}},
+		{"ctrl+t", []string{"switch channel"}},
+		{"l", []string{"right"}},
+		{"ctrl+w", nil}, // a sequence prefix, reachable as <leader>w
+		{"ctrl+o", nil}, // insert mode only
+		{"ctrl+e", nil}, // insert mode only
 	} {
-		b, ok := displacedBinding(km, tc.key)
-		if got := b.Help().Desc; ok != (tc.wantDesc != "") || got != tc.wantDesc {
-			t.Errorf("displacedBinding(%q) = %q %v, want %q", tc.key, got, ok, tc.wantDesc)
+		var got []string
+		for _, b := range displacedBindings(km, tc.key) {
+			got = append(got, b.Help().Desc)
+		}
+		if !slices.Equal(got, tc.wantDescs) {
+			t.Errorf("displacedBindings(%q) = %q, want %q", tc.key, got, tc.wantDescs)
 		}
 	}
 	// notDisplaceable names KeyMap fields; a renamed field would

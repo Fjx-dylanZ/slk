@@ -92,8 +92,13 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 }
 
 // handleNormalKey runs a Normal-mode key that is not part of a key
-// sequence: the ephemeral-selection guard, then the binding arms.
+// sequence: an action scoped to the focused panel (the sidebar's
+// configurable keys, keyactions.go) first, then the ephemeral-selection
+// guard and the binding arms.
 func handleNormalKey(a *App, msg tea.KeyMsg) tea.Cmd {
+	if cmd, ok := a.handleScopedKey(msg); ok {
+		return cmd
+	}
 	if a.isMessageOpKey(msg) {
 		if cmd, blocked := a.ephemeralSelectionGuard(); blocked {
 			return cmd
@@ -216,21 +221,12 @@ func handleNormalKey(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.FocusNext()
 
 	case key.Matches(msg, a.keys.Enter):
+		// In the sidebar Enter is only what sidebar_open makes it
+		// (handled above); handleEnter does nothing there.
 		if cmd, ok := a.openForwardedSelected(); ok {
 			return cmd
 		}
 		return a.handleEnter()
-
-	case key.Matches(msg, a.keys.ToggleSection):
-		// Space on a sidebar section header toggles its collapsed
-		// state; elsewhere it falls through to whatever the focused
-		// panel does with a literal space (typically nothing in
-		// normal mode).
-		if a.focusedPanel == PanelSidebar {
-			if a.sidebar.ToggleCollapseSelected() {
-				return nil
-			}
-		}
 
 	case key.Matches(msg, a.keys.Top):
 		// First half of the `gg` chord; see the pendingTop guard above.

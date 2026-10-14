@@ -60,6 +60,7 @@ type KeyMap struct {
 	ThemeNext           key.Binding
 	ThemePrev           key.Binding // alt+Y: tmux extended-keys; alt+shift+Y: xterm modifyOtherKeys
 	PresenceMenu        key.Binding
+	SidebarOpen         key.Binding
 	ToggleSection       key.Binding
 	NavBack             key.Binding
 	NavForward          key.Binding
@@ -147,8 +148,12 @@ func DefaultKeyMap() KeyMap {
 		ThemeNext:           key.NewBinding(key.WithKeys("alt+y"), key.WithHelp("alt+y", "next theme (per workspace)")),
 		ThemePrev:           key.NewBinding(key.WithKeys("alt+shift+y", "alt+Y", "alt+shift+Y"), key.WithHelp("alt+shift+y", "prev theme (per workspace)")),
 		PresenceMenu:        key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "set status")),
-		ToggleSection:       key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "toggle section")),
-		NavBack:             key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "navigate back")),
+		// The sidebar's own keys: configurable ([keys] sidebar_open /
+		// sidebar_toggle_section) and scoped to the sidebar, where they
+		// win over the bindings above (keyactions.go).
+		SidebarOpen:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open row / toggle section (sidebar)")),
+		ToggleSection: key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "toggle section")),
+		NavBack:       key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "navigate back")),
 		// ctrl+k was the original forward key. It stays bound for
 		// existing users but is left out of the help overlay.
 		NavForward:     key.NewBinding(key.WithKeys("ctrl+l", "ctrl+k"), key.WithHelp("ctrl+l", "navigate forward")),

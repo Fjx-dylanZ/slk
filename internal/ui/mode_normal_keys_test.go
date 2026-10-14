@@ -986,7 +986,8 @@ func TestNormalModeKeys(t *testing.T) {
 		},
 
 		// -------------------------------------------------------------
-		// Arm 22: ToggleSection space (mode_normal.go:174)
+		// Arm 22: ToggleSection space, now the sidebar-scoped
+		// sidebar_toggle_section action (keyactions.go)
 		// -------------------------------------------------------------
 		{
 			// Regression guard for https://github.com/gammons/slk/issues/184.

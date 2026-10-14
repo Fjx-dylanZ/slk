@@ -230,7 +230,7 @@ func reduceMouseClick(a *App, m tea.MouseClickMsg) tea.Cmd {
 		// channel: the synthetic Threads and Activity rows and section
 		// headers. It has still moved the sidebar's own selection to the
 		// clicked row, so dispatch on that -- in the same order as
-		// handleEnter, which is the keyboard half of this decision.
+		// openSidebarRow, which is the keyboard half of this decision.
 		// The two must stay in step: a row that responds to Enter but
 		// not to a click reads as a dead row.
 		if a.sidebar.IsThreadsSelected() {

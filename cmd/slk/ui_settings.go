@@ -22,6 +22,10 @@ type uiSettings struct {
 	// Leader is [keys] leader, already normalized by config.Load; ""
 	// keeps the App's default.
 	Leader string
+	// KeyBindings are the [keys] action bindings by name
+	// (config.Keys.Bindings): an absent action keeps its default keys,
+	// an empty list unbinds it.
+	KeyBindings map[string][]string
 }
 
 // applyUISettings installs s on app. The timestamp formatter feeds the
@@ -39,5 +43,6 @@ func applyUISettings(app *ui.App, s uiSettings) {
 	app.SetColoredUsernames(s.ColoredUsernames)
 	app.SetThemeItems(styles.ThemeNames())
 	app.SetThemeOverrides(s.ThemeOverrides)
+	app.SetKeyBindings(s.KeyBindings)
 	app.SetLeader(s.Leader)
 }

@@ -1932,29 +1932,33 @@ func (a *App) openQuitConfirm() {
 	)
 }
 
-func (a *App) handleEnter() tea.Cmd {
-	if a.focusedPanel == PanelSidebar {
-		if a.sidebar.IsThreadsSelected() {
-			return func() tea.Msg { return ThreadsViewActivatedMsg{} }
-		}
-		if a.sidebar.IsActivitySelected() {
-			return func() tea.Msg { return ActivityViewActivatedMsg{} }
-		}
-		// A section header? Toggle its collapse state and stay in
-		// place. Section headers are also navigable via j/k so the
-		// user can expand/collapse the firehose Channels section
-		// (collapsed by default) without leaving the keyboard.
-		if a.sidebar.ToggleCollapseSelected() {
-			return nil
-		}
-		item, ok := a.sidebar.SelectedItem()
-		if ok {
-			return func() tea.Msg {
-				return ChannelSelectedMsg{ID: item.ID, Name: item.Name, Type: item.Type}
-			}
+// openSidebarRow activates the selected sidebar row: the Threads or
+// Activity view, a section header (toggling its collapse state, so the
+// firehose Channels section — collapsed by default — can be expanded
+// without leaving the keyboard), or the channel. It is the sidebar_open
+// action (Enter by default, keyactions.go); a click on the row does the
+// same (TestSidebarClickAgreesWithEnter).
+func (a *App) openSidebarRow() tea.Cmd {
+	if a.sidebar.IsThreadsSelected() {
+		return func() tea.Msg { return ThreadsViewActivatedMsg{} }
+	}
+	if a.sidebar.IsActivitySelected() {
+		return func() tea.Msg { return ActivityViewActivatedMsg{} }
+	}
+	if a.sidebar.ToggleCollapseSelected() {
+		return nil
+	}
+	if item, ok := a.sidebar.SelectedItem(); ok {
+		return func() tea.Msg {
+			return ChannelSelectedMsg{ID: item.ID, Name: item.Name, Type: item.Type}
 		}
 	}
+	return nil
+}
 
+// handleEnter is Enter in the content panes (the sidebar's Enter is the
+// sidebar_open action, openSidebarRow).
+func (a *App) handleEnter() tea.Cmd {
 	// In the threads-list view, the messages-pane region renders the
 	// threadsView model instead of the channel's message history.
 	// focusedPanel stays at PanelMessages (we re-use that panel slot),

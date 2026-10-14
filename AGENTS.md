@@ -212,6 +212,9 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Open the channel finder, workspace search, presence menu or a theme switcher; toggle Activity; start a new message | `openChannelFinder`, `openWorkspaceSearch`, `openPresenceMenu`, `openWorkspaceThemeSwitcher`, `openGlobalThemeSwitcher`, `toggleActivityView`, `enterNewMessage` (`internal/ui/mode_normal.go`); the bindings and the leader layer share them |
 | The help overlay's rows | `(*App).helpEntries()`: the `KeyMap` rewritten for the leader (`helpKeyMap` drops or relabels rows for the key the leader took over) plus the leader layer under the configured leader, through `help.FromKeyMap(km, extra...)` |
 | The leader key from config | `[keys] leader`, normalized in `internal/config` (`normalizeLeader`), delivered by `uiSettings.Leader` → `(*App).SetLeader` |
+| Make a Normal-mode action's keys configurable (scoped to a panel, where it wins over global bindings on the same key) | a row in `keyActions` (`internal/ui/keyactions.go`: name, `KeyMap` binding, scope panel, run) plus a `*[]string` field in `config.Keys`; `config.Keys.Bindings()` → `uiSettings.KeyBindings` → `(*App).SetKeyBindings`. `TestKeyActionsAgreeWithConfig` (`cmd/slk`) checks the two lists agree |
+| Validate and normalize a key spelling from config (bubbletea's key strings; refuses esc, ctrl+c and keys terminals deliver as another key) | `normalizeKey` (`internal/config/keys.go`); `normalizeLeader` and `normalizeBindingKey` add their own rules on top |
+| Activate the selected sidebar row (Threads / Activity view, section toggle, channel) | `(*App).openSidebarRow()` (`internal/ui/app.go`), the `sidebar_open` action; a click on a row does the same |
 
 ### Test helpers
 
@@ -251,6 +254,8 @@ greppable by name; no line numbers, because these files move.
 | Compare two `color.Color` without `==` panicking on a non-comparable dynamic type | `colorEqual(a, b)` (`internal/ui/mode_theme_switcher_test.go`; `package styles` has its own twin in `styles/styles_test.go`) |
 | Observe a status-bar toast (no getter exists) | `statusbarText(a)` (`internal/ui/mode_presence_snooze_test.go`) |
 | Record status-setter invocations | the `statusCall` struct (same file) |
+| Rebind configurable actions as a `keyCase` setup; focus the sidebar on a section header or a channel; assert a cmd selects a channel | `withKeyBindings(b, then)`, `onSidebarHeader(&section, &wantCollapsed)`, `onSidebarChannel(id)`, `wantChannelSelected(t, cmd, id)` (`internal/ui/keyactions_test.go`) |
+| Load a config and get `Load`'s error | `loadConfigErr(t, body)` (`internal/config/config_test.go`, `package config`) |
 | A fixture with real unread channels either side of the active one | `unreadOpts()` + `seedUnreads(t, a)` (`internal/ui/mode_normal_keys_test.go`) |
 | Establish a focused pane with an asserted selection | `focusMessages(t, a)`, `focusThreadPanel(t, a)` (same file) |
 | Park the message viewport at an exact `yOffset` | `scrollTo(off)` (same file) |

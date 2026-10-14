@@ -579,6 +579,7 @@ func run() error {
 		ColoredUsernames: cfg.Appearance.ColoredUsernames,
 		ThemeOverrides:   cfg.Theme,
 		Leader:           cfg.Keys.Leader,
+		KeyBindings:      cfg.Keys.Bindings(),
 	})
 	app.SetEditorService(core.NewEditorService(editor.WriteDraft, editor.Edit, editor.TakeDraft))
 	if editor, ok := ui.ResolveEditor(cfg.Compose.Editor); ok {

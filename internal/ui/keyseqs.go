@@ -58,11 +58,18 @@ func (a *App) newKeySequences() *keyseq.Map {
 	// the letter of the ctrl chord it mirrors.
 	var layer []keyseq.Binding
 	leader := km.Leader.Keys()[0]
-	d, displaced := displacedBinding(km, leader)
-	if displaced {
+	displaced := displacedBindings(km, leader)
+	if len(displaced) > 0 {
 		// <leader><leader> hands the key back to what it did before it
-		// became the leader.
-		layer = append(layer, keyseq.Binding{Keys: []string{leader}, Hint: desc(d), Desc: desc(d),
+		// became the leader, which can depend on the focused panel (a
+		// sidebar-scoped key, keyactions.go): handleNormalKey decides,
+		// and the label names every action the key had.
+		descs := make([]string, len(displaced))
+		for i, b := range displaced {
+			descs[i] = desc(b)
+		}
+		label := strings.Join(descs, "; ")
+		layer = append(layer, keyseq.Binding{Keys: []string{leader}, Hint: label, Desc: label,
 			Action: func(msg tea.KeyMsg) tea.Cmd { return handleNormalKey(a, msg) }})
 	}
 	letters := []keyseq.Binding{
@@ -79,7 +86,7 @@ func (a *App) newKeySequences() *keyseq.Map {
 		{Keys: []string{"]"}, Hint: "thread", Desc: desc(km.ToggleThread),
 			Action: run(func() tea.Cmd { a.ToggleThread(); return nil })},
 	}
-	if displaced {
+	if len(displaced) > 0 {
 		// <leader><leader> is the displaced key's, so a letter equal to
 		// the leader could never be reached: leave it out of the table,
 		// and so of the hint and the help. Its ctrl chord still works.
@@ -105,19 +112,22 @@ var insertOnly = []string{"ToggleBroadcast", "OpenInEditor"}
 // ctrl+w as <leader>w), and the Insert-only keys.
 var notDisplaceable = append([]string{"Leader", "WindowPrefix"}, insertOnly...)
 
-// displacedBinding returns the Normal-mode KeyMap binding whose key the
-// leader takes over, if any (the first, in KeyMap order).
-func displacedBinding(km KeyMap, leader string) (key.Binding, bool) {
+// displacedBindings returns the Normal-mode KeyMap bindings whose key
+// the leader takes over, in KeyMap order. More than one when the key
+// means different things in different panels (l is focus-right, and
+// may also be the sidebar's sidebar_open).
+func displacedBindings(km KeyMap, leader string) []key.Binding {
+	var out []key.Binding
 	v := reflect.ValueOf(km)
 	for i := range v.NumField() {
 		if slices.Contains(notDisplaceable, v.Type().Field(i).Name) {
 			continue
 		}
 		if b, ok := v.Field(i).Interface().(key.Binding); ok && slices.Contains(b.Keys(), leader) {
-			return b, true
+			out = append(out, b)
 		}
 	}
-	return key.Binding{}, false
+	return out
 }
 
 // helpKeyMap is km as the help overlay describes it once leader owns its
