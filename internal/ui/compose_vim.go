@@ -15,9 +15,10 @@ import (
 	"github.com/gammons/slk/internal/ui/compose"
 )
 
-// SetComposeVimMode turns vim editing on or off in both composers. They
-// share one unnamed register, as vim's registers are shared between its
-// windows: yank in a thread, put in the channel.
+// SetComposeVimMode turns vim editing on or off in both composers, and
+// its entries in the help overlay. The composers share one unnamed
+// register, as vim's registers are shared between its windows: yank in
+// a thread, put in the channel.
 func (a *App) SetComposeVimMode(on bool) {
 	var reg *vimedit.Register
 	if on {
@@ -25,6 +26,7 @@ func (a *App) SetComposeVimMode(on bool) {
 	}
 	a.compose.SetVimMode(reg)
 	a.threadCompose.SetVimMode(reg)
+	a.keys.setComposeVimHelp(on)
 }
 
 // composeModeLabel is a status-bar mode text that is not a ui.Mode.

@@ -77,10 +77,26 @@ type KeyMap struct {
 	WinOnly             key.Binding
 	ToggleBroadcast     key.Binding
 	OpenInEditor        key.Binding
-	// Help-only: the composer's vim editing ([compose] vim_mode).
+	// Help-only, and empty unless [compose] vim_mode is on: see
+	// setComposeVimHelp.
 	ComposeVimNormal  key.Binding
 	ComposeVimMotions key.Binding
 	ComposeVimEdits   key.Binding
+}
+
+// setComposeVimHelp lists the composer's vim keys in the help overlay
+// while [compose] vim_mode is on and drops them when it is off, so users
+// without it see no entries for keys they do not have. They are keyless
+// help-only entries: the composer handles the keys itself
+// (compose/vim.go, mode_insert.go).
+func (k *KeyMap) setComposeVimHelp(on bool) {
+	if !on {
+		k.ComposeVimNormal, k.ComposeVimMotions, k.ComposeVimEdits = key.Binding{}, key.Binding{}, key.Binding{}
+		return
+	}
+	k.ComposeVimNormal = key.NewBinding(key.WithHelp("esc", "compose vim: normal mode"))
+	k.ComposeVimMotions = key.NewBinding(key.WithHelp("h j k l w b e f t", "compose vim: motions"))
+	k.ComposeVimEdits = key.NewBinding(key.WithHelp("d c y p u . v V", "compose vim: edit, undo, visual"))
 }
 
 func DefaultKeyMap() KeyMap {
@@ -177,10 +193,5 @@ func DefaultKeyMap() KeyMap {
 		ToggleBroadcast: key.NewBinding(key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o / alt+enter", "also send reply to channel")),
 		// Shadows the textarea's own ctrl+e (LineEnd); "End" still works.
 		OpenInEditor: key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "edit message in $EDITOR")),
-		// Keyless help-only entries for [compose] vim_mode; the composer
-		// handles the keys itself (compose/vim.go, mode_insert.go).
-		ComposeVimNormal:  key.NewBinding(key.WithHelp("esc (vim_mode)", "compose: vim normal mode, esc again leaves")),
-		ComposeVimMotions: key.NewBinding(key.WithHelp("hjkl w b e f t", "compose vim: motions, also 0 ^ $ gg G ; ,")),
-		ComposeVimEdits:   key.NewBinding(key.WithHelp("d c y p u . v V", "compose vim: operators, put, undo, repeat, visual")),
 	}
 }

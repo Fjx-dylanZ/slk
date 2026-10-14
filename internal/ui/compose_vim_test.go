@@ -9,10 +9,36 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/bubbles/vimedit"
+	"github.com/gammons/slk/internal/ui/help"
 	"github.com/gammons/slk/internal/ui/mentionpicker"
 )
 
 // App-level behaviour of [compose] vim_mode, driven through App.Update.
+
+// The help overlay lists the composer's vim keys only with vim_mode on.
+func TestComposeVim_HelpListsVimKeysOnlyWhenOn(t *testing.T) {
+	vimEntries := func(a *App) []string {
+		var out []string
+		for _, e := range help.FromKeyMap(a.keys) {
+			if strings.HasPrefix(e.Desc, "compose vim:") {
+				out = append(out, e.Key)
+			}
+		}
+		return out
+	}
+	a := newTestApp(t)
+	if got := vimEntries(a); len(got) != 0 {
+		t.Errorf("vim_mode off: help lists %v", got)
+	}
+	a.SetComposeVimMode(true)
+	if got := vimEntries(a); len(got) != 3 {
+		t.Errorf("vim_mode on: help lists %v, want the three vim entries", got)
+	}
+	a.SetComposeVimMode(false)
+	if got := vimEntries(a); len(got) != 0 {
+		t.Errorf("vim_mode turned off again: help lists %v", got)
+	}
+}
 
 // vimKeys sends keys through App.Update and returns the last key's
 // command. Each character is a key; <esc> <enter> <s-enter> <up> <down>
