@@ -22,6 +22,7 @@ type Config struct {
 	Sidebar       Sidebar               `toml:"sidebar"`
 	Compose       Compose               `toml:"compose"`
 	Marks         Marks                 `toml:"marks"`
+	Keys          Keys                  `toml:"keys"`
 	Sections      map[string]SectionDef `toml:"sections"`
 	Theme         Theme                 `toml:"theme"`
 	Workspaces    map[string]Workspace  `toml:"workspaces"`
@@ -284,6 +285,10 @@ func Parse(data []byte) (Config, error) {
 		return cfg, err
 	}
 	cfg.Workspaces = resolved
+
+	if err := cfg.Keys.normalize(); err != nil {
+		return cfg, err
+	}
 
 	// Clamp MouseWheelLines: 0 (unset, after a user supplied a partial
 	// [appearance] block without this key) and negative values both fall

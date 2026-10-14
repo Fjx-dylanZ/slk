@@ -299,6 +299,34 @@ func TestFromKeyMapSorted(t *testing.T) {
 	}
 }
 
+func TestFromKeyMapMergesExtraRows(t *testing.T) {
+	// Extra rows (e.g. generated from a key sequence table) sort in with
+	// the bindings; on an equal description the binding's row is first.
+	type sampleMap struct {
+		A key.Binding
+		B key.Binding
+	}
+	km := sampleMap{
+		A: key.NewBinding(key.WithKeys("ctrl+t"), key.WithHelp("ctrl+t", "switch channel")),
+		B: key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "beta")),
+	}
+	got := FromKeyMap(km, Entry{Key: `\ t`, Desc: "switch channel"}, Entry{Key: `\ a`, Desc: "alpha"})
+	want := []Entry{
+		{Key: `\ a`, Desc: "alpha"},
+		{Key: "b", Desc: "beta"},
+		{Key: "ctrl+t", Desc: "switch channel"},
+		{Key: `\ t`, Desc: "switch channel"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("entries = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("entries[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
 func TestViewOverlayInvisibleReturnsBackground(t *testing.T) {
 	m := New()
 	m.SetEntries(sampleEntries())

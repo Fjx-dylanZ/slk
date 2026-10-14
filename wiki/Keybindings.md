@@ -5,8 +5,14 @@
 | `j` / `k` | Normal | Move down/up in channel list or messages |
 | `h` / `l` | Normal | Switch focus between panels |
 | `Tab` / `Shift+Tab` | Normal | Cycle focus |
-| `Enter` | Normal (sidebar) | Open selected channel, or toggle a section header |
-| `Space` | Normal (sidebar) | Toggle the selected section header (collapse/expand) |
+| `Ctrl+w` `h`/`j`/`k`/`l` (or arrows) | Normal | Focus the pane in that direction: sidebar, split windows, thread |
+| `Ctrl+w` `s` / `v` | Normal | Split the window stacked / side by side (`:sp` / `:vsp`) |
+| `Ctrl+w` `w` | Normal | Cycle windows |
+| `Ctrl+w` `q` / `c` | Normal | Close the window (`:q`) |
+| `Ctrl+w` `o` | Normal | Close every other window (`:only`) |
+| `\` | Normal | Leader key — see [Leader key](#leader-key) |
+| `Enter` | Normal (sidebar) | Open the selected channel, DM, Threads or Activity row, or toggle a section header (`[keys] sidebar_open`) |
+| `Space` | Normal (sidebar) | Toggle the selected section header (collapse/expand) (`[keys] sidebar_toggle_section`) |
 | `Enter` | Normal (message) | Open thread |
 | `i` | Normal | Enter insert mode |
 | `Esc` | Insert / Command | Return to normal mode |
@@ -65,4 +71,58 @@
 | `Q` | Normal | Quit immediately |
 | `Ctrl+c` | Any | Quit (with confirmation) |
 
-Custom keybinding overrides are on the roadmap — see [[Tradeoffs and Non-Goals|Tradeoffs-and-Non-Goals]].
+## Leader key
+
+In Normal mode the leader key (default `\`, set with `[keys] leader` — see
+[[Configuration]]) starts a sequence. The status bar lists the keys that can
+follow. `Esc` cancels; any other key cancels too and does nothing else. There
+is no timeout.
+
+The leader stands in for `Ctrl`: each entry is the letter of the chord it
+mirrors, so `\ t` is `Ctrl+t`.
+
+| Keys | Action | Same as |
+|---|---|---|
+| `\ w` `h`/`j`/`k`/`l` | Focus the pane in that direction | `Ctrl+w h/j/k/l` |
+| `\ w` `s` / `v` / `w` / `q` / `c` / `o` | Window commands | `Ctrl+w …` |
+| `\ t` | Fuzzy channel finder | `Ctrl+t` / `Ctrl+p` |
+| `\ f` | Search workspace | `Ctrl+f` |
+| `\ a` | Toggle the Activity view | `Ctrl+a` |
+| `\ n` | New message | `Ctrl+n` |
+| `\ s` | Set status | `Ctrl+s` |
+| `\ y` | Switch theme (this workspace) | `Ctrl+y` |
+| `\ Y` | Set the default theme | `Ctrl+Shift+y` |
+| `\ b` | Toggle sidebar | `Ctrl+b` |
+| `\ ]` | Close the thread panel | `Ctrl+]` |
+
+The leader only works in Normal mode; in Insert mode, prompts and dialogs it
+is an ordinary key.
+
+If the leader you configure already does something (`space` toggles a
+sidebar section), pressing it twice does that: `space space` toggles the
+section (`Enter` on a section header still does too). If the leader is one
+of the letters above (say `b`), the doubled leader is the old action and
+that letter's entry leaves the layer; its `Ctrl` chord still works. The
+help overlay (`?`) lists the leader layer under your leader key.
+
+Directional focus follows what is on screen. The workspace rail is not a
+pane. When the terminal is too narrow to show messages and thread side by
+side, the thread still counts as being to the right of the messages, so `l`
+brings it to the front and `h` goes back; from the sidebar, `l` enters
+whichever of the two is in front. Moving to another split window closes an
+open thread, as switching windows always has.
+
+## Sidebar keys
+
+`Enter` and `Space` in the sidebar can be changed in `[keys]` (see
+[[Configuration]]): `sidebar_open` (default `["enter"]`) and
+`sidebar_toggle_section` (default `["space"]`); an empty list unbinds one.
+These keys only work while the sidebar has focus, and there they take over
+from the key's usual job. A neovim tree-picker setup,
+`sidebar_open = ["enter", "l"]`, makes `l` open a channel or view, or
+expand / collapse a section header, in the sidebar, while `l` still moves
+focus right everywhere else. To leave the sidebar then, use `Tab`,
+`Ctrl+w l` / `\ w l`, or open a channel. The help overlay (`?`) shows the
+keys you configured.
+
+Other custom keybinding overrides are on the roadmap — see [[Tradeoffs and Non-Goals|Tradeoffs-and-Non-Goals]].

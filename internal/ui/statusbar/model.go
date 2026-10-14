@@ -3,6 +3,7 @@ package statusbar
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,6 +35,7 @@ type Model struct {
 	dndEndTS    time.Time // zero if not in DND
 	syncing     bool      // true while a background cache-verify fetch is in flight
 	helpHint    string    // muted text rendered in the gap area; empty disables
+	hintMore    []string  // SetKeyHint's entries after helpHint, shown as far as they fit
 	commandLine string    // "" == inactive; otherwise the :prompt shown in place of channel/workspace
 	search      string    // search segment ("/query  3/17" indicator / live prompt); "" hides
 	version     int64
@@ -167,11 +169,56 @@ func (m *Model) SetSearch(s string) {
 // SetHelpHint sets a muted hint string rendered in the unused space between
 // the left segments and the right pills. Pass "" to clear. The hint is
 // dropped silently when the bar lacks room for it plus 4 columns of padding.
+// It replaces a SetKeyHint hint.
 func (m *Model) SetHelpHint(s string) {
-	if m.helpHint != s {
+	if m.helpHint != s || m.hintMore != nil {
 		m.helpHint = s
+		m.hintMore = nil
 		m.dirty()
 	}
+}
+
+// SetKeyHint shows a pending key sequence in the hint area: lead (the
+// keys typed so far, e.g. "ctrl+w …") followed by as many of entries
+// ("h/j/k/l focus", "s split", …) as fit, then "…" when some are left
+// out. Like SetHelpHint's text, the hint is dropped when not even lead
+// fits. SetHelpHint replaces it.
+func (m *Model) SetKeyHint(lead string, entries []string) {
+	if m.helpHint == lead && slices.Equal(m.hintMore, entries) && m.hintMore != nil {
+		return
+	}
+	m.helpHint = lead
+	m.hintMore = append([]string{}, entries...)
+	m.dirty()
+}
+
+// hintSep separates a key hint's lead and entries.
+const hintSep = "  "
+
+// fitHint returns the hint text to draw in maxW columns: the lead plus
+// as many hintMore entries as fit, with "…" standing for the rest. ok is
+// false when not even the lead fits.
+func (m Model) fitHint(maxW int, width func(string) int) (string, bool) {
+	text := m.helpHint
+	if width(text) > maxW {
+		return "", false
+	}
+	const more = hintSep + "…"
+	for i, e := range m.hintMore {
+		next := text + hintSep + e
+		need := next
+		if i < len(m.hintMore)-1 {
+			need += more // keep room to mark the entries after this one
+		}
+		if width(need) > maxW {
+			if width(text+more) <= maxW {
+				text += more
+			}
+			break
+		}
+		text = next
+	}
+	return text, true
 }
 
 // SetCommandLine shows a vi-style command prompt (e.g. ":vsp") in the
@@ -337,16 +384,20 @@ func (m Model) View(width int) string {
 	spacer := lipgloss.NewStyle().Background(styles.SurfaceDark)
 
 	// Render the help hint into the gap when there's room for it plus a
-	// small breathing margin. Drops silently when narrow.
+	// small breathing margin. Drops silently when narrow; a key hint
+	// first sheds the entries that do not fit.
 	var filler string
 	if m.helpHint != "" {
-		hint := styles.StatusBar.
+		hintStyle := styles.StatusBar.
 			Italic(true).
-			Foreground(styles.TextMuted).
-			Render(m.helpHint)
-		hintW := lipgloss.Width(hint)
+			Foreground(styles.TextMuted)
 		const hintPadding = 4 // 2 cols of breathing room on each side
-		if gap >= hintW+hintPadding {
+		text, ok := m.fitHint(gap-hintPadding, func(s string) int {
+			return lipgloss.Width(hintStyle.Render(s))
+		})
+		if ok {
+			hint := hintStyle.Render(text)
+			hintW := lipgloss.Width(hint)
 			leftPad := (gap - hintW) / 2
 			rightPad := gap - hintW - leftPad
 			filler = spacer.Render(strings.Repeat(" ", leftPad)) +

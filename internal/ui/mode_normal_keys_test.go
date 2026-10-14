@@ -274,7 +274,7 @@ func TestNormalModeKeys(t *testing.T) {
 			opts: []testOpt{withSize(200, 50)},
 			setup: func(t *testing.T, a *App) {
 				_ = dispatchModeKey(a, keyMod('w', tea.ModCtrl))
-				if !a.pendingWinCmd {
+				if !a.pendingSeq.Pending() {
 					t.Fatal("precondition: ctrl+w did not arm the chord")
 				}
 				if !strings.Contains(statusbarText(a), "ctrl+w") {
@@ -284,8 +284,8 @@ func TestNormalModeKeys(t *testing.T) {
 			key:      keyPress('s'),
 			wantMode: ModeNormal,
 			assert: func(t *testing.T, a *App, _ tea.Cmd) {
-				if a.pendingWinCmd {
-					t.Error("pendingWinCmd still armed")
+				if a.pendingSeq.Pending() {
+					t.Error("ctrl+w sequence still pending")
 				}
 				if got := a.wins.Len(); got != 2 {
 					t.Errorf("window count = %d, want 2 (ctrl+w s splits stacked)", got)
@@ -493,8 +493,8 @@ func TestNormalModeKeys(t *testing.T) {
 			key:      keyMod('w', tea.ModCtrl),
 			wantMode: ModeNormal,
 			assert: func(t *testing.T, a *App, cmd tea.Cmd) {
-				if !a.pendingWinCmd {
-					t.Error("pendingWinCmd not armed")
+				if !a.pendingSeq.Pending() {
+					t.Error("ctrl+w sequence not pending")
 				}
 				if got := statusbarText(a); !strings.Contains(got, "ctrl+w") {
 					t.Errorf("statusbar = %q, want the \"ctrl+w …\" hint", got)
@@ -986,7 +986,8 @@ func TestNormalModeKeys(t *testing.T) {
 		},
 
 		// -------------------------------------------------------------
-		// Arm 22: ToggleSection space (mode_normal.go:174)
+		// Arm 22: ToggleSection space, now the sidebar-scoped
+		// sidebar_toggle_section action (keyactions.go)
 		// -------------------------------------------------------------
 		{
 			// Regression guard for https://github.com/gammons/slk/issues/184.
@@ -1218,7 +1219,7 @@ func TestNormalModeKeys(t *testing.T) {
 		// Arm 28: Help `?` (mode_normal.go:210)
 		// -------------------------------------------------------------
 		{
-			name:     "? opens the help overlay populated from the keymap",
+			name:     "? opens the help overlay populated from the keymap and the leader layer",
 			opts:     normalOpts(),
 			key:      keyPress('?'),
 			wantMode: ModeHelp,
@@ -1226,15 +1227,16 @@ func TestNormalModeKeys(t *testing.T) {
 				if !a.help.IsVisible() {
 					t.Error("help overlay not visible")
 				}
-				// mode_normal.go:211 seeds the overlay from
-				// help.FromKeyMap(a.keys) with no query set, and
-				// help.VisibleEntries returns the unfiltered list when
-				// the query is empty (help/model.go:186-195). So the
-				// overlay carries the WHOLE keymap, in FromKeyMap's
-				// desc-sorted order -- element-for-element, not "at
-				// least a few". Rebuilding the want from a.keys keeps
-				// this stable as bindings are added.
-				want := help.FromKeyMap(a.keys)
+				// The ? arm seeds the overlay from a.helpEntries()
+				// (help.FromKeyMap(a.keys) plus the leader layer's
+				// rows) with no query set, and help.VisibleEntries
+				// returns the unfiltered list when the query is empty
+				// (help/model.go:186-195). So the overlay carries the
+				// WHOLE keymap, in FromKeyMap's desc-sorted order --
+				// element-for-element, not "at least a few". Rebuilding
+				// the want from a.keys keeps this stable as bindings
+				// are added.
+				want := a.helpEntries()
 				got := a.help.VisibleEntries()
 				if len(got) != len(want) {
 					t.Fatalf("help entries = %d, want %d (the full keymap)", len(got), len(want))
@@ -1257,6 +1259,10 @@ func TestNormalModeKeys(t *testing.T) {
 				// returning placeholder rows.
 				if !slices.Contains(got, help.Entry{Key: "Y/C", Desc: "copy permalink"}) {
 					t.Error("help entries do not include the Y/C copy-permalink row")
+				}
+				// And one the leader layer generates.
+				if !slices.Contains(got, help.Entry{Key: `\ t`, Desc: "switch channel"}) {
+					t.Error(`help entries do not include the "\ t" leader row`)
 				}
 			},
 		},

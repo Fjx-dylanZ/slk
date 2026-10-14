@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -491,6 +493,192 @@ func TestConfig_MarksShowJumpOverlayFalseDistinguishableFromUnset(t *testing.T) 
 	}
 	if unset.EffectiveShowJumpOverlay() == off.EffectiveShowJumpOverlay() {
 		t.Fatal("unset and explicit false must resolve differently")
+	}
+}
+
+// [keys] leader: accepted spellings are normalized to the key string
+// the UI matches against; unset stays "" so the UI keeps its default.
+func TestConfig_KeysLeader(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"unset", "", ""},
+		{"empty", "[keys]\nleader = \"\"\n", ""},
+		{"backslash, basic string", "[keys]\nleader = \"\\\\\"\n", "\\"},
+		{"backslash, literal string", "[keys]\nleader = '\\'\n", "\\"},
+		{"comma", "[keys]\nleader = \",\"\n", ","},
+		{"space by name", "[keys]\nleader = \"space\"\n", "space"},
+		{"space by name, any case", "[keys]\nleader = \"Space\"\n", "space"},
+		{"a literal space", "[keys]\nleader = \" \"\n", "space"},
+		{"uppercase letter", "[keys]\nleader = \"Q\"\n", "Q"},
+		{"zero is not a workspace key", "[keys]\nleader = \"0\"\n", "0"},
+		{"ctrl chord", "[keys]\nleader = \"ctrl+space\"\n", "ctrl+space"},
+		{"modifiers any case, ctrl letter lower-cased", "[keys]\nleader = \"Ctrl+X\"\n", "ctrl+x"},
+		{"modifiers in bubbletea order", "[keys]\nleader = \"alt+ctrl+x\"\n", "ctrl+alt+x"},
+		{"alt with a lowercase letter", "[keys]\nleader = \"alt+y\"\n", "alt+y"},
+		{"alt with a symbol", "[keys]\nleader = \"alt+,\"\n", "alt+,"},
+		{"ctrl with a symbol terminals send as a control code", "[keys]\nleader = 'ctrl+\\'\n", "ctrl+\\"},
+		{"ctrl+]", "[keys]\nleader = \"ctrl+]\"\n", "ctrl+]"},
+		{"plus key", "[keys]\nleader = \"+\"\n", "+"},
+		{"plus key after a modifier", "[keys]\nleader = \"alt++\"\n", "alt++"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := loadConfigString(t, tc.body).Keys.Leader; got != tc.want {
+				t.Fatalf("leader = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A leader slk cannot use is a startup error that names the section,
+// not a silent fallback: a typo'd leader would otherwise just never
+// work.
+func TestConfig_KeysLeaderRejected(t *testing.T) {
+	for _, value := range []string{
+		"esc",      // cancels a sequence
+		"Escape",   // same, by name
+		"tab",      // named keys are not offered
+		"enter",    // same
+		"left",     // same
+		"leader",   // a word
+		"ab",       // two keys
+		"shift+a",  // write the shifted character
+		"meta+x",   // unsupported modifier
+		"ctrl+",    // modifier without a key
+		"ctrl+c",   // intercepted before normal mode
+		"CTRL+C",   // same, any spelling
+		"1",        // switches workspaces
+		"9",        // switches workspaces
+		"\t",       // not printable as a key
+		"ctrl+tab", // named key behind a modifier
+		// Without keyboard enhancements these arrive as another key,
+		// so the leader would never fire.
+		"ctrl+[",     // esc
+		"ctrl+i",     // tab
+		"CTRL+I",     // tab, any spelling
+		"ctrl+m",     // enter
+		"ctrl+alt+i", // alt+tab
+		"ctrl+@",     // ctrl+space
+		"ctrl+2",     // ctrl+space, esc, ctrl+\ … or a plain digit
+		"ctrl+0",     // a plain digit
+		"ctrl+,",     // no control code: the plain key, or nothing
+		"ctrl++",     // same
+		"ctrl+?",     // backspace
+		"alt+Y",      // alt+shift+y, alt+Y or alt+shift+Y, by terminal
+	} {
+		t.Run(value, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			body := "[keys]\nleader = '" + value + "'\n"
+			if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(path)
+			if err == nil {
+				t.Fatalf("leader %q loaded without error", value)
+			}
+			if !strings.Contains(err.Error(), "[keys] leader") {
+				t.Fatalf("error %q does not name the setting", err)
+			}
+		})
+	}
+}
+
+// loadConfigErr writes body to a temp config file and Loads it,
+// returning Load's error (nil when it loads).
+func loadConfigErr(t *testing.T, body string) error {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(path)
+	return err
+}
+
+// The [keys] action bindings: unset keeps the UI's default (absent from
+// Bindings), [] unbinds (present and empty), and keys are normalized
+// with the leader's rules plus named keys.
+func TestConfig_KeysBindings(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want map[string][]string
+	}{
+		{"unset", "", map[string][]string{}},
+		{"unset with a [keys] section", "[keys]\nleader = \"space\"\n", map[string][]string{}},
+		{"neovim-style open", "[keys]\nsidebar_open = [\"enter\", \"l\"]\n",
+			map[string][]string{"sidebar_open": {"enter", "l"}}},
+		{"an empty list unbinds", "[keys]\nsidebar_toggle_section = []\n",
+			map[string][]string{"sidebar_toggle_section": {}}},
+		{"both", "[keys]\nsidebar_open = [\"l\"]\nsidebar_toggle_section = [\"space\", \"o\"]\n",
+			map[string][]string{"sidebar_open": {"l"}, "sidebar_toggle_section": {"space", "o"}}},
+		{"named keys, any case", "[keys]\nsidebar_open = [\"Enter\", \"RIGHT\", \"Tab\"]\n",
+			map[string][]string{"sidebar_open": {"enter", "right", "tab"}}},
+		{"a literal space, ctrl and alt", "[keys]\nsidebar_toggle_section = [\" \", \"Ctrl+X\", \"alt+space\"]\n",
+			map[string][]string{"sidebar_toggle_section": {"space", "ctrl+x", "alt+space"}}},
+		{"digits are allowed (sidebar only)", "[keys]\nsidebar_open = [\"1\"]\n",
+			map[string][]string{"sidebar_open": {"1"}}},
+		{"the leader's key is allowed (the leader wins)", "[keys]\nleader = \"space\"\nsidebar_toggle_section = [\"space\"]\n",
+			map[string][]string{"sidebar_toggle_section": {"space"}}},
+		{"a repeat within one action is kept once", "[keys]\nsidebar_open = [\"l\", \"enter\", \"L\", \"l\"]\n",
+			map[string][]string{"sidebar_open": {"l", "enter", "L"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := loadConfigString(t, tc.body).Keys.Bindings()
+			if len(got) != len(tc.want) {
+				t.Fatalf("Bindings = %q, want %q", got, tc.want)
+			}
+			for name, want := range tc.want {
+				keys, ok := got[name]
+				if !ok || keys == nil || !slices.Equal(keys, want) {
+					t.Errorf("%s = %q (present %v, nil %v), want %q", name, keys, ok, keys == nil, want)
+				}
+			}
+		})
+	}
+}
+
+// Keys an action binding cannot use, or a key two actions share, stop
+// startup with an error naming the [keys] field.
+func TestConfig_KeysBindingsRejected(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		body  string
+		field string
+	}{
+		{"esc", "sidebar_open = [\"esc\"]", "sidebar_open"},
+		{"ctrl+c", "sidebar_toggle_section = [\"ctrl+c\"]", "sidebar_toggle_section"},
+		{"ctrl+w starts window commands", "sidebar_open = [\"ctrl+w\"]", "sidebar_open"},
+		{"ctrl+[ is esc", "sidebar_open = [\"ctrl+[\"]", "sidebar_open"},
+		{"ctrl+i is tab", "sidebar_open = [\"ctrl+i\"]", "sidebar_open"},
+		{"ctrl+m is enter", "sidebar_open = [\"ctrl+m\"]", "sidebar_open"},
+		{"ctrl+, has no control code", "sidebar_open = [\"ctrl+,\"]", "sidebar_open"},
+		{"alt with an uppercase letter", "sidebar_open = [\"alt+L\"]", "sidebar_open"},
+		{"a modifier on a named key", "sidebar_open = [\"ctrl+enter\"]", "sidebar_open"},
+		{"shift+", "sidebar_open = [\"shift+tab\"]", "sidebar_open"},
+		{"a word", "sidebar_open = [\"open\"]", "sidebar_open"},
+		{"an empty key", "sidebar_toggle_section = [\"\"]", "sidebar_toggle_section"},
+		{"one key in both actions", "sidebar_open = [\"enter\", \"l\"]\nsidebar_toggle_section = [\"L\", \"l\"]", "sidebar_toggle_section"},
+		{"one key in both actions, spelled differently", "sidebar_open = [\" \"]\nsidebar_toggle_section = [\"space\"]", "sidebar_toggle_section"},
+		{"not a list", "sidebar_open = \"enter\"", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := loadConfigErr(t, "[keys]\n"+tc.body+"\n")
+			if err == nil {
+				t.Fatal("loaded without error")
+			}
+			if tc.field != "" && !strings.Contains(err.Error(), "[keys] "+tc.field) {
+				t.Fatalf("error %q does not name [keys] %s", err, tc.field)
+			}
+		})
+	}
+}
+
+func TestKeyActionNames(t *testing.T) {
+	if got, want := KeyActionNames(), []string{"sidebar_open", "sidebar_toggle_section"}; !slices.Equal(got, want) {
+		t.Fatalf("KeyActionNames = %q, want %q", got, want)
 	}
 }
 

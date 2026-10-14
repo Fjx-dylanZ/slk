@@ -179,7 +179,9 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Theme colors and styles | `ui/styles` (`Username`, `SelectionStyle`, `SearchHighlightStyle`, `MentionBadgeStyle`, `UserColor`) |
 | Change the theme inside the App | `App.applyTheme(name)` (`internal/ui/theme.go`): applies it, invalidates render caches and pushes fresh styles to components that snapshot them. A component that holds a style snapshot (anything in `internal/bubbles`) gets its push added there, not at each call site. `entrylist` is the exception: its owners (the channel and thread panes) call `SetStyles` at the top of every `View`, so `applyTheme` only invalidates for them. `styles.CurrentTheme()` names the applied one |
 | Status-bar toast that clears itself | `toastWithClear(a, text, d)` (`internal/ui/reducer_io.go`); `toastUntilReplaced(a, text)` only for a toast a later one replaces on purpose (upload progress). Set toasts on the Update goroutine, never inside a `tea.Cmd`; `statusbar.ToastSeq()` identifies the toast showing, so a clear tick leaves a newer toast alone. `TestToastsGoThroughToastSetters` fails on a direct `statusbar.SetToast` with text |
-| Window tree geometry | `ui/wintree` |
+| Status-bar hint for a pending key sequence (the keys typed, then as many continuations as fit, then `…`) | `statusbar.SetKeyHint(lead, entries)`; `SetHelpHint` restores a plain hint |
+| Window tree geometry | `ui/wintree`; the neighbour of a rect in a direction among any rects (the vim ctrl+w rule): `wintree.Adjacent`, `wintree.Nearest` |
+| A multi-key Normal-mode sequence (a prefix chord like `ctrl+w`, the leader layer): dispatch, pending state, which-key hint, help rows | `bubbles/keyseq` (`New`, `Binding`, `Sequence.Press`, `Map.Hints`, `Map.Help`). The App's tables are built in `(*App).newKeySequences` (`internal/ui/keyseqs.go`) and fed by `pressKeySeq`: add a `Binding` there, not another pending flag |
 | Sidebar selection across item/filter reorders | Capture `sidebar.Model.currentCursorKey()` **before** mutation, then `rebuildNavWithCursor`; `rebuildNavPreserveCursor` is only safe while old nav indices still identify the same items |
 | Modal geometry / row hit-testing | `chrome.Boxed`, `chrome.Clickable` (list rows; declared in `internal/bubbles/chrome`, asserted by each dialog package) and `pointClickable` (a single glyph, e.g. the profile dialog's 📋; `internal/ui/reducer_modal_click.go`) |
 | Channel/DM destination picker for forwarding | `channelfinder.Model.OpenForForwarding()` (joined conversations only); `Open()` restores the normal switcher |
@@ -209,6 +211,13 @@ scrollbars, date formatting, case folding, or ID formatting: it already exists.
 | Which `[workspaces.<key>]` block configures a team | `Config.WorkspaceKey(teamID)` for the key, `Config.WorkspaceByTeamID(teamID)` for the block (`internal/config`) |
 | Judge config.toml bytes you already hold by the rules `config.Load` applies | `config.Parse(data)`; `Load` is a file read plus `Parse` |
 | Rewrite a team's `[workspaces.*]` block in config.toml | `saveWorkspaceTheme` / `saveWorkspaceWidth` / `saveWorkspaceVersionTS` (`cmd/slk`); a new per-workspace saver finds the block with `workspaceSectionStart(data, lines, teamID)` on the bytes it read under `configWriteMu`, never from a `Config` loaded earlier: a block written since (onboarding's) is missed, and the appended duplicate makes `config.Load` fail at the next launch |
+| Move focus to the pane on screen in a direction (sidebar, split windows, thread) | `(*App).focusPaneDir(nd)` (`internal/ui/pane_focus.go`); `ctrl+w h/j/k/l` and `<leader>w h/j/k/l` both use it |
+| Open the channel finder, workspace search, presence menu or a theme switcher; toggle Activity; start a new message | `openChannelFinder`, `openWorkspaceSearch`, `openPresenceMenu`, `openWorkspaceThemeSwitcher`, `openGlobalThemeSwitcher`, `toggleActivityView`, `enterNewMessage` (`internal/ui/mode_normal.go`); the bindings and the leader layer share them |
+| The help overlay's rows | `(*App).helpEntries()`: the `KeyMap` rewritten for the leader (`helpKeyMap` drops or relabels rows for the key the leader took over) plus the leader layer under the configured leader, through `help.FromKeyMap(km, extra...)` |
+| The leader key from config | `[keys] leader`, normalized in `internal/config` (`normalizeLeader`), delivered by `uiSettings.Leader` → `(*App).SetLeader` |
+| Make a Normal-mode action's keys configurable (scoped to a panel, where it wins over global bindings on the same key) | a row in `keyActions` (`internal/ui/keyactions.go`: name, `KeyMap` binding, scope panel, run) plus a `*[]string` field in `config.Keys`; `config.Keys.Bindings()` → `uiSettings.KeyBindings` → `(*App).SetKeyBindings`. `TestKeyActionsAgreeWithConfig` (`cmd/slk`) checks the two lists agree |
+| Validate and normalize a key spelling from config (bubbletea's key strings; refuses esc, ctrl+c and keys terminals deliver as another key) | `normalizeKey` (`internal/config/keys.go`); `normalizeLeader` and `normalizeBindingKey` add their own rules on top |
+| Activate the selected sidebar row (Threads / Activity view, section toggle, channel) | `(*App).openSidebarRow()` (`internal/ui/app.go`), the `sidebar_open` action; a click on a row does the same |
 
 ### Test helpers
 
@@ -240,11 +249,16 @@ greppable by name; no line numbers, because these files move.
 | Fake one service method on an `App` | `a.setChannelFetcherForTest(fn)` and its siblings, `setUploaderForTest`, `setClipboardReaderForTest`, `setReadStateReaderForTest`, `setDesktopForTest(func(*core.DesktopServiceFuncs))`, `setCommandRunnerForTest(fn)`, `setFilesystemForTest()`, `setEditorForTest()`, `setProfileFetcherForTest(fn)` (`internal/ui/services_helpers_test.go`). Calls for sibling methods of one service compose instead of replacing each other |
 | Table-drive a mode handler's keys | `runKeyCases(t, mode, []keyCase{...})` (`internal/ui/modekeys_test.go`). Calls `dispatchModeKey` directly, so it **bypasses** the reducer chain and the `ctrl+c` / bootstrap / scroll-flush gates ahead of it |
 | Build a key message for such a table | `keyPress(r)` printable rune, `keyCode(c)` special key, `keyMod(c, mod)` modified key |
+| Send several keys through `dispatchModeKey` (a sequence's leading keys) | `dispatchKeys(a, keys...)` (`internal/ui/leader_keys_test.go`) |
+| Arm the default leader (plus more keys) as a `keyCase` setup, and assert a sequence ended with the resting hint back | `armLeader(more...)`, `leaderKey`, `seqDone(t, a)` (same file) |
+| Focus the i-th window in tree order | `focusWindowAt(t, a, i)` (`internal/ui/pane_focus_test.go`) |
 | Count the rows a finder-style modal is showing | `modalRows(bs)` (`internal/ui/mode_workspace_finder_test.go`) — `h - 7`; floors at 1, and is **not** valid for `newmessagepicker` |
 | Read the highlighted (`▌`) row out of a rendered modal box | `modalHighlightedRow(t, box)` (same file) |
 | Compare two `color.Color` without `==` panicking on a non-comparable dynamic type | `colorEqual(a, b)` (`internal/ui/mode_theme_switcher_test.go`; `package styles` has its own twin in `styles/styles_test.go`) |
 | Observe a status-bar toast (no getter exists) | `statusbarText(a)` (`internal/ui/mode_presence_snooze_test.go`) |
 | Record status-setter invocations | the `statusCall` struct (same file) |
+| Rebind configurable actions as a `keyCase` setup; focus the sidebar on a section header or a channel; assert a cmd selects a channel | `withKeyBindings(b, then)`, `onSidebarHeader(&section, &wantCollapsed)`, `onSidebarChannel(id)`, `wantChannelSelected(t, cmd, id)` (`internal/ui/keyactions_test.go`) |
+| Load a config and get `Load`'s error | `loadConfigErr(t, body)` (`internal/config/config_test.go`, `package config`) |
 | A fixture with real unread channels either side of the active one | `unreadOpts()` + `seedUnreads(t, a)` (`internal/ui/mode_normal_keys_test.go`) |
 | Establish a focused pane with an asserted selection | `focusMessages(t, a)`, `focusThreadPanel(t, a)` (same file) |
 | Park the message viewport at an exact `yOffset` | `scrollTo(off)` (same file) |

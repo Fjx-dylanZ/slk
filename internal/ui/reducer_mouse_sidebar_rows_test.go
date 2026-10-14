@@ -12,13 +12,14 @@ import (
 
 // TestSidebarClickAgreesWithEnter is the invariant the sidebar's two
 // activation paths must satisfy: every row Enter acts on must respond
-// to a click on that same row, and do the same thing.
+// to a click on that same row, and do the same thing. Enter in the
+// sidebar is the sidebar_open action, openSidebarRow (keyactions.go).
 //
-// They had drifted. handleEnter dispatches on the Threads row, on a
-// section header (toggling its collapse state), and on a channel,
-// while reduceMouseClick handled only channels and Threads -- so
-// clicking a section header moved the sidebar selection, drew the
-// highlight, and then returned nil.
+// They had drifted. Enter dispatches on the Threads row, on a section
+// header (toggling its collapse state), and on a channel, while
+// reduceMouseClick handled only channels and Threads -- so clicking a
+// section header moved the sidebar selection, drew the highlight, and
+// then returned nil.
 //
 // The sweep is the point. Asserting one row kind at a time would not
 // have caught this, because the row that breaks is always the one
@@ -54,7 +55,7 @@ func TestSidebarClickAgreesWithEnter(t *testing.T) {
 		// every row kind; ok=false merely means "not a channel", which
 		// is exactly what the other branches dispatch on.
 		byEnter.sidebar.ClickAt(y)
-		enterMsgs := drainCmd(byEnter.handleEnter())
+		enterMsgs := drainCmd(byEnter.openSidebarRow())
 
 		// X must land inside the sidebar band, past the workspace rail
 		// -- reduceMouseClick routes on x before it looks at y. Y is

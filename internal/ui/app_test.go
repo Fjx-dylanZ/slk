@@ -691,14 +691,14 @@ func TestApp_ThreadsListLoadedIgnoredForOtherWorkspace(t *testing.T) {
 	}
 }
 
-func TestApp_HandleEnterOnThreadsRowActivatesView(t *testing.T) {
+func TestApp_OpenSidebarRowOnThreadsRowActivatesView(t *testing.T) {
 	app := NewApp()
 	app.activeTeamID = "T1"
 	// Sidebar default-selects the Threads row.
 	if !app.sidebar.IsThreadsSelected() {
 		t.Fatalf("precondition: sidebar should default-select Threads row")
 	}
-	cmd := app.handleEnter()
+	cmd := app.openSidebarRow()
 	if cmd == nil {
 		t.Fatal("expected a tea.Cmd, got nil")
 	}

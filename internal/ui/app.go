@@ -17,6 +17,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/gammons/slk/internal/bubbles/confirmprompt"
+	"github.com/gammons/slk/internal/bubbles/keyseq"
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/debuglog"
 	"github.com/gammons/slk/internal/emoji"
@@ -173,10 +174,12 @@ type App struct {
 	// focusWindow / closeWindow / onlyWindow / resetWindowTree.
 	winModels map[wintree.LeafID]*messages.Model
 
-	// pendingWinCmd is true between a ctrl+w press and its chord key
-	// (vim window-command prefix). Esc or an unmapped key cancels;
-	// any mode change disarms (see SetMode).
-	pendingWinCmd bool
+	// sequences is Normal mode's key-sequence table (the leader layer
+	// and the ctrl+w window commands, keyseqs.go), built from keys.
+	// pendingSeq is the sequence being typed: Esc or an unbound key
+	// cancels; any mode change resets it (see SetMode).
+	sequences  *keyseq.Map
+	pendingSeq keyseq.Sequence
 
 	// pendingTop is true between the first and second `g` of the vim
 	// `gg` chord (jump to top). Any other key cancels; any mode change
@@ -185,7 +188,7 @@ type App struct {
 
 	// pendingMark is true between an m press and its mark letter; the
 	// next key names the mark to set (handleMarkChord, set_mark.go).
-	// Mirrors pendingWinCmd: any non-letter — Esc included — cancels
+	// Like a pending sequence: any non-letter — Esc included — cancels
 	// silently, matching vim.
 	pendingMark bool
 
@@ -942,6 +945,7 @@ func NewApp() *App {
 		Type:   "threads",
 		Joined: true,
 	}})
+	app.sequences = app.newKeySequences()
 	// Seed the statusbar hint with the configured help key label so it
 	// stays accurate if the binding is ever changed.
 	app.statusbar.SetHelpHint(app.defaultHelpHint())
@@ -949,8 +953,8 @@ func NewApp() *App {
 }
 
 // defaultHelpHint is the resting statusbar hint ("? for keybindings").
-// Seeded at construction and restored when a transient hint (e.g. the
-// ctrl+w chord prefix) ends — clearing to "" would erase it for good.
+// Seeded at construction and restored when a transient hint (e.g. a
+// pending key sequence) ends — clearing to "" would erase it for good.
 func (a *App) defaultHelpHint() string {
 	if helpKey := a.keys.Help.Help().Key; helpKey != "" {
 		return helpKey + " for keybindings"
@@ -1928,29 +1932,33 @@ func (a *App) openQuitConfirm() {
 	)
 }
 
-func (a *App) handleEnter() tea.Cmd {
-	if a.focusedPanel == PanelSidebar {
-		if a.sidebar.IsThreadsSelected() {
-			return func() tea.Msg { return ThreadsViewActivatedMsg{} }
-		}
-		if a.sidebar.IsActivitySelected() {
-			return func() tea.Msg { return ActivityViewActivatedMsg{} }
-		}
-		// A section header? Toggle its collapse state and stay in
-		// place. Section headers are also navigable via j/k so the
-		// user can expand/collapse the firehose Channels section
-		// (collapsed by default) without leaving the keyboard.
-		if a.sidebar.ToggleCollapseSelected() {
-			return nil
-		}
-		item, ok := a.sidebar.SelectedItem()
-		if ok {
-			return func() tea.Msg {
-				return ChannelSelectedMsg{ID: item.ID, Name: item.Name, Type: item.Type}
-			}
+// openSidebarRow activates the selected sidebar row: the Threads or
+// Activity view, a section header (toggling its collapse state, so the
+// firehose Channels section — collapsed by default — can be expanded
+// without leaving the keyboard), or the channel. It is the sidebar_open
+// action (Enter by default, keyactions.go); a click on the row does the
+// same (TestSidebarClickAgreesWithEnter).
+func (a *App) openSidebarRow() tea.Cmd {
+	if a.sidebar.IsThreadsSelected() {
+		return func() tea.Msg { return ThreadsViewActivatedMsg{} }
+	}
+	if a.sidebar.IsActivitySelected() {
+		return func() tea.Msg { return ActivityViewActivatedMsg{} }
+	}
+	if a.sidebar.ToggleCollapseSelected() {
+		return nil
+	}
+	if item, ok := a.sidebar.SelectedItem(); ok {
+		return func() tea.Msg {
+			return ChannelSelectedMsg{ID: item.ID, Name: item.Name, Type: item.Type}
 		}
 	}
+	return nil
+}
 
+// handleEnter is Enter in the content panes (the sidebar's Enter is the
+// sidebar_open action, openSidebarRow).
+func (a *App) handleEnter() tea.Cmd {
 	// In the threads-list view, the messages-pane region renders the
 	// threadsView model instead of the channel's message history.
 	// focusedPanel stays at PanelMessages (we re-use that panel slot),
@@ -2108,12 +2116,13 @@ func (a *App) SetMode(mode Mode) {
 		a.pendingForward = nil
 		a.channelFinder.Close()
 	}
-	// A mode change always disarms a pending ctrl+w chord — a global
-	// intercept (e.g. ctrl+c quit-confirm) must not strand it armed.
-	// The `if` guard scopes the hint restore to chord disarms only, so
-	// other helpHint states aren't clobbered by unrelated mode changes.
-	if a.pendingWinCmd || a.pendingTop {
-		a.pendingWinCmd = false
+	// A mode change always resets a pending key sequence (ctrl+w, the
+	// leader) — a global intercept (e.g. ctrl+c quit-confirm) must not
+	// strand it armed. The `if` guard scopes the hint restore to chord
+	// disarms only, so other helpHint states aren't clobbered by
+	// unrelated mode changes.
+	if a.pendingSeq.Pending() || a.pendingTop {
+		a.pendingSeq.Reset()
 		a.pendingTop = false
 		a.statusbar.SetHelpHint(a.defaultHelpHint())
 	}

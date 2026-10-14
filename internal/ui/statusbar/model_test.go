@@ -261,6 +261,74 @@ func TestSetHelpHint_BumpsVersionOnChange(t *testing.T) {
 	}
 }
 
+// keyHintBar is a status bar showing a pending sequence's key hint.
+func keyHintBar() Model {
+	m := New()
+	m.SetMode(testMode("NORMAL"))
+	m.SetChannel("general")
+	m.SetWorkspace("Acme")
+	m.SetKeyHint("ctrl+w …", []string{"h/j/k/l focus", "s split", "v vsplit", "w cycle", "q/c close", "o only"})
+	return m
+}
+
+func TestKeyHint(t *testing.T) {
+	const full = "ctrl+w …  h/j/k/l focus  s split  v vsplit  w cycle  q/c close  o only"
+	cases := []struct {
+		name    string
+		width   int
+		want    string // must appear
+		notWant string // must not appear ("" = no check)
+	}{
+		{"wide bar shows every entry", 160, full, ""},
+		{"narrower bar keeps the lead and marks the rest", 80, "ctrl+w …  h/j/k/l focus", "o only"},
+		{"a bar too narrow for the lead drops the hint", 50, "", "ctrl+w"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := keyHintBar()
+			view := stripANSI(m.View(tc.width))
+			if w := lipgloss.Width(view); w != tc.width {
+				t.Errorf("bar width = %d, want %d", w, tc.width)
+			}
+			if tc.want != "" && !strings.Contains(view, tc.want) {
+				t.Errorf("view %q lacks %q", view, tc.want)
+			}
+			if tc.notWant != "" && strings.Contains(view, tc.notWant) {
+				t.Errorf("view %q has %q", view, tc.notWant)
+			}
+			if tc.width == 80 && !strings.Contains(view, "  …") {
+				t.Errorf("truncated hint %q must end in a \"…\" marker", view)
+			}
+		})
+	}
+}
+
+func TestSetHelpHintReplacesKeyHint(t *testing.T) {
+	m := keyHintBar()
+	v := m.Version()
+	m.SetHelpHint("? for keybindings")
+	if m.Version() == v {
+		t.Fatal("SetHelpHint must bump Version when it replaces a key hint")
+	}
+	view := stripANSI(m.View(160))
+	if !strings.Contains(view, "? for keybindings") || strings.Contains(view, "split") {
+		t.Fatalf("view = %q, want only the help hint", view)
+	}
+}
+
+func TestSetKeyHint_BumpsVersionOnChange(t *testing.T) {
+	m := keyHintBar()
+	v := m.Version()
+	m.SetKeyHint("ctrl+w …", []string{"h/j/k/l focus", "s split", "v vsplit", "w cycle", "q/c close", "o only"})
+	if m.Version() != v {
+		t.Fatal("SetKeyHint must not bump Version when unchanged")
+	}
+	m.SetKeyHint("\\ …", []string{"w window"})
+	if m.Version() == v {
+		t.Fatal("SetKeyHint must bump Version on change")
+	}
+}
+
 func TestModel_SetSearchElidesLongText(t *testing.T) {
 	m := New()
 

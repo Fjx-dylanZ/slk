@@ -85,6 +85,35 @@ persist_all = false
 # always shows the overlay.
 show_jump_overlay = true
 
+[keys]
+# The Normal-mode leader key (see Keybindings → Leader key). One key: a
+# single character, "space", or either after ctrl+ / alt+ ("ctrl+space").
+# Default '\' (a TOML literal string; the basic-string form is "\\").
+# Refused at startup: esc, ctrl+c, 1-9, and keys many terminals send as
+# another key — ctrl+ with anything but a letter, space or \ ] ^ _ (ctrl+[
+# is esc), ctrl+i (tab), ctrl+m (enter), alt+ with an uppercase letter.
+# If the key already did something (space toggles a sidebar section),
+# pressing it twice still does.
+leader = "space"
+
+# Sidebar keys. Each is a list of keys; leaving it out keeps the default,
+# [] unbinds it. They only apply while the sidebar has focus, where they
+# win over the key's usual job: with "l" below, l opens in the sidebar
+# and still moves focus everywhere else. Besides the spellings the leader
+# takes, these accept key names: enter, tab, backspace, delete, insert,
+# home, end, pgup, pgdown, up, down, left, right. esc, ctrl+c and ctrl+w
+# are refused, and so is a key both lists share. If the leader is one of
+# these keys, the leader wins and pressing it twice does the sidebar action.
+#
+# sidebar_open: open the selected channel, DM, Threads or Activity row, or
+# expand / collapse a section header. Default ["enter"].
+# sidebar_toggle_section: expand / collapse the section header under the
+# cursor. Default ["space"].
+#
+# nvim-tree / neo-tree style — l or Enter opens and expands:
+sidebar_open = ["enter", "l"]
+sidebar_toggle_section = ["space"]
+
 # Glob-based channel sections — only consulted when use_slack_sections
 # is false (globally or per-workspace), or when Slack's section API is
 # unreachable. Otherwise slk reads the user's actual Slack sections.
