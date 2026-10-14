@@ -119,6 +119,8 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - `''` back-jump — returns you to where you were before the last jump, whether or not it changed channel; press again to toggle back.
 - `:marks` overlay — every mark with its channel and a preview of the message, rendered from a snapshot taken at mark time, so it works offline and immediately after a restart. Click a row (or press `Enter`) to jump to it, `Backspace` deletes a row, and `:delmarks abc` deletes by letter.
 - **Position-aware back/forward** (`Ctrl+h` / `Ctrl+l`) — retraces visited channels and restores the message you were reading when you left each one, rather than dumping you at the newest message.
+- **Leader key** (`\` by default, `[keys] leader` to change) — a vim-style layer for the ctrl chords that collide with terminals and multiplexers (`\ t` channel finder, `\ b` sidebar, `\ s` status, …); the status bar lists what can follow. See [[Keybindings]].
+- **Directional pane focus** — `Ctrl+w h/j/k/l` (or `\ w h/j/k/l`) moves focus to whatever pane is on that side: sidebar, split windows, thread.
 
 ## Notifications
 
@@ -180,7 +182,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - 59 built-in themes (including `ANSI Dark` / `ANSI Light` that inherit your terminal palette)
 - Drop-in custom themes (`~/.config/slk/themes/*.toml`)
 - Live theme switcher (`Ctrl+y`); `Alt+y` / `Alt+Shift+y` cycle to the next / previous theme
-- TOML config for appearance, animations, notifications, and channel sections
+- TOML config for appearance, animations, notifications, channel sections and the leader key
 - Deterministic per-user username coloring, opt-in via `colored_usernames`
 
 See [[Configuration]] for the full `config.toml` reference and [[Keybindings]] for the key map.

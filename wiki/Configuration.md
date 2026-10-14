@@ -84,6 +84,14 @@ persist_all = false
 # always shows the overlay.
 show_jump_overlay = true
 
+[keys]
+# The Normal-mode leader key (see Keybindings → Leader key). One key: a
+# single character, "space", or either after ctrl+ / alt+ ("ctrl+space").
+# Default '\' (a TOML literal string; the basic-string form is "\\").
+# esc, ctrl+c and 1-9 are refused at startup. If the key already did
+# something (space toggles a sidebar section), pressing it twice still does.
+leader = "space"
+
 # Glob-based channel sections — only consulted when use_slack_sections
 # is false (globally or per-workspace), or when Slack's section API is
 # unreachable. Otherwise slk reads the user's actual Slack sections.

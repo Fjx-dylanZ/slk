@@ -169,7 +169,9 @@ that direction, across **sidebar, message-region windows and thread**:
   side by side, the thread still counts as sitting right of the message
   region, where it is drawn with room: `l` brings it to the front and `h`
   goes back, the same panes `Tab` alternates. Directions keep their meaning
-  when the terminal is resized.
+  when the terminal is resized. One exception: when the thread is the pane
+  in front and focus is on the sidebar, `l` enters the thread — the pane
+  the user sees there — instead of pulling the hidden channel forward.
 - **Rule.** A pane is a neighbour when it touches the current pane's edge in
   that direction with positive overlap on the other axis (the existing
   `wintree` rule, now `wintree.Adjacent`). Entering the message region from

@@ -5,6 +5,12 @@
 | `j` / `k` | Normal | Move down/up in channel list or messages |
 | `h` / `l` | Normal | Switch focus between panels |
 | `Tab` / `Shift+Tab` | Normal | Cycle focus |
+| `Ctrl+w` `h`/`j`/`k`/`l` (or arrows) | Normal | Focus the pane in that direction: sidebar, split windows, thread |
+| `Ctrl+w` `s` / `v` | Normal | Split the window stacked / side by side (`:sp` / `:vsp`) |
+| `Ctrl+w` `w` | Normal | Cycle windows |
+| `Ctrl+w` `q` / `c` | Normal | Close the window (`:q`) |
+| `Ctrl+w` `o` | Normal | Close every other window (`:only`) |
+| `\` | Normal | Leader key — see [Leader key](#leader-key) |
 | `Enter` | Normal (sidebar) | Open selected channel, or toggle a section header |
 | `Space` | Normal (sidebar) | Toggle the selected section header (collapse/expand) |
 | `Enter` | Normal (message) | Open thread |
@@ -65,4 +71,43 @@
 | `Q` | Normal | Quit immediately |
 | `Ctrl+c` | Any | Quit (with confirmation) |
 
-Custom keybinding overrides are on the roadmap — see [[Tradeoffs and Non-Goals|Tradeoffs-and-Non-Goals]].
+## Leader key
+
+In Normal mode the leader key (default `\`, set with `[keys] leader` — see
+[[Configuration]]) starts a sequence. The status bar lists the keys that can
+follow. `Esc` cancels; any other key cancels too and does nothing else. There
+is no timeout.
+
+The leader stands in for `Ctrl`: each entry is the letter of the chord it
+mirrors, so `\ t` is `Ctrl+t`.
+
+| Keys | Action | Same as |
+|---|---|---|
+| `\ w` `h`/`j`/`k`/`l` | Focus the pane in that direction | `Ctrl+w h/j/k/l` |
+| `\ w` `s` / `v` / `w` / `q` / `c` / `o` | Window commands | `Ctrl+w …` |
+| `\ t` | Fuzzy channel finder | `Ctrl+t` / `Ctrl+p` |
+| `\ f` | Search workspace | `Ctrl+f` |
+| `\ a` | Toggle the Activity view | `Ctrl+a` |
+| `\ n` | New message | `Ctrl+n` |
+| `\ s` | Set status | `Ctrl+s` |
+| `\ y` | Switch theme (this workspace) | `Ctrl+y` |
+| `\ Y` | Set the default theme | `Ctrl+Shift+y` |
+| `\ b` | Toggle sidebar | `Ctrl+b` |
+| `\ ]` | Close the thread panel | `Ctrl+]` |
+
+The leader only works in Normal mode; in Insert mode, prompts and dialogs it
+is an ordinary key.
+
+If the leader you configure already does something (`space` toggles a
+sidebar section), pressing it twice does that: `space space` toggles the
+section (`Enter` on a section header still does too). The help overlay (`?`)
+lists the leader layer under your leader key.
+
+Directional focus follows what is on screen. The workspace rail is not a
+pane. When the terminal is too narrow to show messages and thread side by
+side, the thread still counts as being to the right of the messages, so `l`
+brings it to the front and `h` goes back; from the sidebar, `l` enters
+whichever of the two is in front. Moving to another split window closes an
+open thread, as switching windows always has.
+
+Other custom keybinding overrides are on the roadmap — see [[Tradeoffs and Non-Goals|Tradeoffs-and-Non-Goals]].
