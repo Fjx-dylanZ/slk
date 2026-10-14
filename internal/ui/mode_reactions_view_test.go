@@ -51,8 +51,8 @@ func openReactionsViewFor(nUsers int) func(*testing.T, *App) {
 }
 
 // TestReactionsViewModeKeys characterizes handleReactionsViewMode
-// (mode_reactions_view.go:12). The handler normalises esc/up/down to
-// their string forms, forwards everything to reactionsview.HandleKey,
+// (mode_reactions_view.go). The handler normalises keys through
+// normalizeFinderKey, forwards everything to reactionsview.HandleKey,
 // and drops to Normal when the overlay reports itself invisible.
 func TestReactionsViewModeKeys(t *testing.T) {
 	openView := openReactionsViewFor(3)
@@ -148,10 +148,10 @@ func TestReactionsViewModeKeys(t *testing.T) {
 			},
 		},
 		{
-			// mode_reactions_view.go:14-21 declares only THREE arms —
-			// esc/up/down, no enter and no backspace. This row and the
-			// shift+up row below pin the other two it does declare; the
-			// four rows after them pin the two it does not.
+			// The handler normalises through normalizeFinderKey:
+			// esc/up/down/enter/backspace. This row and the shift+up
+			// row below pin esc and up; the four rows after them pin
+			// enter and backspace.
 			name:     "alt+esc closes: the Code switch strips the modifier",
 			setup:    openView,
 			key:      keyMod(tea.KeyEscape, tea.ModAlt),
@@ -179,32 +179,19 @@ func TestReactionsViewModeKeys(t *testing.T) {
 				}
 			},
 		},
-		// The next four rows pin the arms this handler does NOT declare.
-		//
-		// They exist because mode_handlers.go:73-87 already holds
-		// normalizeFinderKey, whose five cases are a superset of this
-		// handler's three, and the Phase 4 consolidation is expected to
-		// substitute it here. That substitution is behaviour-neutral
-		// only because reactionsview.HandleKey (reactionsview/model.go:
-		// 72-84) matches neither "enter" nor "backspace": the raw form
-		// ("ctrl+enter") and the normalised form ("enter") are both
-		// inert, so rewriting one into the other cannot be observed.
-		// Two rows per key are needed to say that — one for each side of
-		// the equality. Nothing else in the suite pins it.
-		//
-		// These rows do not kill any mutation of the handler (there is
-		// no arm to delete). They kill a mutation of the SUB-MODEL:
-		// adding an "enter" or "backspace" arm to
-		// reactionsview.HandleKey silently makes the planned
-		// substitution behaviour-changing, and fires these.
+		// The next four rows pin enter and backspace. With no filter
+		// reactionsview has no use for either, so they are inert; while
+		// the filter is typed they are its keys, and the normalisation
+		// strips a modifier so ctrl+enter and shift+backspace act like
+		// the bare keys, as in the help overlay.
 		{
-			name:     "enter is inert: reactionsview declares no enter arm (post-substitution side)",
+			name:     "enter with no filter is inert",
 			setup:    scrolled,
 			key:      keyCode(tea.KeyEnter),
 			wantMode: ModeReactionsView,
 			assert: func(t *testing.T, a *App, cmd tea.Cmd) {
 				if !a.reactionsView.IsVisible() {
-					t.Error("enter closed the overlay; reactionsview has no enter arm")
+					t.Error("enter closed the overlay")
 				}
 				if got := a.reactionsView.Offset(); got != 0 {
 					t.Errorf("offset = %d, want 0", got)
@@ -215,27 +202,34 @@ func TestReactionsViewModeKeys(t *testing.T) {
 			},
 		},
 		{
-			name:     "ctrl+enter is inert: this handler does not normalise enter (pre-substitution side)",
-			setup:    scrolled,
+			name: "ctrl+enter while filtering keeps the filter: the Code switch strips the modifier",
+			setup: func(t *testing.T, a *App) {
+				openView(t, a)
+				_ = dispatchModeKey(a, keyPress('/'))
+				_ = dispatchModeKey(a, keyPress('t'))
+				if !a.reactionsView.Typing() || a.reactionsView.Query() != "t" {
+					t.Fatalf("precondition: typing %v, query %q", a.reactionsView.Typing(), a.reactionsView.Query())
+				}
+			},
 			key:      keyMod(tea.KeyEnter, tea.ModCtrl),
 			wantMode: ModeReactionsView,
 			assert: func(t *testing.T, a *App, _ tea.Cmd) {
-				if !a.reactionsView.IsVisible() {
-					t.Error("ctrl+enter closed the overlay")
+				if a.reactionsView.Typing() {
+					t.Error("still typing: ctrl+enter should normalise to enter")
 				}
-				if got := a.reactionsView.Offset(); got != 0 {
-					t.Errorf("offset = %d, want 0", got)
+				if got := a.reactionsView.Query(); got != "t" {
+					t.Errorf("query = %q, want %q: enter keeps the filter", got, "t")
 				}
 			},
 		},
 		{
-			name:     "backspace is inert: reactionsview declares no backspace arm (post-substitution side)",
+			name:     "backspace with no filter is inert",
 			setup:    scrolled,
 			key:      keyCode(tea.KeyBackspace),
 			wantMode: ModeReactionsView,
 			assert: func(t *testing.T, a *App, _ tea.Cmd) {
 				if !a.reactionsView.IsVisible() {
-					t.Error("backspace closed the overlay; reactionsview has no backspace arm")
+					t.Error("backspace closed the overlay")
 				}
 				if got := a.reactionsView.Offset(); got != 0 {
 					t.Errorf("offset = %d, want 0", got)
@@ -243,16 +237,21 @@ func TestReactionsViewModeKeys(t *testing.T) {
 			},
 		},
 		{
-			name:     "shift+backspace is inert: this handler does not normalise backspace (pre-substitution side)",
-			setup:    scrolled,
+			name: "shift+backspace while filtering deletes: the Code switch strips the modifier",
+			setup: func(t *testing.T, a *App) {
+				openView(t, a)
+				for _, r := range "/th" {
+					_ = dispatchModeKey(a, keyPress(r))
+				}
+				if got := a.reactionsView.Query(); got != "th" {
+					t.Fatalf("precondition: query = %q, want %q", got, "th")
+				}
+			},
 			key:      keyMod(tea.KeyBackspace, tea.ModShift),
 			wantMode: ModeReactionsView,
 			assert: func(t *testing.T, a *App, _ tea.Cmd) {
-				if !a.reactionsView.IsVisible() {
-					t.Error("shift+backspace closed the overlay")
-				}
-				if got := a.reactionsView.Offset(); got != 0 {
-					t.Errorf("offset = %d, want 0", got)
+				if got := a.reactionsView.Query(); got != "t" {
+					t.Errorf("query = %q, want %q: shift+backspace should normalise to backspace", got, "t")
 				}
 			},
 		},
@@ -367,5 +366,113 @@ func TestReactionsViewModeKeys(t *testing.T) {
 			key:      keyPress('x'),
 			wantMode: ModeNormal,
 		},
+		{
+			name:     "/ starts the filter and stays in the view",
+			setup:    openView,
+			key:      keyPress('/'),
+			wantMode: ModeReactionsView,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if !a.reactionsView.Typing() {
+					t.Error("Typing = false after /")
+				}
+			},
+		},
+		{
+			name:     "q while filtering is filter text, not close",
+			setup:    reactionsFiltering(""),
+			key:      keyPress('q'),
+			wantMode: ModeReactionsView,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if got := a.reactionsView.Query(); got != "q" {
+					t.Errorf("query = %q, want q", got)
+				}
+			},
+		},
+		{
+			name:     "L and j while filtering are filter text",
+			setup:    reactionsFiltering("L"),
+			key:      keyPress('j'),
+			wantMode: ModeReactionsView,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if got := a.reactionsView.Query(); got != "Lj" {
+					t.Errorf("query = %q, want Lj", got)
+				}
+			},
+		},
+		{
+			name:     "enter keeps the filter",
+			setup:    reactionsFiltering("t"),
+			key:      keyCode(tea.KeyEnter),
+			wantMode: ModeReactionsView,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if a.reactionsView.Typing() || a.reactionsView.Query() != "t" {
+					t.Errorf("typing %v, query %q; want false, t", a.reactionsView.Typing(), a.reactionsView.Query())
+				}
+			},
+		},
+		{
+			name:     "esc while filtering clears it and keeps the view",
+			setup:    reactionsFiltering("t"),
+			key:      keyCode(tea.KeyEscape),
+			wantMode: ModeReactionsView,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if a.reactionsView.Typing() || a.reactionsView.Query() != "" {
+					t.Errorf("typing %v, query %q; want idle and cleared", a.reactionsView.Typing(), a.reactionsView.Query())
+				}
+			},
+		},
+		{
+			name:     "q with a kept filter closes, as in help and the link picker",
+			setup:    reactionsKept("t"),
+			key:      keyPress('q'),
+			wantMode: ModeNormal,
+		},
+		{
+			name:     "esc with a kept filter clears it and keeps the view",
+			setup:    reactionsKept("t"),
+			key:      keyCode(tea.KeyEscape),
+			wantMode: ModeReactionsView,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if !a.reactionsView.IsVisible() || a.reactionsView.Query() != "" {
+					t.Errorf("visible %v, query %q; want open and cleared", a.reactionsView.IsVisible(), a.reactionsView.Query())
+				}
+			},
+		},
+		{
+			name: "esc after the kept filter is cleared closes",
+			setup: func(t *testing.T, a *App) {
+				reactionsKept("t")(t, a)
+				_ = dispatchModeKey(a, keyCode(tea.KeyEscape))
+			},
+			key:      keyCode(tea.KeyEscape),
+			wantMode: ModeNormal,
+		},
 	})
+}
+
+// reactionsFiltering opens the reactions view and types "/" then typed
+// into its filter.
+func reactionsFiltering(typed string) func(*testing.T, *App) {
+	return func(t *testing.T, a *App) {
+		openReactionsViewFor(3)(t, a)
+		_ = dispatchModeKey(a, keyPress('/'))
+		for _, r := range typed {
+			_ = dispatchModeKey(a, keyPress(r))
+		}
+		if !a.reactionsView.Typing() || a.reactionsView.Query() != typed {
+			t.Fatalf("precondition: typing %v, query %q; want true, %q", a.reactionsView.Typing(), a.reactionsView.Query(), typed)
+		}
+	}
+}
+
+// reactionsKept is reactionsFiltering followed by enter, which keeps the
+// filter.
+func reactionsKept(typed string) func(*testing.T, *App) {
+	return func(t *testing.T, a *App) {
+		reactionsFiltering(typed)(t, a)
+		_ = dispatchModeKey(a, keyCode(tea.KeyEnter))
+		if a.reactionsView.Typing() || a.reactionsView.Query() != typed {
+			t.Fatalf("precondition: enter did not keep the filter %q", typed)
+		}
+	}
 }

@@ -351,3 +351,153 @@ func TestLinkPickerModeKeys(t *testing.T) {
 		},
 	})
 }
+
+// linkPickerFiltering returns a setup that opens the picker with open
+// and types "/" then typed into its filter, and enter when keep.
+func linkPickerFiltering(open func(*testing.T, *App), typed string, keep bool) func(*testing.T, *App) {
+	return func(t *testing.T, a *App) {
+		open(t, a)
+		_ = dispatchModeKey(a, keyPress('/'))
+		for _, r := range typed {
+			_ = dispatchModeKey(a, keyPress(r))
+		}
+		if keep {
+			_ = dispatchModeKey(a, keyCode(tea.KeyEnter))
+		}
+		if a.linkPicker.Typing() == keep || a.linkPicker.Query() != typed {
+			t.Fatalf("precondition: typing %v, query %q; want typing %v, %q", a.linkPicker.Typing(), a.linkPicker.Query(), !keep, typed)
+		}
+	}
+}
+
+// TestLinkPickerModeFilterKeys covers the / filter through
+// handleLinkPickerMode: keys typed into it are text, enter keeps it,
+// a choice through it maps back to the source data, esc clears it.
+func TestLinkPickerModeFilterKeys(t *testing.T) {
+	runKeyCases(t, ModeLinkPicker, []keyCase{
+		{
+			name:     "/ starts the filter",
+			setup:    openLinkPicker,
+			key:      keyPress('/'),
+			wantMode: ModeLinkPicker,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if !a.linkPicker.Typing() {
+					t.Error("Typing = false after /")
+				}
+			},
+		},
+		{
+			name:     "q while filtering is filter text, not close",
+			setup:    linkPickerFiltering(openLinkPicker, "", false),
+			key:      keyPress('q'),
+			wantMode: ModeLinkPicker,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if got := a.linkPicker.Query(); got != "q" {
+					t.Errorf("query = %q, want q", got)
+				}
+			},
+		},
+		{
+			name:     "j while filtering is filter text, not move",
+			setup:    linkPickerFiltering(openLinkPicker, "", false),
+			key:      keyPress('j'),
+			wantMode: ModeLinkPicker,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if got := a.linkPicker.Query(); got != "j" || a.linkPicker.Selected() != 0 {
+					t.Errorf("query %q, selected %d; want j, 0", got, a.linkPicker.Selected())
+				}
+			},
+		},
+		{
+			name:     "space while filtering types a space",
+			setup:    linkPickerFiltering(openLinkPicker, "b", false),
+			key:      keyPress(' '),
+			wantMode: ModeLinkPicker,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if got := a.linkPicker.Query(); got != "b " {
+					t.Errorf("query = %q, want %q", got, "b ")
+				}
+			},
+		},
+		{
+			name:     "enter while filtering keeps the filter and the picker",
+			setup:    linkPickerFiltering(openLinkPicker, "b.ex", false),
+			key:      keyCode(tea.KeyEnter),
+			wantMode: ModeLinkPicker,
+			assert: func(t *testing.T, a *App, cmd tea.Cmd) {
+				if a.linkPicker.Typing() || a.linkPicker.Query() != "b.ex" {
+					t.Errorf("typing %v, query %q; want false, b.ex", a.linkPicker.Typing(), a.linkPicker.Query())
+				}
+				if cmd != nil {
+					t.Errorf("cmd = %#v, want nil: enter only keeps the filter", cmd())
+				}
+			},
+		},
+		{
+			name:     "enter on a kept filter opens the highlighted filtered link",
+			setup:    linkPickerFiltering(openLinkPicker, "b.ex", true),
+			key:      keyCode(tea.KeyEnter),
+			wantMode: ModeNormal,
+			assert: func(t *testing.T, a *App, cmd tea.Cmd) {
+				if cmd == nil {
+					t.Fatal("cmd = nil, want an OpenLinkMsg cmd")
+				}
+				if msg, ok := cmd().(OpenLinkMsg); !ok || msg.URL != "https://b.example/2" {
+					t.Errorf("cmd() = %#v, want OpenLinkMsg for https://b.example/2", cmd())
+				}
+			},
+		},
+		{
+			// The only match is the second file; its Index must still
+			// pick pickerFiles[1], not the first file.
+			name:     "enter on a kept filter downloads the filtered file by its source index",
+			setup:    linkPickerFiltering(openFilePicker, "b.pdf", true),
+			key:      keyCode(tea.KeyEnter),
+			wantMode: ModeNormal,
+			assert: func(t *testing.T, a *App, cmd tea.Cmd) {
+				if cmd == nil {
+					t.Fatal("cmd = nil, want a DownloadFileMsg cmd")
+				}
+				if msg, ok := cmd().(DownloadFileMsg); !ok || msg.Attachment.Name != "b.pdf" {
+					t.Errorf("cmd() = %#v, want DownloadFileMsg for b.pdf", cmd())
+				}
+			},
+		},
+		{
+			name:     "esc while filtering clears it and keeps the picker",
+			setup:    linkPickerFiltering(openLinkPicker, "b.ex", false),
+			key:      keyCode(tea.KeyEscape),
+			wantMode: ModeLinkPicker,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if a.linkPicker.Typing() || a.linkPicker.Query() != "" {
+					t.Errorf("typing %v, query %q; want idle and cleared", a.linkPicker.Typing(), a.linkPicker.Query())
+				}
+			},
+		},
+		{
+			name:     "esc with a kept filter clears it and keeps the picker",
+			setup:    linkPickerFiltering(openLinkPicker, "b.ex", true),
+			key:      keyCode(tea.KeyEscape),
+			wantMode: ModeLinkPicker,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if !a.linkPicker.IsVisible() || a.linkPicker.Query() != "" {
+					t.Errorf("visible %v, query %q; want open and cleared", a.linkPicker.IsVisible(), a.linkPicker.Query())
+				}
+			},
+		},
+		{
+			name: "esc after the kept filter is cleared closes",
+			setup: func(t *testing.T, a *App) {
+				linkPickerFiltering(openLinkPicker, "b.ex", true)(t, a)
+				_ = dispatchModeKey(a, keyCode(tea.KeyEscape))
+			},
+			key:      keyCode(tea.KeyEscape),
+			wantMode: ModeNormal,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if a.linkPicker.IsVisible() || a.pickerKind != "" {
+					t.Errorf("visible %v, pickerKind %q; want closed and cleared", a.linkPicker.IsVisible(), a.pickerKind)
+				}
+			},
+		},
+	})
+}

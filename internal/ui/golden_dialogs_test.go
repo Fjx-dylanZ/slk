@@ -277,6 +277,18 @@ func dialogGoldens() []dialogGolden {
 			},
 		},
 		{
+			// The / filter being typed: the input line under the title,
+			// the rows it keeps (the long excerpt drops out).
+			name: "dialog_marks_filter_typing", want: "message 0█", shown: marksShown,
+			open: func(t *testing.T, a *App) {
+				a.marksOverlay.SetRows(scrollingMarkRows())
+				a.marksOverlay.Open()
+				typeKeys(a.marksOverlay.HandleKey, "/message 0")
+				a.marksOverlay.HandleKey("down")
+				a.SetMode(ModeMarks)
+			},
+		},
+		{
 			name: "dialog_reaction_picker", want: "Add Reaction", shown: reactShown,
 			open: func(t *testing.T, a *App) {
 				a.reactionPicker.Open("C1", "1.0", []string{"smile"})
@@ -332,6 +344,16 @@ func dialogGoldens() []dialogGolden {
 		},
 		{name: "dialog_help_narrow", w: 40, h: 20, want: "Keybindings", shown: helpShown, open: openHelp},
 		{
+			name: "dialog_help_filter_kept", want: "filter: thread", shown: helpShown,
+			open: func(t *testing.T, a *App) {
+				a.help.SetEntries(help.FromKeyMap(a.keys))
+				a.help.Open()
+				typeKeys(func(k string) struct{} { a.help.HandleKey(k); return struct{}{} }, "/thread")
+				a.help.HandleKey("enter")
+				a.SetMode(ModeHelp)
+			},
+		},
+		{
 			name: "dialog_search_results", want: "Search Workspace", shown: searchShown,
 			open: func(t *testing.T, a *App) {
 				openSearch(a)
@@ -354,6 +376,15 @@ func dialogGoldens() []dialogGolden {
 		{name: "dialog_link_picker", want: "Open link", shown: linkShown, open: openLinks},
 		{name: "dialog_link_picker_narrow", w: 40, h: 20, want: "Open link", shown: linkShown, open: openLinks},
 		{
+			name: "dialog_link_picker_filter_kept", want: "filter: example", shown: linkShown,
+			open: func(t *testing.T, a *App) {
+				openLinks(t, a)
+				typeKeys(func(k string) struct{} { a.linkPicker.HandleKey(k); return struct{}{} }, "/example")
+				a.linkPicker.HandleKey("enter")
+				a.linkPicker.HandleKey("j")
+			},
+		},
+		{
 			name: "dialog_reactions_view", want: "Reactions",
 			shown: func(a *App) bool { return a.reactionsView.IsVisible() },
 			open: func(t *testing.T, a *App) {
@@ -369,6 +400,27 @@ func dialogGoldens() []dialogGolden {
 				a.SetMode(ModeReactionsView)
 				_ = a.View() // HandleKey scrolls only after a draw has set the limit
 				repeat(3, func() { a.reactionsView.HandleKey("j") })
+			},
+		},
+		{
+			// "o" keeps rocket whole (its name matches), keeps only bob
+			// and carol in the other groups, and drops tada, whose only
+			// reactor, alice, does not match.
+			name: "dialog_reactions_view_filter_typing", want: "o█",
+			shown: func(a *App) bool { return a.reactionsView.IsVisible() },
+			open: func(t *testing.T, a *App) {
+				var groups []reactionsview.ReactionGroup
+				for _, e := range []string{"thumbsup", "tada", "eyes", "rocket", "heart"} {
+					users := []string{"alice", "bob", "carol"}
+					if e == "tada" {
+						users = []string{"alice"}
+					}
+					groups = append(groups, reactionsview.ReactionGroup{Emoji: e, Users: users, Count: len(users)})
+				}
+				a.reactionsView.Open(groups)
+				a.SetMode(ModeReactionsView)
+				a.reactionsView.HandleKey("/")
+				a.reactionsView.HandleKey("o")
 			},
 		},
 		{

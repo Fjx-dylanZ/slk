@@ -155,9 +155,9 @@ func TestHelpModeKeys(t *testing.T) {
 			},
 		},
 		{
-			// help.HandleKey has no "enter" arm; only handleSearchKey
-			// does (help/model.go:165), so the enter normalisation is
-			// observable in search mode only.
+			// help.HandleKey has no "enter" arm of its own; enter is
+			// the listfilter's while searching, so the enter
+			// normalisation is observable in search mode only.
 			name: "ctrl+enter while searching commits: the Code switch strips the modifier",
 			setup: func(t *testing.T, a *App) {
 				openHelpSearching(t, a)
@@ -290,8 +290,8 @@ func TestHelpModeKeys(t *testing.T) {
 		},
 		{
 			// j/k are navigation OUTSIDE search but plain query text
-			// INSIDE it: help.handleSearchKey's default arm takes any
-			// printable byte. Pins that the two regimes really are
+			// INSIDE it: the listfilter takes any printable rune while
+			// it is typed. Pins that the two regimes really are
 			// disjoint.
 			name:     "j while searching types instead of navigating",
 			setup:    openHelpSearching,
@@ -365,6 +365,90 @@ func TestHelpModeKeys(t *testing.T) {
 			},
 		},
 		{
+			// The uniform listfilter rule (a deliberate change): with a
+			// filter kept by enter, the first esc clears it instead of
+			// closing the overlay.
+			name:     "esc with a kept filter clears it and keeps Help open",
+			setup:    helpKept("q"),
+			key:      keyCode(tea.KeyEscape),
+			wantMode: ModeHelp,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if !a.help.IsVisible() {
+					t.Error("help closed; the first esc should clear the kept filter")
+				}
+				if got := a.help.Query(); got != "" {
+					t.Errorf("query = %q, want empty", got)
+				}
+			},
+		},
+		{
+			name: "esc after the kept filter is cleared closes",
+			setup: func(t *testing.T, a *App) {
+				helpKept("q")(t, a)
+				_ = dispatchModeKey(a, keyCode(tea.KeyEscape))
+			},
+			key:      keyCode(tea.KeyEscape),
+			wantMode: ModeNormal,
+		},
+		{
+			name:     "q with a kept filter closes: it only types while searching",
+			setup:    helpKept("q"),
+			key:      keyPress('q'),
+			wantMode: ModeNormal,
+		},
+		{
+			name:     "? while searching is query text, not close",
+			setup:    openHelpSearching,
+			key:      keyPress('?'),
+			wantMode: ModeHelp,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if got := a.help.Query(); got != "?" {
+					t.Errorf("query = %q, want ?", got)
+				}
+			},
+		},
+		{
+			// help.HandleKey accepted ASCII bytes only; space arrives as
+			// "space" and was dropped.
+			name: "space while searching appends a space",
+			setup: func(t *testing.T, a *App) {
+				openHelpSearching(t, a)
+				_ = dispatchModeKey(a, keyPress('o'))
+			},
+			key:      keyPress(' '),
+			wantMode: ModeHelp,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if got := a.help.Query(); got != "o " {
+					t.Errorf("query = %q, want %q", got, "o ")
+				}
+			},
+		},
+		{
+			name:     "a non-ASCII rune while searching is query text",
+			setup:    openHelpSearching,
+			key:      keyPress('é'),
+			wantMode: ModeHelp,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if got := a.help.Query(); got != "é" {
+					t.Errorf("query = %q, want é", got)
+				}
+			},
+		},
+		{
+			name:     "down while searching moves the selection and keeps searching",
+			setup:    openHelpSearching,
+			key:      keyCode(tea.KeyDown),
+			wantMode: ModeHelp,
+			assert: func(t *testing.T, a *App, _ tea.Cmd) {
+				if got := a.help.Selected(); got != 1 {
+					t.Errorf("selected = %d, want 1", got)
+				}
+				if !a.help.IsSearching() {
+					t.Error("down left search mode")
+				}
+			},
+		},
+		{
 			name:     "unhandled key is swallowed and Help stays open",
 			setup:    openHelp,
 			key:      keyPress('z'),
@@ -394,4 +478,19 @@ func TestHelpModeKeys(t *testing.T) {
 			wantMode: ModeNormal,
 		},
 	})
+}
+
+// helpKept opens the overlay, types query into its filter and keeps it
+// with enter.
+func helpKept(query string) func(*testing.T, *App) {
+	return func(t *testing.T, a *App) {
+		openHelpSearching(t, a)
+		for _, r := range query {
+			_ = dispatchModeKey(a, keyPress(r))
+		}
+		_ = dispatchModeKey(a, keyCode(tea.KeyEnter))
+		if a.help.IsSearching() || a.help.Query() != query {
+			t.Fatalf("precondition: searching %v, query %q; want a kept %q", a.help.IsSearching(), a.help.Query(), query)
+		}
+	}
 }

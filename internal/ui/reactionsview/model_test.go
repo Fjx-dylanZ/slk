@@ -142,3 +142,137 @@ func TestViewOverlayRendersNamesAndCounts(t *testing.T) {
 		}
 	}
 }
+
+// openWith opens sampleGroups and sends keys.
+func openWith(keys ...string) *Model {
+	m := New()
+	m.Open(sampleGroups())
+	for _, k := range keys {
+		m.HandleKey(k)
+	}
+	return m
+}
+
+// shownText is the filtered list as "emoji:user,user;…".
+func shownText(m *Model) string {
+	var parts []string
+	for _, sg := range m.shown {
+		parts = append(parts, m.groups[sg.group].Emoji+":"+strings.Join(sg.users, ","))
+	}
+	return strings.Join(parts, ";")
+}
+
+func TestFilterGroupsAndUsers(t *testing.T) {
+	for _, c := range []struct {
+		keys []string
+		want string
+	}{
+		{nil, "thumbsup:Alice,Bob,You (you);eyes:Carol"},
+		{[]string{"/", "t", "h", "u"}, "thumbsup:Alice,Bob,You (you)"}, // emoji name keeps every user
+		{[]string{"/", "e", "y"}, "eyes:Carol"},
+		{[]string{"/", "b", "o", "b"}, "thumbsup:Bob"},                                   // only matching users; eyes dropped
+		{[]string{"/", "c", "a", "r"}, "eyes:Carol"},                                     // user match keeps its group
+		{[]string{"/", "y", "o", "u"}, "thumbsup:You (you)"},                             // users only: no emoji has "you"
+		{[]string{"/", "z", "z"}, ""},                                                    // nothing left
+		{[]string{"/", "b", "o", "b", "esc"}, "thumbsup:Alice,Bob,You (you);eyes:Carol"}, // esc clears
+	} {
+		if got := shownText(openWith(c.keys...)); got != c.want {
+			t.Errorf("%v: shown %q, want %q", c.keys, got, c.want)
+		}
+	}
+}
+
+// TestFilterHeaderCountsTheWholeGroup: a group filtered down to some of
+// its users still reports how many reacted.
+func TestFilterHeaderCountsTheWholeGroup(t *testing.T) {
+	m := openWith("/", "b", "o", "b")
+	out := m.renderBox(80, 24)
+	if !strings.Contains(out, "(3)") || strings.Contains(out, "Alice") {
+		t.Errorf("filtered view must show (3) and only Bob:\n%s", out)
+	}
+}
+
+func TestFilterKeysAreTextWhileTyping(t *testing.T) {
+	m := openWith("/", "q", "L", "j", "k")
+	if !m.IsVisible() {
+		t.Fatal("a key typed into the filter closed the modal")
+	}
+	if m.Query() != "qLjk" || !m.Typing() {
+		t.Errorf("query %q, typing %v; want qLjk, true", m.Query(), m.Typing())
+	}
+}
+
+// TestFilterKeptEscClearsThenQCloses: with a kept filter the first esc
+// clears it and keeps the modal; q and L close over a kept filter, as
+// in the help overlay and the link picker.
+func TestFilterKeptEscClearsThenQCloses(t *testing.T) {
+	m := openWith("/", "b", "o", "b", "enter")
+	m.HandleKey("escape")
+	if !m.IsVisible() || m.Query() != "" {
+		t.Fatalf("esc with a kept filter: visible %v, query %q; want open and cleared", m.IsVisible(), m.Query())
+	}
+	m.HandleKey("q")
+	if m.IsVisible() {
+		t.Error("q with no filter should close")
+	}
+	for _, k := range []string{"q", "L"} {
+		m := openWith("/", "b", "o", "b", "enter")
+		m.HandleKey(k)
+		if m.IsVisible() {
+			t.Errorf("%s with a kept filter did not close the modal", k)
+		}
+	}
+}
+
+func TestFilterChangeResetsScroll(t *testing.T) {
+	m := New()
+	m.Open(manyGroups(10))
+	m.ViewOverlay(80, 14, strings.Repeat("\n", 14))
+	for range 3 {
+		m.HandleKey("down")
+	}
+	if m.Offset() != 3 {
+		t.Fatalf("precondition: offset = %d, want 3", m.Offset())
+	}
+	m.HandleKey("/")
+	if m.Offset() != 3 {
+		t.Errorf("/ alone changed the offset to %d", m.Offset())
+	}
+	m.HandleKey("u")
+	if m.Offset() != 0 {
+		t.Errorf("a filter change left the offset at %d, want 0", m.Offset())
+	}
+	m.HandleKey("down") // arrows scroll while typing
+	if m.Offset() != 1 || m.Query() != "u" {
+		t.Errorf("down while typing: offset %d, query %q; want 1, u", m.Offset(), m.Query())
+	}
+}
+
+// TestFilterLineTakesAWindowRow: the filter line is paid for with one
+// list row, so the box keeps its height and stays inside the terminal.
+func TestFilterLineTakesAWindowRow(t *testing.T) {
+	m := New()
+	m.Open(manyGroups(20))
+	idle := strings.Count(m.renderBox(80, 20), "\n")
+	for _, k := range []string{"/", "u", "enter"} {
+		m.HandleKey(k)
+	}
+	if got := strings.Count(m.renderBox(80, 20), "\n"); got != idle {
+		t.Errorf("box with the filter line is %d lines, want %d", got+1, idle+1)
+	}
+}
+
+func TestViewFilterStates(t *testing.T) {
+	out := openWith().renderBox(80, 24)
+	if strings.Contains(out, "filter:") || !strings.Contains(out, "/ filter") {
+		t.Errorf("idle: no filter line, footer advertises / filter:\n%s", out)
+	}
+	m := openWith("/", "z", "z")
+	if out := m.renderBox(80, 24); !strings.Contains(out, "zz█") || !strings.Contains(out, "No matching reactions") {
+		t.Errorf("typing with no match:\n%s", out)
+	}
+	m.HandleKey("enter")
+	if out := m.renderBox(80, 24); !strings.Contains(out, "filter: zz") {
+		t.Errorf("kept filter:\n%s", out)
+	}
+}

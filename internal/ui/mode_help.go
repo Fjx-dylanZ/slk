@@ -3,8 +3,9 @@
 // Help-mode key handler (Phase 5c).
 //
 // Help mode forwards normalised keys to the help overlay
-// (handles q/?/esc for self-dismiss + Up/Down for scrolling),
-// then drops back to Normal when the overlay reports invisible.
+// (handles q/?/esc for self-dismiss, Up/Down for scrolling and /
+// for its filter), then drops back to Normal when the overlay
+// reports invisible.
 package ui
 
 import (

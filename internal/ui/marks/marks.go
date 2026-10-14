@@ -15,7 +15,10 @@
 // A mark letter jumps immediately (the overlay must not add a
 // keystroke to the 'a flow); Enter selects the highlighted row; and
 // backspace/Delete removes the highlighted row (the same removal the
-// :delmarks command uses).
+// :delmarks command uses). "/" filters the rows (listfilter) over the
+// letter, channel, author and excerpt; while the filter is typed,
+// letters are filter text, and Enter and backspace act on the
+// highlighted filtered row.
 package marks
 
 import (
@@ -23,6 +26,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/gammons/slk/internal/bubbles/chrome"
+	"github.com/gammons/slk/internal/bubbles/listfilter"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
 	"github.com/gammons/slk/internal/ui/styles"
@@ -54,7 +58,9 @@ type MarksResult struct {
 // Model is the marks overlay widget.
 type Model struct {
 	rows     []Row
-	selected int // index into rows
+	shown    []int // indices into rows that match the filter
+	filter   listfilter.Filter
+	selected int // index into shown
 	visible  bool
 }
 
@@ -68,27 +74,37 @@ func New() Model {
 	return Model{}
 }
 
-// SetRows replaces the mark list (e.g. after a deletion) and clamps
-// the selection into range.
+// SetRows replaces the mark list (e.g. after a deletion), re-applies
+// the filter to it and clamps the selection into the filtered rows.
 func (m *Model) SetRows(rows []Row) {
 	m.rows = rows
-	if m.selected >= len(m.rows) {
-		m.selected = len(m.rows) - 1
-	}
-	if m.selected < 0 {
-		m.selected = 0
-	}
+	m.applyFilter()
 }
 
-// Open shows the overlay with the first row selected.
+// applyFilter rebuilds shown from the filter and clamps the selection.
+func (m *Model) applyFilter() {
+	m.shown = m.shown[:0]
+	for i, r := range m.rows {
+		if m.filter.Matches(r.Letter, r.ChannelName, r.AuthorName, r.Excerpt) {
+			m.shown = append(m.shown, i)
+		}
+	}
+	m.selected = max(min(m.selected, len(m.shown)-1), 0)
+}
+
+// Open shows the overlay with the first row selected and no filter.
 func (m *Model) Open() {
 	m.visible = true
 	m.selected = 0
+	m.filter.Reset()
+	m.applyFilter()
 }
 
-// Close hides the overlay.
+// Close hides the overlay and drops its filter.
 func (m *Model) Close() {
 	m.visible = false
+	m.filter.Reset()
+	m.applyFilter()
 }
 
 // IsVisible reports whether the overlay is showing.
@@ -96,28 +112,42 @@ func (m Model) IsVisible() bool {
 	return m.visible
 }
 
+// Typing reports whether the user is typing the filter, so every
+// printable key, ' and ` included, is filter text rather than a jump.
+func (m Model) Typing() bool {
+	return m.filter.Typing()
+}
+
 // HandleKey processes a key and returns a result when the user acts
-// on a row, nil otherwise. A mark letter (a-z, A-Z) jumps immediately
-// — the overlay is a reference list, not a filter, so 'a never takes
-// an extra keystroke. backspace/Delete removes the highlighted row.
+// on a row, nil otherwise. The filter takes its keys first. A mark
+// letter (a-z, A-Z) jumps immediately when the filter is not being
+// typed, so 'a never takes an extra keystroke. Enter selects and
+// backspace/Delete removes the highlighted filtered row.
 func (m *Model) HandleKey(keyStr string) *MarksResult {
+	if consumed, changed := m.filter.HandleKey(keyStr); consumed {
+		if changed {
+			m.selected = 0
+			m.applyFilter()
+		}
+		return nil
+	}
 	if len(keyStr) == 1 && isMarkLetter(keyStr[0]) {
 		return &MarksResult{Select: keyStr}
 	}
 
 	switch keyStr {
 	case "enter":
-		if len(m.rows) == 0 {
+		if len(m.shown) == 0 {
 			return nil
 		}
-		return &MarksResult{Select: m.rows[m.selected].Letter}
+		return &MarksResult{Select: m.rows[m.shown[m.selected]].Letter}
 
 	case "esc":
 		m.Close()
 		return nil
 
 	case "down", "ctrl+n":
-		if m.selected < len(m.rows)-1 {
+		if m.selected < len(m.shown)-1 {
 			m.selected++
 		}
 		return nil
@@ -129,10 +159,10 @@ func (m *Model) HandleKey(keyStr string) *MarksResult {
 		return nil
 
 	case "backspace", "delete":
-		if len(m.rows) == 0 {
+		if len(m.shown) == 0 {
 			return nil
 		}
-		return &MarksResult{Delete: m.rows[m.selected].Letter}
+		return &MarksResult{Delete: m.rows[m.shown[m.selected]].Letter}
 	}
 	return nil
 }
@@ -157,38 +187,49 @@ func boxWidth(termWidth int) int {
 	return w
 }
 
-// boxChromeRows is the box's height without its list: the border and
-// padding above, the title and the blank line under it, then the
-// padding and border below.
+// boxChromeRows is the box's height without its list and filter line:
+// the border and padding above, the title and the blank line under it,
+// then the padding and border below.
 const boxChromeRows = 6
+
+// chromeRows is the box's height without its list: boxChromeRows plus
+// the filter line while the filter is active.
+func (m *Model) chromeRows() int {
+	if m.filter.Active() {
+		return boxChromeRows + 1
+	}
+	return boxChromeRows
+}
 
 // listRows is how many list rows the window shows in a terminal
 // termHeight rows tall: maxVisibleRows, fewer when the box would not
 // fit, and at least one.
-func listRows(termHeight int) int {
-	return max(min(maxVisibleRows, termHeight-boxChromeRows), 1)
+func (m *Model) listRows(termHeight int) int {
+	return max(min(maxVisibleRows, termHeight-m.chromeRows()), 1)
 }
 
-// visibleWindow returns the [start, end) slice of rows currently
-// shown in the list.
+// visibleWindow returns the [start, end) slice of shown currently
+// drawn in the list.
 func (m *Model) visibleWindow(termHeight int) (int, int) {
-	return chrome.Window(m.selected, len(m.rows), listRows(termHeight))
+	return chrome.Window(m.selected, len(m.shown), m.listRows(termHeight))
 }
 
 // listTopOffset is the box-local row of the first list row.
-func listTopOffset() int { return chrome.BodyTop(messages.ChromeStyles(), false) }
+func (m *Model) listTopOffset() int {
+	return chrome.BodyTop(messages.ChromeStyles(), m.filter.Active())
+}
 
 // BoxSize returns the outer size of the rendered box.
 func (m *Model) BoxSize(termWidth, termHeight int) (int, int) {
 	start, end := m.visibleWindow(termHeight)
-	nRows := max(end-start, 1) // the empty list still draws "No marks set"
-	return boxWidth(termWidth), nRows + boxChromeRows
+	nRows := max(end-start, 1) // an empty list still draws its Empty line
+	return boxWidth(termWidth), nRows + m.chromeRows()
 }
 
 // ClickRow moves the selection to the list row at box-local localY
 // (0 is the top border) and reports whether a row was there.
 func (m *Model) ClickRow(termWidth, termHeight, localY int) bool {
-	row := localY - listTopOffset()
+	row := localY - m.listTopOffset()
 	if row < 0 {
 		return false
 	}
@@ -227,13 +268,13 @@ func (m Model) renderBox(termWidth, termHeight int) string {
 	innerWidth := overlayWidth - 4 // border + padding
 
 	start, end := m.visibleWindow(termHeight)
-	list := chrome.List{Start: start, End: end, Total: len(m.rows)}
+	list := chrome.List{Start: start, End: end, Total: len(m.shown)}
 	contentWidth := list.ContentWidth(innerWidth)
 
 	letterStyle := s.Row.Foreground(styles.Accent).Bold(true)
 	rows := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
-		row := m.rows[i]
+		row := m.rows[m.shown[i]]
 		letter, content := letterStyle, s.Row
 		if i == m.selected {
 			letter, content = letterStyle.Foreground(styles.Primary), s.RowSelected
@@ -260,9 +301,14 @@ func (m Model) renderBox(termWidth, termHeight int) string {
 		rows = append(rows, line)
 	}
 
+	empty := "No marks set"
+	if len(m.rows) > 0 {
+		empty = "No matching marks"
+	}
 	return chrome.Frame{
 		Title: "Marks",
+		Input: m.filter.Input(s, "Type to filter...", ""),
 		Body:  list.Rows(s, m.selected, rows),
-		Empty: "No marks set",
+		Empty: empty,
 	}.Render(s, overlayWidth)
 }
