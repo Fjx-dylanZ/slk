@@ -58,7 +58,7 @@ func (a *App) newKeySequences() *keyseq.Map {
 
 	return keyseq.New(
 		keyseq.Binding{Keys: km.Leader.Keys(), Next: a.newLeaderLayer(windows)},
-		keyseq.Binding{Keys: km.WindowPrefix.Keys(), Next: windows},
+		keyseq.Binding{Keys: km.WindowPrefix.Keys(), Hint: windowsLabel, Next: windows},
 	)
 }
 
@@ -138,21 +138,26 @@ func (a *App) SetLeader(k string) {
 // table. It reports false only for an idle key that starts no sequence,
 // which the caller then handles on its own. While a sequence is pending
 // the status bar lists what may follow; when it ends (completed,
-// cancelled by Esc or an unbound key) the resting hint returns.
+// cancelled by Esc or an unbound key) the resting hint returns, unless
+// the action it ran left another key pending (a key from the context
+// menu that arms the leader, gg or a mark, or the context menu itself),
+// whose hint stays.
 func (a *App) pressKeySeq(msg tea.KeyMsg) (tea.Cmd, bool) {
 	act, consumed := a.pendingSeq.Press(a.sequences, msg.String())
 	if !consumed {
 		return nil, false
 	}
-	if a.pendingSeq.Pending() {
+	var cmd tea.Cmd
+	if act != nil {
+		cmd = act(msg)
+	}
+	switch {
+	case a.pendingSeq.Pending():
 		a.statusbar.SetKeyHint(a.pendingSeq.Hint())
-	} else {
+	case a.pendingHintSource() == nil:
 		a.statusbar.SetHelpHint(a.defaultHelpHint())
 	}
-	if act == nil {
-		return nil, true
-	}
-	return act(msg), true
+	return cmd, true
 }
 
 // helpEntries is the help overlay's content: the KeyMap's rows as the

@@ -66,7 +66,7 @@ func TestLeaderKeys(t *testing.T) {
 					t.Fatal("leader did not arm a sequence")
 				}
 				hint := stripANSI(a.statusbar.View(200))
-				for _, want := range []string{`\ …`, "w window", "t channel", "f search", "] thread"} {
+				for _, want := range []string{`\ …`, "w +windows", "t channel", "f search", "] thread"} {
 					if !strings.Contains(hint, want) {
 						t.Errorf("hint %q lacks %q", hint, want)
 					}
@@ -418,7 +418,7 @@ func TestConfiguredLeader(t *testing.T) {
 		if a.sidebar.IsCollapsed(section) != collapsed {
 			t.Fatal("space as the leader toggled the section on its own")
 		}
-		if hint := stripANSI(a.statusbar.View(200)); !strings.Contains(hint, "space …  space toggle section  w window") {
+		if hint := stripANSI(a.statusbar.View(200)); !strings.Contains(hint, "space …  space toggle section  w +windows") {
 			t.Errorf("hint %q does not offer the displaced action first", hint)
 		}
 		_ = dispatchModeKey(a, keyPress(' '))
@@ -458,7 +458,7 @@ func TestConfiguredLeader(t *testing.T) {
 		a.SetLeader("b")
 		_ = dispatchModeKey(a, keyPress('b'))
 		hint := stripANSI(a.statusbar.View(200))
-		if !strings.Contains(hint, "b …  b respond to message buttons  w window") {
+		if !strings.Contains(hint, "b …  b respond to message buttons  w +windows") {
 			t.Errorf("hint %q does not offer the displaced action first", hint)
 		}
 		// The layer's own b (sidebar) can never be reached: b b is
@@ -497,7 +497,7 @@ func TestConfiguredLeader(t *testing.T) {
 		a.SetLeader("ctrl+w")
 		ctrlW := keyMod('w', tea.ModCtrl)
 		_ = dispatchModeKey(a, ctrlW)
-		if hint := stripANSI(a.statusbar.View(200)); !strings.Contains(hint, "ctrl+w …  w window") {
+		if hint := stripANSI(a.statusbar.View(200)); !strings.Contains(hint, "ctrl+w …  w +windows") {
 			t.Fatalf("hint %q: ctrl+w should arm the leader layer", hint)
 		}
 		_ = dispatchKeys(a, keyPress('w'), keyPress('v'))

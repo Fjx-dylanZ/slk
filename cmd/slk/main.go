@@ -580,6 +580,9 @@ func run() error {
 		KeyBindings:      cfg.Keys.Bindings(),
 		ComposeVimMode:   cfg.Compose.VimMode,
 		LeaderLayer:      cfg.Keys.LeaderLayer(),
+		LeaderGroups:     cfg.Keys.GroupLabels(),
+		KeyHints:         cfg.Keys.KeyHints,
+		KeyHintsDelay:    cfg.Keys.HintsDelay(),
 	})
 	app.SetEditorService(core.NewEditorService(editor.WriteDraft, editor.Edit, editor.TakeDraft))
 	if editor, ok := ui.ResolveEditor(cfg.Compose.Editor); ok {

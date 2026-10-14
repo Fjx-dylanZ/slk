@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -21,7 +22,8 @@ import (
 // two actions share. A new configurable action is a new field here plus
 // its entry in the UI's action table (keyActions, internal/ui); cmd/slk
 // tests that the two name the same actions. The leader layer is the
-// separate [keys.leader_map] (LeaderMap), whose actions core names.
+// separate [keys.leader_map] (LeaderMap), whose actions core names, and
+// its groups' labels [keys.leader_groups] (LeaderGroups).
 type Keys struct {
 	// Leader is the key that starts a leader sequence in normal mode
 	// (<leader>w h, <leader>t, …). Empty keeps the UI's default, "\".
@@ -37,6 +39,17 @@ type Keys struct {
 	// under the sidebar cursor. Default ["space"].
 	SidebarToggleSection *[]string `toml:"sidebar_toggle_section"`
 
+	// KeyHints shows the which-key menu: a panel listing what may
+	// follow a pending key sequence once it has waited KeyHintsDelay.
+	// Unset (nil) keeps the UI's default, on; false leaves the
+	// status-bar hint alone.
+	KeyHints *bool `toml:"key_hints"`
+	// KeyHintsDelay is how long, in milliseconds, a pending sequence
+	// waits before the menu appears; 0 shows it with the key. Unset
+	// keeps the UI's default (300). Load refuses anything outside
+	// 0–maxKeyHintsDelay.
+	KeyHintsDelay *int `toml:"key_hints_delay"`
+
 	// LeaderMap is [keys.leader_map]: which sequences after the leader
 	// run which leader action (core.LeaderActions names them). A
 	// sequence is keys separated by spaces ("f f", "space", "s g"),
@@ -46,15 +59,44 @@ type Keys struct {
 	// (LeaderLayer) and rejects what core.ResolveLeaderMap rejects.
 	LeaderMap map[string][]string `toml:"leader_map"`
 
+	// LeaderGroups is [keys.leader_groups]: the label a group of the
+	// leader layer shows ("f" = "find" reads "+find"), by its sequence
+	// after the leader, spelled as in LeaderMap. Load resolves it
+	// against the effective layer (GroupLabels) and rejects what
+	// core.ResolveLeaderGroups rejects, such as a sequence that is not
+	// a group.
+	LeaderGroups map[string]string `toml:"leader_groups"`
+
 	// leaderLayer is the effective layer Load resolved from LeaderMap;
 	// nil when LeaderMap is unset.
 	leaderLayer []core.LeaderSeq
+	// groupLabels is LeaderGroups as Load resolved it; nil when unset.
+	groupLabels map[string]string
 }
+
+// maxKeyHintsDelay caps [keys] key_hints_delay, in milliseconds. A
+// longer wait is no menu at all, which key_hints = false says plainly.
+const maxKeyHintsDelay = 10000
 
 // LeaderLayer is the effective leader layer Load resolved from
 // [keys.leader_map], or nil when the map is unset (the UI keeps its
 // default layer).
 func (k Keys) LeaderLayer() []core.LeaderSeq { return k.leaderLayer }
+
+// GroupLabels is [keys.leader_groups] as Load resolved it: labels by
+// sequence, its keys normalized and joined by single spaces. nil when
+// unset (the UI keeps its default labels).
+func (k Keys) GroupLabels() map[string]string { return k.groupLabels }
+
+// HintsDelay is [keys] key_hints_delay as a duration, or nil when unset
+// (the UI keeps its default).
+func (k Keys) HintsDelay() *time.Duration {
+	if k.KeyHintsDelay == nil {
+		return nil
+	}
+	d := time.Duration(*k.KeyHintsDelay) * time.Millisecond
+	return &d
+}
 
 // keysAction is one action binding field of Keys and its [keys] name.
 type keysAction struct {
@@ -100,9 +142,10 @@ func (k Keys) Bindings() map[string][]string {
 	return out
 }
 
-// normalize validates and normalizes the leader and every action
-// binding in place. A key repeated within one action is kept once; a key
-// in two actions is an error, since one key cannot do two things.
+// normalize validates and normalizes the leader, every action binding,
+// the key hints delay, the leader map and the leader groups in place. A
+// key repeated within one action is kept once; a key in two actions is
+// an error, since one key cannot do two things.
 func (k *Keys) normalize() error {
 	leader, err := normalizeLeader(k.Leader)
 	if err != nil {
@@ -130,12 +173,26 @@ func (k *Keys) normalize() error {
 		}
 		*a.keys = &keys
 	}
+	if d := k.KeyHintsDelay; d != nil && (*d < 0 || *d > maxKeyHintsDelay) {
+		return fmt.Errorf("[keys] key_hints_delay: %d is not 0–%d milliseconds (key_hints = false turns the menu off)", *d, maxKeyHintsDelay)
+	}
 	if k.LeaderMap != nil {
 		layer, err := core.ResolveLeaderMap(k.LeaderMap, normalizeKey)
 		if err != nil {
 			return fmt.Errorf("[keys.leader_map] %w", err)
 		}
 		k.leaderLayer = layer
+	}
+	if k.LeaderGroups != nil {
+		layer := k.leaderLayer
+		if layer == nil {
+			layer = core.DefaultLeaderLayer()
+		}
+		labels, err := core.ResolveLeaderGroups(k.LeaderGroups, layer, normalizeKey)
+		if err != nil {
+			return fmt.Errorf("[keys.leader_groups] %w", err)
+		}
+		k.groupLabels = labels
 	}
 	return nil
 }

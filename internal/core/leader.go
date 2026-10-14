@@ -2,8 +2,10 @@ package core
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // The leader layer's vocabulary, shared by the config layer (which
@@ -20,14 +22,20 @@ import (
 type LeaderAction struct {
 	Name     string
 	Defaults []string
+	// Group marks an action that opens a table of its own
+	// (window_commands: the ctrl+w commands). Its sequences are groups,
+	// which [keys.leader_groups] may label.
+	Group bool
 }
 
 // LeaderActions lists every leader action, in the order the which-key
 // hint shows them. The default layer mirrors the ctrl chords: the
-// leader stands in for ctrl (w is ctrl+w, t is ctrl+t, …).
+// leader stands in for ctrl (w is ctrl+w, t is ctrl+t, …). key_hints
+// has no chord to mirror: ? is "what can I press" everywhere, and
+// <leader>? is LazyVim's which-key menu of the buffer's keys.
 func LeaderActions() []LeaderAction {
 	return []LeaderAction{
-		{Name: "window_commands", Defaults: []string{"w"}},
+		{Name: "window_commands", Defaults: []string{"w"}, Group: true},
 		{Name: "channel_finder", Defaults: []string{"t"}},
 		{Name: "workspace_search", Defaults: []string{"f"}},
 		{Name: "toggle_activity", Defaults: []string{"a"}},
@@ -37,6 +45,7 @@ func LeaderActions() []LeaderAction {
 		{Name: "set_default_theme", Defaults: []string{"Y"}},
 		{Name: "toggle_sidebar", Defaults: []string{"b"}},
 		{Name: "toggle_thread", Defaults: []string{"]"}},
+		{Name: "key_hints", Defaults: []string{"?"}},
 		{Name: "help"},
 		{Name: "close_thread"},
 		{Name: "nav_back"},
@@ -75,7 +84,8 @@ func DefaultLeaderLayer() []LeaderSeq {
 // rules); nil takes keys as written.
 //
 // The error, which names the action first ("help: …"), is for an
-// unknown action, an empty sequence, a key normalizeKey rejects, or two
+// unknown action, an empty sequence, a key normalizeKey rejects,
+// backspace (it goes back a level while a sequence is pending), or two
 // configured sequences that collide: with no timeout, a sequence that
 // begins another would always win, leaving the longer one impossible
 // to type.
@@ -102,18 +112,9 @@ func ResolveLeaderMap(m map[string][]string, normalizeKey func(string) (string, 
 			continue
 		}
 		for _, s := range seqs {
-			keys := strings.Fields(s)
-			if len(keys) == 0 {
-				return nil, fmt.Errorf("%s: an empty sequence", a.Name)
-			}
-			if normalizeKey != nil {
-				for i, k := range keys {
-					nk, err := normalizeKey(k)
-					if err != nil {
-						return nil, fmt.Errorf("%s: %w", a.Name, err)
-					}
-					keys[i] = nk
-				}
+			keys, err := parseSeq(s, normalizeKey)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", a.Name, err)
 			}
 			seq := LeaderSeq{Action: a.Name, Keys: keys, Explicit: true}
 			if i := slices.IndexFunc(explicit, func(o LeaderSeq) bool { return overlap(o.Keys, keys) }); i >= 0 {
@@ -164,4 +165,86 @@ func withLeaderDefaults(m map[string][]string, explicit []LeaderSeq) []LeaderSeq
 func overlap(a, b []string) bool {
 	n := min(len(a), len(b))
 	return slices.Equal(a[:n], b[:n])
+}
+
+// parseSeq splits sequence s into its keys, each respelled by
+// normalizeKey when it is not nil. An empty sequence and backspace,
+// which goes back a level while a sequence is pending, are errors.
+func parseSeq(s string, normalizeKey func(string) (string, error)) ([]string, error) {
+	keys := strings.Fields(s)
+	if len(keys) == 0 {
+		return nil, fmt.Errorf("an empty sequence")
+	}
+	for i, k := range keys {
+		if normalizeKey != nil {
+			nk, err := normalizeKey(k)
+			if err != nil {
+				return nil, err
+			}
+			keys[i] = nk
+		}
+		if keys[i] == "backspace" {
+			return nil, fmt.Errorf("%q: backspace goes back a level while a sequence is pending, so it cannot be in one", s)
+		}
+	}
+	return keys, nil
+}
+
+// ResolveLeaderGroups validates g, a [keys.leader_groups] (a sequence
+// after the leader → the label its group shows), against layer, the
+// effective leader layer, and returns the labels keyed by sequence,
+// each key respelled by normalizeKey (as for ResolveLeaderMap) and the
+// keys joined by single spaces.
+//
+// A group is a sequence some longer sequence of the layer begins with
+// ("f" of "f f"), or a sequence of an action that opens a table of its
+// own (LeaderAction.Group, window_commands). The error, which names
+// the sequence as written first, is for anything else (naming the
+// action when the sequence runs one), an empty sequence, a key
+// normalizeKey rejects, an empty label, a label with a control
+// character (a newline would split the menu row and the one-line status
+// hint), or one group spelled twice.
+func ResolveLeaderGroups(g map[string]string, layer []LeaderSeq, normalizeKey func(string) (string, error)) (map[string]string, error) {
+	groupAction := map[string]bool{}
+	for _, a := range LeaderActions() {
+		groupAction[a.Name] = a.Group
+	}
+	out := make(map[string]string, len(g))
+	for _, raw := range slices.Sorted(maps.Keys(g)) {
+		keys, err := parseSeq(raw, normalizeKey)
+		if err != nil {
+			return nil, fmt.Errorf("%q: %w", raw, err)
+		}
+		label := strings.TrimSpace(g[raw])
+		if label == "" {
+			return nil, fmt.Errorf("%q: an empty label", raw)
+		}
+		if strings.IndexFunc(label, unicode.IsControl) >= 0 {
+			return nil, fmt.Errorf("%q: the label %q has a control character; a label is one line of text", raw, label)
+		}
+		if why := notAGroup(keys, layer, groupAction); why != "" {
+			return nil, fmt.Errorf("%q: not a group: %s", raw, why)
+		}
+		seq := strings.Join(keys, " ")
+		if _, twice := out[seq]; twice {
+			return nil, fmt.Errorf("%q: the group %q is labelled twice", raw, seq)
+		}
+		out[seq] = label
+	}
+	return out, nil
+}
+
+// notAGroup says why keys is not a group of layer, or "" when it is.
+func notAGroup(keys []string, layer []LeaderSeq, groupAction map[string]bool) string {
+	for _, s := range layer {
+		switch {
+		case len(s.Keys) > len(keys) && slices.Equal(s.Keys[:len(keys)], keys):
+			return ""
+		case slices.Equal(s.Keys, keys) && groupAction[s.Action]:
+			return ""
+		case slices.Equal(s.Keys, keys):
+			return "it runs " + s.Action
+		}
+	}
+	return "no leader sequence begins with it"
 }

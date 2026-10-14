@@ -121,6 +121,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - `:marks` overlay — every mark with its channel and a preview of the message, rendered from a snapshot taken at mark time, so it works offline and immediately after a restart. Click a row (or press `Enter`) to jump to it, `Backspace` deletes a row, and `:delmarks abc` deletes by letter.
 - **Position-aware back/forward** (`Ctrl+h` / `Ctrl+l`) — retraces visited channels and restores the message you were reading when you left each one, rather than dumping you at the newest message.
 - **Leader key** (`\` by default, `[keys] leader` to change) — a vim-style layer for the ctrl chords that collide with terminals and multiplexers (`\ t` channel finder, `\ b` sidebar, `\ s` status, …); the status bar lists what can follow. See [[Keybindings]].
+- **Key hints menu** — like neovim's which-key: pause after the leader, `Ctrl+w`, `g` or `m` and a panel lists every key that can follow (groups as `+label`, your marks with where they point); `Backspace` goes back a level, `Esc` closes. `\ ?` lists the keys that act in the focused pane — sidebar, messages, thread, Threads or Activity. See [[Keybindings]].
 - **Directional pane focus** — `Ctrl+w h/j/k/l` (or `\ w h/j/k/l`) moves focus to whatever pane is on that side: sidebar, split windows, thread.
 
 ## Notifications
@@ -183,7 +184,7 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 - 59 built-in themes (including `ANSI Dark` / `ANSI Light` that inherit your terminal palette)
 - Drop-in custom themes (`~/.config/slk/themes/*.toml`)
 - Live theme switcher (`Ctrl+y`); `Alt+y` / `Alt+Shift+y` cycle to the next / previous theme
-- TOML config for appearance, animations, notifications, channel sections, the leader key and its layer (e.g. neovim-style `space f f`), and the sidebar's open / toggle-section keys (e.g. nvim-tree style `l` to open)
+- TOML config for appearance, animations, notifications, channel sections, the leader key and its layer (e.g. neovim-style `space f f`) with labelled groups, the key-hints menu and its delay, and the sidebar's open / toggle-section keys (e.g. nvim-tree style `l` to open)
 - Deterministic per-user username coloring, opt-in via `colored_usernames`
 
 See [[Configuration]] for the full `config.toml` reference and [[Keybindings]] for the key map.

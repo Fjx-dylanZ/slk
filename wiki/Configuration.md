@@ -118,10 +118,24 @@ leader = "space"
 sidebar_open = ["enter", "l"]
 sidebar_toggle_section = ["space"]
 
+# The key-hints menu: after a pause in a key sequence (the leader,
+# Ctrl+w, g, m), a panel lists what can follow. See "Key hints" below.
+# key_hints = false keeps the status-bar hint only. Default true.
+key_hints = true
+# Milliseconds a sequence waits before the menu appears; 0 shows it at
+# once. 0-10000, default 300.
+key_hints_delay = 300
+
 # The leader layer: which keys after the leader run which action. See
 # "Leader map" below for the actions, the rules and an nvim-style setup.
 [keys.leader_map]
 help = ["?"]
+key_hints = ["k"]
+
+# Labels for the leader layer's groups, shown as "+label" (see "Leader
+# groups" below). The window commands are "windows" unless you say so.
+[keys.leader_groups]
+w = "window"
 
 # Glob-based channel sections — only consulted when use_slack_sections
 # is false (globally or per-workspace), or when Slack's section API is
@@ -337,8 +351,11 @@ is f twice, and `"space"` is the space bar.
   (`s` and `s g`). Your sequence wins, and the default is dropped.
 - Two sequences you set may not clash, since slk has no timeout to tell
   `f` from `f f`. slk refuses to start and names the action.
-- A sequence of several keys makes a group. The status bar shows `f …`
-  after the leader, then what can follow `f`.
+- A sequence of several keys makes a group. The status bar and the
+  key-hints menu show it as `f +…` after the leader, or `f +find` with a
+  label from `[keys.leader_groups]` (below), then what can follow `f`.
+- `backspace` cannot be part of a sequence: while one is pending it goes
+  back a level.
 - A sequence that starts with the leader's own key (`"space"` with
   `leader = "space"`, so `space space`) beats the doubled-leader fallback
   (which would toggle a sidebar section). That action stays on its other
@@ -356,6 +373,7 @@ is f twice, and `"space"` is the space bar.
 | `set_default_theme` | `Y` | set the default theme (`Ctrl+Shift+y`) |
 | `toggle_sidebar` | `b` | toggle the sidebar (`Ctrl+b`) |
 | `toggle_thread` | `]` | close the thread panel (`Ctrl+]`) |
+| `key_hints` | `?` | the key-hints menu of the keys that act in the focused pane (see Key hints) |
 | `help` | — | show keybindings (`?`) |
 | `close_thread` | — | close the thread panel (`q`) |
 | `nav_back` / `nav_forward` | — | back / forward through visited channels (`Ctrl+h` / `Ctrl+l`) |
@@ -363,6 +381,26 @@ is f twice, and `"space"` is the space bar.
 | `next_theme` / `prev_theme` | — | next / previous theme (`Alt+y` / `Alt+Shift+y`) |
 | `command_mode` | — | the `:` command line |
 | `quit` | — | quit, with confirmation (`Q`) |
+
+### Leader groups
+
+`[keys.leader_groups]` names the groups of the layer: each entry is a
+sequence after the leader (spelled as in `[keys.leader_map]`) and the
+label the status bar, the menu title and the menu row show after a `+`.
+
+```toml
+[keys.leader_groups]
+f = "find"       # with channel_finder = ["f f"]
+"g c" = "chat"   # a group inside a group, with a sequence like "g c x"
+w = "panes"      # window_commands' table
+```
+
+A group is a sequence some longer sequence begins with (`f` of `f f`),
+or `window_commands`' own sequence, whose table is a group too; it is
+labelled `windows` unless you set one. A label for anything else (a
+sequence that runs an action, or that nothing begins with) stops slk at
+startup with an error naming the sequence. So does an empty label, or one
+with a control character such as a newline: a label is one line.
 
 ### Neovim-style keys
 
@@ -375,17 +413,51 @@ sidebar_open = ["enter", "l"]
 [keys.leader_map]
 channel_finder = ["f f", "space"]
 workspace_search = ["/", "s g"]
+key_hints = ["s k"]
 toggle_sidebar = ["e"]
 help = ["?"]
 close_thread = ["q"]
+[keys.leader_groups]
+f = "find"
+s = "search"
 ```
 
 `space f f` and `space space` open the channel finder, `space /` and
-`space s g` search the workspace, `space e` toggles the sidebar, `space ?`
-shows the keybindings and `space q` closes the thread. `space s` is now
-the `s g` group, so `set_status` loses its default `s` (it stays on
-`Ctrl+s`). `space w h/j/k/l` still moves between panes. Section headers
-toggle with `Enter` or `l`, since `space space` is the channel finder.
+`space s g` search the workspace, `space s k` lists the keys for the
+focused pane, `space e` toggles the sidebar, `space ?` shows the
+keybindings and `space q` closes the thread. `space s` is now the
+`s g` / `s k` group, so `set_status` loses its default `s` (it stays on
+`Ctrl+s`), and `help` takes `?` from `key_hints`. After `space`, the menu
+lists `f +find`, `s +search` and `w +windows` below the actions.
+`space w h/j/k/l` still moves between panes. Section headers toggle with
+`Enter` or `l`, since `space space` is the channel finder.
+
+## Key hints
+
+After a pause in a key sequence — the leader, `Ctrl+w`, `g`, `m` (and `'`
+with `show_jump_overlay = false`) — a panel at the bottom right lists
+what can follow, like neovim's which-key. Its border says what you typed
+(`\ w +windows`); plain keys come first, sorted by key, then groups as
+`+label`. `m` and `'` list your marks with where they point.
+
+- Typing a listed key carries on as usual: the menu only shows what is
+  pending. `Backspace` goes back a level, `Esc` cancels.
+- Once it is open, the next level shows at once.
+- When a list is longer than the screen it takes several columns, then
+  pages: `Ctrl+d` / `Ctrl+u` turn the page (the footer says so).
+- `key_hints` in the leader layer (`\ ?` by default) opens the menu at
+  once with the keys that act where you are: the sidebar (with your
+  `sidebar_open` / `sidebar_toggle_section` keys), the messages, the
+  thread, or the Threads and Activity lists. A key there does what it
+  does in Normal mode; anything else just closes the menu.
+
+| Setting | Default | |
+|---|---|---|
+| `[keys] key_hints` | `true` | `false` keeps only the status-bar hint (the `key_hints` action still opens its menu) |
+| `[keys] key_hints_delay` | `300` | milliseconds before the menu appears; `0` shows it at once; up to `10000` |
+
+The status bar keeps the one-line hint too: it is what you see while the
+delay runs, with the menu off, and in a terminal too small for the panel.
 
 ## Data paths (XDG)
 

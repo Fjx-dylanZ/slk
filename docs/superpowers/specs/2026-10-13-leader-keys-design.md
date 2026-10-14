@@ -518,5 +518,6 @@ leader is Normal-only).
 - **Moving `gg`, `m`, `'` onto `keyseq`.** `m`/`'` take any letter and `gg`
   re-processes an unmatched key; both need table features (a wildcard, a
   fallback) this feature does not use.
-- **A timeout**, a which-key popup window, focusing the workspace rail, and
-  `ctrl+w =`/`<`/`>`/`+`/`-` resizing (not implemented today either).
+- **A timeout**, a which-key popup window (since designed in
+  `2026-10-14-adaptive-key-hints-design.md`), focusing the workspace rail,
+  and `ctrl+w =`/`<`/`>`/`+`/`-` resizing (not implemented today either).

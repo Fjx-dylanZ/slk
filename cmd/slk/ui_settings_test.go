@@ -36,7 +36,7 @@ func TestApplyUISettingsInstallsTheLeader(t *testing.T) {
 	}
 	deliverDemo(t, app, tea.KeyPressMsg{Code: ' ', Text: " "}, 0)
 	frame := ansi.Strip(app.View().Content)
-	if want := "space …  space toggle section  w window"; !strings.Contains(frame, want) {
+	if want := "space …  space toggle section  w +windows"; !strings.Contains(frame, want) {
 		t.Fatalf("frame lacks the leader hint %q:\n%s", want, frame)
 	}
 }
@@ -125,6 +125,9 @@ func TestNvimExampleConfig(t *testing.T) {
 		Leader:          cfg.Keys.Leader,
 		KeyBindings:     cfg.Keys.Bindings(),
 		LeaderLayer:     cfg.Keys.LeaderLayer(),
+		LeaderGroups:    cfg.Keys.GroupLabels(),
+		KeyHints:        cfg.Keys.KeyHints,
+		KeyHintsDelay:   cfg.Keys.HintsDelay(),
 	})
 	d.Install(app)
 	deliverDemo(t, app, tea.WindowSizeMsg{Width: 200, Height: 40}, 0)
@@ -155,11 +158,15 @@ func TestNvimExampleConfig(t *testing.T) {
 	}
 
 	press("space")
-	expect("space", "space …  w window  f …  space channel  / search  s …", true)
+	expect("space", "space …  w +windows  f +find  space channel  / search  s +search", true)
+	// deliverDemo ran the menu's delay tick: the menu lists the groups.
+	expect("space, after the delay", "f → +find", true)
 	press("f", "f")
 	expect("space f f", "Switch Channel", true)
 	press("esc", "space", "space")
 	expect("space space", "Switch Channel", true)
+	press("esc", "space", "s", "k")
+	expect("space s k", "╭─ keys: messages ─", true)
 	press("esc", "space", "?")
 	expect("space ?", "Keybindings", true)
 	press("esc")
@@ -170,4 +177,39 @@ func TestNvimExampleConfig(t *testing.T) {
 	expect("enter in the messages pane", "› Thread", true)
 	press("space", "q")
 	expect("space q", "› Thread", false)
+}
+
+// [keys] key_hints, key_hints_delay and [keys.leader_groups] reach the
+// App through uiSettings: off, the leader opens no menu; with no delay
+// it opens with the key, the window group under its configured label.
+func TestApplyUISettingsInstallsKeyHints(t *testing.T) {
+	off, zero := false, time.Duration(0)
+	for _, tc := range []struct {
+		name     string
+		settings uiSettings
+		want     string
+		present  bool
+	}{
+		{"off", uiSettings{KeyHints: &off}, "esc close  ⌫ back", false},
+		{"no delay, labelled", uiSettings{KeyHintsDelay: &zero, LeaderGroups: map[string]string{"w": "panes"}}, "w → +panes", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := demo.New("hero", time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			app := ui.NewApp()
+			tc.settings.TimestampFormat, tc.settings.MouseWheelLines = demo.TimestampFormat, 3
+			applyUISettings(app, tc.settings)
+			d.Install(app)
+			deliverDemo(t, app, tea.WindowSizeMsg{Width: 200, Height: 40}, 0)
+			for _, msg := range d.StartupMsgs() {
+				deliverDemo(t, app, msg, 0)
+			}
+			deliverDemo(t, app, tea.KeyPressMsg{Code: '\\', Text: `\`}, 0)
+			if frame := ansi.Strip(app.View().Content); strings.Contains(frame, tc.want) != tc.present {
+				t.Fatalf("frame contains %q = %v, want %v:\n%s", tc.want, !tc.present, tc.present, frame)
+			}
+		})
+	}
 }

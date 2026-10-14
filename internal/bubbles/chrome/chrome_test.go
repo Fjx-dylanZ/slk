@@ -133,3 +133,29 @@ func TestPopup(t *testing.T) {
 	}
 	equalLines(t, inner(box), []string{"", "▌ a", "b", ""})
 }
+
+// A panel's title and footer sit in its border; the content has one
+// column of side padding and no blank rows; a title too long for the
+// border is cut, and an empty one leaves the border plain.
+func TestPanel_TitleAndFooterInTheBorder(t *testing.T) {
+	s := testStyles()
+	box := Panel(s, "\\ w", "esc close", "a → one\nb → two", 16)
+	want := []string{
+		"╭─ \\ w ────────╮",
+		"│ a → one      │",
+		"│ b → two      │",
+		"╰─ esc close ──╯",
+	}
+	if got := strings.Split(xansi.Strip(box), "\n"); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("panel\n got %q\nwant %q", got, want)
+	}
+	for i, l := range strings.Split(box, "\n") {
+		if w := lipgloss.Width(l); w != 16 {
+			t.Errorf("line %d is %d wide, want 16", i, w)
+		}
+	}
+	cut := strings.Split(xansi.Strip(Panel(s, "a title far too long", "", "x", 12)), "\n")
+	if cut[0] != "╭─ a titl… ╮" || cut[2] != "╰──────────╯" {
+		t.Errorf("cut title / empty footer: %q", cut)
+	}
+}

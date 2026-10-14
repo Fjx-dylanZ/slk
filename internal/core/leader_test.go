@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -22,7 +23,7 @@ func layerString(seqs []LeaderSeq) []string {
 
 func TestDefaultLeaderLayer(t *testing.T) {
 	want := []string{"window_commands=w", "channel_finder=t", "workspace_search=f", "toggle_activity=a",
-		"new_message=n", "set_status=s", "switch_theme=y", "set_default_theme=Y", "toggle_sidebar=b", "toggle_thread=]"}
+		"new_message=n", "set_status=s", "switch_theme=y", "set_default_theme=Y", "toggle_sidebar=b", "toggle_thread=]", "key_hints=?"}
 	if got := layerString(DefaultLeaderLayer()); !slices.Equal(got, want) {
 		t.Fatalf("default layer = %q, want %q", got, want)
 	}
@@ -49,9 +50,10 @@ func TestResolveLeaderMap(t *testing.T) {
 			"an empty list removes an action",
 			map[string][]string{"set_status": {}},
 			[]string{"window_commands=w", "channel_finder=t", "workspace_search=f", "toggle_activity=a",
-				"new_message=n", "switch_theme=y", "set_default_theme=Y", "toggle_sidebar=b", "toggle_thread=]"},
+				"new_message=n", "switch_theme=y", "set_default_theme=Y", "toggle_sidebar=b", "toggle_thread=]", "key_hints=?"},
 		},
 		{
+			// help's ? drops key_hints' default ?.
 			"a set action replaces its defaults",
 			map[string][]string{"channel_finder": {"p"}, "help": {"?"}},
 			[]string{"window_commands=w", "channel_finder=p!", "workspace_search=f", "toggle_activity=a",
@@ -62,7 +64,7 @@ func TestResolveLeaderMap(t *testing.T) {
 			"a configured sequence drops a colliding default",
 			map[string][]string{"channel_finder": {"f f"}},
 			[]string{"window_commands=w", "channel_finder=f f!", "toggle_activity=a",
-				"new_message=n", "set_status=s", "switch_theme=y", "set_default_theme=Y", "toggle_sidebar=b", "toggle_thread=]"},
+				"new_message=n", "set_status=s", "switch_theme=y", "set_default_theme=Y", "toggle_sidebar=b", "toggle_thread=]", "key_hints=?"},
 		},
 		{
 			"the nvim example",
@@ -77,8 +79,8 @@ func TestResolveLeaderMap(t *testing.T) {
 				"toggle_activity=a", "new_message=n", "switch_theme=y", "set_default_theme=Y", "toggle_sidebar=e!", "toggle_thread=]",
 				"help=?!", "close_thread=q!"},
 		},
-		{"a repeat is kept once", map[string][]string{"help": {"?", "?"}},
-			append(layerString(DefaultLeaderLayer()), "help=?!")},
+		{"a repeat is kept once", map[string][]string{"help": {"h", "h"}},
+			append(layerString(DefaultLeaderLayer()), "help=h!")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := ResolveLeaderMap(tc.m, nil)
@@ -106,6 +108,7 @@ func TestResolveLeaderMapErrors(t *testing.T) {
 		{"an extension of another action's", map[string][]string{"channel_finder": {"f"}, "workspace_search": {"f g"}}, `workspace_search: "f g" and channel_finder's "f" overlap`},
 		{"a prefix within one action", map[string][]string{"help": {"h", "h h"}}, `help: "h h" and help's "h" overlap`},
 		{"after the window prefix", map[string][]string{"window_commands": {"w"}, "help": {"w h"}}, `help: "w h" and window_commands's "w" overlap`},
+		{"backspace", map[string][]string{"help": {"h backspace"}}, `help: "h backspace": backspace goes back a level`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := ResolveLeaderMap(tc.m, nil)
@@ -153,5 +156,78 @@ func TestResolveLeaderMapEverythingRemoved(t *testing.T) {
 	}
 	if got == nil || len(got) != 0 {
 		t.Fatalf("layer = %#v, want an empty, non-nil layer", got)
+	}
+}
+
+// The nvim example's layer: f and s are groups (of f f and s g), w is
+// window_commands' table.
+func nvimLayer(t *testing.T) []LeaderSeq {
+	t.Helper()
+	layer, err := ResolveLeaderMap(map[string][]string{
+		"channel_finder":   {"f f", "space"},
+		"workspace_search": {"/", "s g"},
+		"key_hints":        {"s k"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return layer
+}
+
+func TestResolveLeaderGroups(t *testing.T) {
+	lower := func(k string) (string, error) { return strings.ToLower(k), nil }
+	got, err := ResolveLeaderGroups(map[string]string{"F": " find ", "s": "search", "w": "win"}, nvimLayer(t), lower)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"f": "find", "s": "search", "w": "win"}
+	if !maps.Equal(got, want) {
+		t.Fatalf("groups = %q, want %q", got, want)
+	}
+	nested, err := ResolveLeaderMap(map[string][]string{"channel_finder": {"g f f"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = ResolveLeaderGroups(map[string]string{"g": "go", "g  f": "go find"}, nested, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"g": "go", "g f": "go find"}; !maps.Equal(got, want) {
+		t.Fatalf("nested groups = %q, want %q", got, want)
+	}
+	if got, err := ResolveLeaderGroups(nil, nvimLayer(t), nil); err != nil || len(got) != 0 {
+		t.Fatalf("no groups = %q %v", got, err)
+	}
+}
+
+func TestResolveLeaderGroupsErrors(t *testing.T) {
+	bad := func(k string) (string, error) {
+		if k == "bad" {
+			return "", errors.New("bad key")
+		}
+		return k, nil
+	}
+	for _, tc := range []struct {
+		name   string
+		g      map[string]string
+		prefix string
+	}{
+		{"an action", map[string]string{"space": "x"}, `"space": not a group: it runs channel_finder`},
+		{"nothing", map[string]string{"z": "x"}, `"z": not a group: no leader sequence begins with it`},
+		{"a whole sequence", map[string]string{"f f": "x"}, `"f f": not a group: it runs channel_finder`},
+		{"past a sequence", map[string]string{"f f f": "x"}, `"f f f": not a group: no leader sequence begins with it`},
+		{"an empty label", map[string]string{"f": "  "}, `"f": an empty label`},
+		{"a newline in a label", map[string]string{"f": "fi\nnd"}, `"f": the label "fi\nnd" has a control character`},
+		{"a tab in a label", map[string]string{"f": "fi\tnd"}, `"f": the label "fi\tnd" has a control character`},
+		{"an empty sequence", map[string]string{" ": "x"}, `" ": an empty sequence`},
+		{"a bad key", map[string]string{"bad": "x"}, `"bad": bad key`},
+		{"one group twice", map[string]string{"f": "find", " f ": "found"}, `"f": the group "f" is labelled twice`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ResolveLeaderGroups(tc.g, nvimLayer(t), bad)
+			if err == nil || !strings.HasPrefix(err.Error(), tc.prefix) {
+				t.Fatalf("error = %v, want one starting %q", err, tc.prefix)
+			}
+		})
 	}
 }

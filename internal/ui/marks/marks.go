@@ -45,6 +45,16 @@ type Row struct {
 	Excerpt     string
 }
 
+// Preview is the row's message preview as the list draws it: the
+// author, then the excerpt ("alice: lunch?"); the excerpt alone without
+// an author. The key-hints menu's mark rows read the same.
+func (r Row) Preview() string {
+	if r.AuthorName != "" {
+		return r.AuthorName + ": " + r.Excerpt
+	}
+	return r.Excerpt
+}
+
 // MarksResult is returned by HandleKey when the user acts on a row.
 // Exactly one of Select / Delete is non-empty; nil means the overlay
 // stays open and nothing happened.
@@ -288,10 +298,7 @@ func (m Model) renderBox(termWidth, termHeight int) string {
 			letter, content = letterStyle.Foreground(styles.Primary), s.RowSelected
 		}
 
-		preview := row.Excerpt
-		if row.AuthorName != "" {
-			preview = row.AuthorName + ": " + preview
-		}
+		preview := row.Preview()
 		line := letter.Render(row.Letter) + "  " +
 			content.Render("#"+row.ChannelName) + "  " +
 			content.Render(preview)

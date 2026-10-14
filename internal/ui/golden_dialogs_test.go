@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/channelpicker"
 	"github.com/gammons/slk/internal/ui/linkpicker"
 	"github.com/gammons/slk/internal/ui/marks"
@@ -470,6 +471,73 @@ func dialogGoldens() []dialogGolden {
 				typeInCompose(a, ":sm")
 			},
 		},
+		{
+			name: "keyhints_leader", want: "show keys for this pane", shown: hintsShown,
+			open: func(t *testing.T, a *App) { typeHintKeys(a, leaderKey) },
+		},
+		{
+			// A nested [keys.leader_map] group with its [keys.leader_groups] label.
+			name: "keyhints_group", want: "␣ f +find", shown: hintsShown,
+			open: func(t *testing.T, a *App) {
+				withLeaderMap(t, a, nvimLeaderMap)
+				a.SetLeader("space")
+				a.SetLeaderGroups(map[string]string{"f": "find", "s": "search"})
+				typeHintKeys(a, keyPress(' '), keyPress('f'))
+			},
+		},
+		{
+			name: "keyhints_ctrl_w", want: "ctrl+w +windows", shown: hintsShown,
+			open: func(t *testing.T, a *App) { typeHintKeys(a, keyMod('w', tea.ModCtrl)) },
+		},
+		{
+			name: "keyhints_marks", want: "#ops  alice: deploy at noon", shown: hintsShown,
+			open: func(t *testing.T, a *App) {
+				for _, m := range []Mark{
+					{Letter: "a", ChannelName: "ops", AuthorName: "alice", Excerpt: "deploy at noon"},
+					{Letter: "d", ChannelName: "design", AuthorName: "bob", Excerpt: "new logo :tada:"},
+				} {
+					m.Location = Location{TeamID: ids.TeamID(a.activeTeamID), ChannelID: "C1", MessageTS: "1.0"}
+					if err := a.marks.Set(a.activeTeamID, m.Letter, m); err != nil {
+						t.Fatal(err)
+					}
+				}
+				typeHintKeys(a, keyPress('m'))
+			},
+		},
+		{
+			name: "keyhints_context_sidebar", want: "keys: sidebar", shown: hintsShown,
+			open: func(t *testing.T, a *App) {
+				a.focusedPanel = PanelSidebar
+				typeHintKeys(a, leaderKey, keyPress('?'))
+			},
+		},
+		{
+			name: "keyhints_context_messages", want: "keys: messages", shown: hintsShown,
+			open: func(t *testing.T, a *App) {
+				a.focusedPanel = PanelMessages
+				typeHintKeys(a, leaderKey, keyPress('?'))
+			},
+		},
+		{
+			// Too many rows for the columns that fit: pages.
+			name: "keyhints_overflow", w: 60, h: 16, want: "ctrl+d/u 1/", shown: hintsShown,
+			open: func(t *testing.T, a *App) {
+				a.focusedPanel = PanelMessages
+				typeHintKeys(a, leaderKey, keyPress('?'))
+			},
+		},
+	}
+}
+
+// hintsShown reports whether the key-hints menu is open.
+func hintsShown(a *App) bool { return a.keyHints.IsVisible() }
+
+// typeHintKeys types keys through Update with the menu's delay off, so
+// the menu is open after the last one.
+func typeHintKeys(a *App, keys ...tea.KeyMsg) {
+	a.SetKeyHintsDelay(0)
+	for _, k := range keys {
+		a.Update(k)
 	}
 }
 

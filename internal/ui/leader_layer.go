@@ -6,7 +6,8 @@
 // the config layer into the effective layer (core.ResolveLeaderMap).
 // This file binds each action name to what it does and builds the
 // keyseq table: a sequence of several keys ("f f") makes the keys
-// before its last a nested group the which-key hint shows as "f …".
+// before its last a nested group the which-key hint shows as "f +…",
+// or "f +find" with the label [keys.leader_groups] gives it.
 package ui
 
 import (
@@ -22,13 +23,21 @@ import (
 
 // leaderAction is what a leader-layer action does: its which-key label,
 // the KeyMap binding whose description it shows (so its help row sorts
-// next to that binding's), and its handler. A nil run opens the
-// window-command table instead (window_commands).
+// next to that binding's), or desc for an action that mirrors no
+// binding, and its handler. A nil run opens the window-command table
+// instead (window_commands); its hint is then the group's default
+// label.
 type leaderAction struct {
 	hint    string
 	binding func(*KeyMap) *key.Binding
+	desc    string
 	run     func(*App) tea.Cmd
 }
+
+// windowsLabel is the window-command group's label: after ctrl+w, and
+// after the leader's window_commands unless [keys.leader_groups]
+// relabels it.
+const windowsLabel = "windows"
 
 // leaderActions binds every core.LeaderActions name to what it does
 // (TestLeaderActionsMatchCore). All are global Normal-mode commands:
@@ -38,7 +47,7 @@ type leaderAction struct {
 // sequences in the leader layer, configured in [keys.leader_map] with
 // core defaults, and no action is in both.
 var leaderActions = map[string]leaderAction{
-	"window_commands": {hint: "window", binding: func(km *KeyMap) *key.Binding { return &km.WindowPrefix }},
+	"window_commands": {hint: windowsLabel, binding: func(km *KeyMap) *key.Binding { return &km.WindowPrefix }},
 	"channel_finder": {hint: "channel", binding: func(km *KeyMap) *key.Binding { return &km.FuzzyFinder },
 		run: (*App).openChannelFinder},
 	"workspace_search": {hint: "search", binding: func(km *KeyMap) *key.Binding { return &km.WorkspaceSearch },
@@ -57,6 +66,7 @@ var leaderActions = map[string]leaderAction{
 		run: func(a *App) tea.Cmd { a.ToggleSidebar(); return nil }},
 	"toggle_thread": {hint: "thread", binding: func(km *KeyMap) *key.Binding { return &km.ToggleThread },
 		run: func(a *App) tea.Cmd { a.ToggleThread(); return nil }},
+	"key_hints": {hint: "keys", desc: keyHintsDesc, run: (*App).openContextHints},
 	"help": {hint: "help", binding: func(km *KeyMap) *key.Binding { return &km.Help },
 		run: (*App).openHelp},
 	"close_thread": {hint: "close thread", binding: func(km *KeyMap) *key.Binding { return &km.CloseThreadView },
@@ -79,7 +89,8 @@ var leaderActions = map[string]leaderAction{
 		run: func(a *App) tea.Cmd { a.openQuitConfirm(); return nil }},
 }
 
-// groupHint is the which-key label of a nested group ("f …").
+// groupHint is the which-key label of a nested group [keys.leader_groups]
+// does not label ("f +…").
 const groupHint = "…"
 
 // SetLeaderLayer replaces the leader layer with seqs, the effective
@@ -90,6 +101,20 @@ func (a *App) SetLeaderLayer(seqs []core.LeaderSeq) {
 		return
 	}
 	a.leaderSeqs = seqs
+	a.sequences = a.newKeySequences()
+	a.pendingSeq.Reset()
+}
+
+// SetLeaderGroups labels the leader layer's groups: labels maps a
+// sequence after the leader, its keys joined by single spaces ("f",
+// "s g"), to the label its group shows ("find" reads "+find"), as the
+// config layer resolved [keys.leader_groups]. nil keeps the default
+// labels (the window commands' "windows", "…" for the rest).
+func (a *App) SetLeaderGroups(labels map[string]string) {
+	if labels == nil {
+		return
+	}
+	a.leaderGroups = labels
 	a.sequences = a.newKeySequences()
 	a.pendingSeq.Reset()
 }
@@ -128,7 +153,7 @@ func (a *App) newLeaderLayer(windows *keyseq.Map) *keyseq.Map {
 	for _, s := range seqs {
 		root.insert(s.Keys, s.Action)
 	}
-	return a.layerMap(&root, windows, first...)
+	return a.layerMap(&root, nil, windows, first...)
 }
 
 // layerNode is a key in the layer's tree: a leaf runs action, a group
@@ -164,22 +189,34 @@ func (n *layerNode) insert(keys []string, action string) {
 	}
 }
 
-// layerMap turns n's children into a keyseq table after first.
-func (a *App) layerMap(n *layerNode, windows *keyseq.Map, first ...keyseq.Binding) *keyseq.Map {
+// layerMap turns n's children into a keyseq table after first. path is
+// the sequence after the leader that leads to n, for the group labels.
+func (a *App) layerMap(n *layerNode, path []string, windows *keyseq.Map, first ...keyseq.Binding) *keyseq.Map {
 	bindings := first
 	for _, c := range n.children {
+		seq := append(slices.Clone(path), c.key)
+		label := a.leaderGroups[strings.Join(seq, " ")]
 		if c.action == "" {
-			bindings = append(bindings, keyseq.Binding{Keys: []string{c.key}, Hint: groupHint, Next: a.layerMap(c, windows)})
+			if label == "" {
+				label = groupHint
+			}
+			bindings = append(bindings, keyseq.Binding{Keys: []string{c.key}, Hint: label, Next: a.layerMap(c, seq, windows)})
 			continue
 		}
 		act, ok := leaderActions[c.action]
 		if !ok {
 			continue
 		}
-		desc := act.binding(&a.keys).Help().Desc
+		desc := act.desc
+		if act.binding != nil {
+			desc = act.binding(&a.keys).Help().Desc
+		}
 		b := keyseq.Binding{Keys: []string{c.key}, Hint: act.hint, Desc: desc}
 		if act.run == nil {
 			b.Next = windows
+			if label != "" {
+				b.Hint = label
+			}
 		} else {
 			run := act.run
 			b.Action = func(tea.KeyMsg) tea.Cmd { return run(a) }

@@ -32,6 +32,16 @@ type uiSettings struct {
 	// from [keys.leader_map] (config.Keys.LeaderLayer); nil keeps the
 	// App's default layer.
 	LeaderLayer []core.LeaderSeq
+	// LeaderGroups labels the leader layer's groups by sequence, as
+	// config.Load resolved [keys.leader_groups]
+	// (config.Keys.GroupLabels); nil keeps the App's default labels.
+	LeaderGroups map[string]string
+	// KeyHints is [keys] key_hints, the key-hints menu; nil keeps the
+	// App's default (on).
+	KeyHints *bool
+	// KeyHintsDelay is [keys] key_hints_delay; nil keeps the App's
+	// default.
+	KeyHintsDelay *time.Duration
 }
 
 // applyUISettings installs s on app. The timestamp formatter feeds the
@@ -51,6 +61,13 @@ func applyUISettings(app *ui.App, s uiSettings) {
 	app.SetThemeOverrides(s.ThemeOverrides)
 	app.SetKeyBindings(s.KeyBindings)
 	app.SetLeaderLayer(s.LeaderLayer)
+	app.SetLeaderGroups(s.LeaderGroups)
 	app.SetLeader(s.Leader)
 	app.SetComposeVimMode(s.ComposeVimMode)
+	if s.KeyHints != nil {
+		app.SetKeyHintsEnabled(*s.KeyHints)
+	}
+	if s.KeyHintsDelay != nil {
+		app.SetKeyHintsDelay(*s.KeyHintsDelay)
+	}
 }
