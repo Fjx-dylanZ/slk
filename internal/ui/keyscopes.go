@@ -167,9 +167,8 @@ var keyScopes = []keyScope{
 	{binding: func(k *KeyMap) *key.Binding { return &k.ToggleThread }, where: everywhere, when: threadOpen},
 	{binding: func(k *KeyMap) *key.Binding { return &k.FuzzyFinder }, where: everywhere},
 	{binding: func(k *KeyMap) *key.Binding { return &k.FuzzyFinderAlt }, where: everywhere},
-	// handleGoToTop has no Activity branch. g leads to gg and the
-	// chordTail rows, hence the group's own label.
-	{binding: func(k *KeyMap) *key.Binding { return &k.Top }, where: everywhere &^ inActivityList, kind: chordKey, label: "go to"},
+	// g leads to gg and the chordTail rows, hence the group's own label.
+	{binding: func(k *KeyMap) *key.Binding { return &k.Top }, where: everywhere, kind: chordKey, label: "go to"},
 	{binding: func(k *KeyMap) *key.Binding { return &k.ViewInChannel }, where: inThread, when: threadOpen, kind: chordTail},
 	{binding: func(k *KeyMap) *key.Binding { return &k.Bottom }, where: everywhere},
 	{binding: func(k *KeyMap) *key.Binding { return &k.PageUp }, where: everywhere},

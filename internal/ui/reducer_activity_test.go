@@ -97,3 +97,30 @@ func TestActivitySelectedInPlaceClearsTheActivityRow(t *testing.T) {
 		t.Error("the channel view is on screen but the sidebar still marks Activity")
 	}
 }
+
+// gg in the Activity view jumps the list to its first card, as G jumps
+// it to its last, and leaves the channel pane hidden behind it alone.
+func TestActivityViewGGJumpsToTheFirstCard(t *testing.T) {
+	a := newTestApp(t, append(normalOpts(), withView(ViewActivity))...)
+	a.activityView.SetItems([]core.ActivityItem{
+		{Key: "K1", Type: "at_user", ChannelID: "C1", TS: "3.0"},
+		{Key: "K2", Type: "at_user", ChannelID: "C1", TS: "2.0"},
+		{Key: "K3", Type: "at_user", ChannelID: "C2", TS: "1.0"},
+	})
+	a.focusedPanel = PanelMessages
+	a.Update(keyPress('G'))
+	if got := a.activityView.SelectedIndex(); got != 2 {
+		t.Fatalf("precondition: G selected card %d, want 2", got)
+	}
+	before, _ := a.messagepane.SelectedMessage()
+
+	a.Update(keyPress('g'))
+	a.Update(keyPress('g'))
+
+	if got := a.activityView.SelectedIndex(); got != 0 {
+		t.Errorf("gg selected card %d, want 0", got)
+	}
+	if after, _ := a.messagepane.SelectedMessage(); after.TS != before.TS {
+		t.Errorf("gg moved the hidden channel pane: selection %q -> %q", before.TS, after.TS)
+	}
+}

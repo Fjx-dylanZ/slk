@@ -311,8 +311,8 @@ view and a channel-view thread; Activity → thread is covered by the
   departure records the focused pane's position, as before.
 - **`gp` from the Threads / Activity list or the channel pane.** The
   leader action covers those (it acts on the open thread from anywhere).
-  Extending `gp` would mean listing `g` in the Activity list, where `gg`
-  does nothing.
+  `g` is listed in the Activity list (since `fix/activity-gg`, `gg` jumps
+  to its first card), but `p` under it is not: `gp` stays a thread-pane key.
 - **Hover styling for the clickable breadcrumb name.** slk has no hover
   machinery, and an always-on underline would change every thread frame.
 - **A demo Activity feed** for the smoke. It belongs to the demo, not to
