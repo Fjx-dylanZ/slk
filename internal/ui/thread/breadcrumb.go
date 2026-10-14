@@ -27,10 +27,12 @@ const breadcrumbHintGap = 2
 // "from <author>", then the channel name is truncated with "…". An
 // empty channelName omits the channel and its separator; an empty
 // author omits "from". "Thread · N replies" is always kept and is only
-// hard-truncated when width is narrower than it.
-func renderBreadcrumb(width int, channelName, channelType, author string, replyCount int) string {
+// hard-truncated when width is narrower than it. channelCells is how
+// many cells the channel (glyph and name, as truncated) takes at the
+// start of the row, 0 when it is not drawn: the clickable part.
+func renderBreadcrumb(width int, channelName, channelType, author string, replyCount int) (row string, channelCells int) {
 	if width <= 0 {
-		return ""
+		return "", 0
 	}
 	label := "replies"
 	if replyCount == 1 {
@@ -85,10 +87,13 @@ func renderBreadcrumb(width int, channelName, channelType, author string, replyC
 		left = ansi.Truncate(left, width, "")
 	}
 	used := emojiutil.Width(left)
+	// A channel left in fits whole: the steps above make room for it
+	// before the hard truncation, which only "Thread · N" can need.
+	channelCells = emojiutil.Width(channel)
 	if showHint {
 		gap := width - used - emojiutil.Width(breadcrumbHint)
 		return left + bg.Render(strings.Repeat(" ", gap)) +
-			bg.Foreground(styles.TextMuted).Render(breadcrumbHint)
+			bg.Foreground(styles.TextMuted).Render(breadcrumbHint), channelCells
 	}
-	return left + bg.Render(strings.Repeat(" ", width-used))
+	return left + bg.Render(strings.Repeat(" ", width-used)), channelCells
 }

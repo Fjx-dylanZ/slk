@@ -60,3 +60,40 @@ func TestActivityView_ChannelTypesComeFromSetChannels(t *testing.T) {
 		t.Errorf("activity view does not name the DM as a DM:\n%s", out)
 	}
 }
+
+// activityRowMarked reports whether the sidebar draws the Activity row
+// with the active-view marker. The sidebar cursor must be on another
+// row: the cursor draws the same bar.
+func activityRowMarked(a *App) bool {
+	for _, line := range strings.Split(ansi.Strip(a.sidebar.View(30, 40)), "\n") {
+		if strings.Contains(line, "◉ Activity") {
+			return strings.Contains(line, "▌◉ Activity")
+		}
+	}
+	return false
+}
+
+// Enter on an Activity item in the channel already open completes the
+// jump in place. The channel view it shows must not leave the sidebar
+// marking the Activity view as the one on screen.
+func TestActivitySelectedInPlaceClearsTheActivityRow(t *testing.T) {
+	a := newTestApp(t, withActiveTeam("T1"), withActiveChannel("C1"),
+		withChannels(sidebar.ChannelItem{ID: "C1", Name: "general", Type: "channel"}),
+		withMessages(testMessageItems(3)...))
+	a.Update(ActivityViewActivatedMsg{})
+	if !activityRowMarked(a) {
+		t.Fatal("precondition: the Activity view does not mark its sidebar row")
+	}
+
+	a.Update(ActivitySelectedMsg{TeamID: "T1", Item: core.ActivityItem{Key: "k1", ChannelID: "C1", TS: "2.0"}})
+
+	if a.view != ViewChannels {
+		t.Fatalf("view = %v, want the channel view", a.view)
+	}
+	if sel, ok := a.messagepane.SelectedMessage(); !ok || sel.TS != "2.0" {
+		t.Fatalf("selected = %+v ok=%v, want 2.0", sel, ok)
+	}
+	if activityRowMarked(a) {
+		t.Error("the channel view is on screen but the sidebar still marks Activity")
+	}
+}

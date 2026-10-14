@@ -98,6 +98,9 @@ type Model struct {
 	chromeCrumbChannel string
 	chromeCrumbType    string
 	chromeAuthor       string
+	// chromeCrumbCells is how many cells the channel name takes at the
+	// start of the drawn breadcrumb (BreadcrumbChannelAt).
+	chromeCrumbCells int
 
 	// userNamesV / channelNamesV are bumped every time SetUserNames /
 	// SetChannelNames replaces the map. Used by chromeCache (and any other
@@ -981,6 +984,14 @@ func (m *Model) UpdateReaction(messageTS, emojiName, userID string, remove bool)
 	}
 }
 
+// BreadcrumbChannelAt reports whether pane-local (x, y), in ClickAt's
+// coordinates, is on the channel name the last View drew at the start
+// of the header breadcrumb (its glyph included, " › " not): the click
+// target for view in channel.
+func (m *Model) BreadcrumbChannelAt(x, y int) bool {
+	return y == 0 && x >= 0 && x < m.chromeCrumbCells
+}
+
 // ClickAt handles a mouse click at the given y-coordinate (the pane-local
 // y returned by App.panelAt — measured from the panel's top border, so
 // y=0..chromeHeight-1 sits inside the chrome (header + separator) and
@@ -1134,7 +1145,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 		m.chromeCrumbChannel != m.crumbChannel ||
 		m.chromeCrumbType != m.crumbType ||
 		m.chromeAuthor != author {
-		header := renderBreadcrumb(width, m.crumbChannel, m.crumbType, author, chromeReplyCount)
+		header, crumbCells := renderBreadcrumb(width, m.crumbChannel, m.crumbType, author, chromeReplyCount)
 		separator := lipgloss.NewStyle().
 			Width(width).
 			Background(styles.Background).
@@ -1150,6 +1161,7 @@ func (m *Model) viewInternal(height, width int, applySelection bool) string {
 		m.chromeCrumbChannel = m.crumbChannel
 		m.chromeCrumbType = m.crumbType
 		m.chromeAuthor = author
+		m.chromeCrumbCells = crumbCells
 	}
 	chrome := m.chromeCache
 	chromeHeight := m.chromeHeight

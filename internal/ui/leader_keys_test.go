@@ -521,6 +521,7 @@ func TestDisplacedBindings(t *testing.T) {
 		{"ctrl+w", nil}, // a sequence prefix, reachable as <leader>w
 		{"ctrl+o", nil}, // insert mode only
 		{"ctrl+e", nil}, // insert mode only
+		{"p", nil},      // gp's p follows g, which a p leader leaves alone
 	} {
 		var got []string
 		for _, b := range displacedBindings(km, tc.key) {
@@ -555,6 +556,7 @@ func TestHelpEntriesFollowTheLeader(t *testing.T) {
 				{Key: `\ w q/c`, Desc: "close window"},
 				{Key: `\ Y`, Desc: "set default theme"},
 				{Key: "ctrl+w h/j/k/l", Desc: "focus pane in direction"},
+				{Key: "gp", Desc: "view thread in channel"},
 			},
 		},
 		{
@@ -608,6 +610,24 @@ func TestHelpEntriesFollowTheLeader(t *testing.T) {
 				{Key: "ctrl+o / alt+enter", Desc: "also send reply to channel"},
 				{Key: "ctrl+o t", Desc: "switch channel"},
 			},
+		},
+		{
+			// gp keeps its row: a p leader takes nothing from the g chord.
+			leader: "p",
+			want: []help.Entry{
+				{Key: "p", Desc: leaderHelpDesc},
+				{Key: "gp", Desc: "view thread in channel"},
+			},
+		},
+		{
+			// A g leader takes the g chord: gp no longer types, so its
+			// row goes (the doubled leader is gg's top).
+			leader: "g",
+			want: []help.Entry{
+				{Key: "g", Desc: leaderHelpDesc},
+				{Key: "g g", Desc: "top"},
+			},
+			absent: []help.Entry{{Key: "gp", Desc: "view thread in channel"}},
 		},
 	}
 	for _, tc := range cases {

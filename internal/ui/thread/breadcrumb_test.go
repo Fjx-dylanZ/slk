@@ -53,12 +53,20 @@ func TestRenderBreadcrumb(t *testing.T) {
 			if w := ansi.StringWidth(tt.want); w != tt.width {
 				t.Fatalf("bad row: want is %d cells, width is %d", w, tt.width)
 			}
-			got := renderBreadcrumb(tt.width, tt.channel, tt.chType, tt.author, tt.replies)
+			got, cells := renderBreadcrumb(tt.width, tt.channel, tt.chType, tt.author, tt.replies)
 			if w := ansi.StringWidth(got); w != tt.width {
 				t.Errorf("width = %d, want %d", w, tt.width)
 			}
 			if plain := ansi.Strip(got); plain != tt.want {
 				t.Errorf("breadcrumb =\n%q\nwant\n%q", plain, tt.want)
+			}
+			// The click target is the channel exactly as drawn.
+			wantCells := 0
+			if i := strings.Index(tt.want, " › "); i >= 0 {
+				wantCells = ansi.StringWidth(tt.want[:i])
+			}
+			if cells != wantCells {
+				t.Errorf("channel cells = %d, want %d", cells, wantCells)
 			}
 		})
 	}
@@ -87,6 +95,34 @@ func TestView_HeaderIsTheBreadcrumb(t *testing.T) {
 	}
 	if m.chromeHeight != 2 {
 		t.Errorf("chromeHeight = %d, want 2 (breadcrumb + separator); hit-testing depends on it", m.chromeHeight)
+	}
+}
+
+// The channel name the header draws is the click target for view in
+// channel: its cells on the header row, nothing past it or below.
+func TestView_BreadcrumbChannelAt(t *testing.T) {
+	m := breadcrumbTestModel()
+	m.SetBreadcrumb("general", "channel")
+	_ = m.View(20, 60)
+	for _, tc := range []struct {
+		x, y int
+		want bool
+	}{
+		{0, 0, true},   // the glyph
+		{8, 0, true},   // the name's last cell: "# general" is 9 cells
+		{9, 0, false},  // " › "
+		{12, 0, false}, // "Thread"
+		{-1, 0, false},
+		{0, 1, false}, // the separator under the header
+	} {
+		if got := m.BreadcrumbChannelAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("BreadcrumbChannelAt(%d, %d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+	m.SetBreadcrumb("", "")
+	_ = m.View(20, 60)
+	if m.BreadcrumbChannelAt(0, 0) {
+		t.Error("a header with no channel still has a channel to click")
 	}
 }
 

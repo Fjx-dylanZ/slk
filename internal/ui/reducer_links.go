@@ -27,12 +27,32 @@ import (
 // pendingLinkNav is the not-yet-completed tail of an in-app permalink
 // navigation. Thread targets survive until both cache and fetch complete.
 // The embedded Location is the target (ThreadTS non-empty: select within
-// the thread panel); the rest is load-tracking state.
+// the thread panel); besideThread is view in channel's variant of it;
+// the rest is load-tracking state.
 type pendingLinkNav struct {
 	Location
+	// besideThread (view in channel): MessageTS is the parent of the
+	// thread open in the thread pane, to select in the channel pane
+	// (focused, as for any jump) with that thread left open beside it:
+	// neither the channel switch nor the in-place path closes it.
+	// ThreadTS stays empty.
+	besideThread bool
 	threadOpened bool
+	// kept: a besideThread navigation superseded this one and kept the
+	// thread it opened, so its loads still in flight are that thread's
+	// own (reduceThreads applies them without the target).
+	kept         bool
 	loadsDone    int
 	fetchApplied bool
+}
+
+// keepsOpenThread reports whether p is a besideThread navigation and
+// the thread pane shows the thread it keeps open, so that the channel
+// switch (reduceChannelSelected) and the in-place path leave the pane
+// as it is, scroll, selection, draft, search and loads included.
+func (p *pendingLinkNav) keepsOpenThread(a *App) bool {
+	return p.besideThread && a.threadVisible &&
+		a.threadPanel.ChannelID() == string(p.ChannelID) && a.threadPanel.ThreadTS() == string(p.MessageTS)
 }
 
 // Only permalink loads carry this envelope; ordinary thread refreshes must
@@ -118,14 +138,28 @@ func (a *App) routeLink(rawURL string) tea.Cmd {
 // in-place completion so re-selecting the current channel does not
 // reload it.
 func (a *App) applyLocation(loc Location, fromHistory bool) (tea.Cmd, bool) {
+	return a.navigate(&pendingLinkNav{Location: loc}, fromHistory)
+}
+
+// navigate is applyLocation for a pending navigation the caller builds:
+// view in channel (viewThreadInChannel) sets besideThread on it. p
+// becomes a.pendingLinkNav unless the navigation is refused.
+func (a *App) navigate(p *pendingLinkNav, fromHistory bool) (tea.Cmd, bool) {
 	if a.compose.Uploading() || a.threadCompose.Uploading() {
 		return toastWithClear(a, "Upload in progress", 2*time.Second), true
 	}
+	loc := p.Location
 	name, chType, found := a.channels.Lookup(loc.ChannelID)
 	if !found {
 		return nil, false
 	}
-	a.pendingLinkNav = &pendingLinkNav{Location: loc}
+	if old := a.pendingLinkNav; old != nil && old.threadOpened && p.keepsOpenThread(a) &&
+		old.ChannelID == p.ChannelID && string(old.ThreadTS) == string(p.MessageTS) {
+		// View in channel keeps the thread the jump being replaced
+		// opened: that jump's loads still in flight are the thread's.
+		old.kept = true
+	}
+	a.pendingLinkNav = p
 	if !fromHistory && string(loc.ChannelID) == a.activeChannelID {
 		// Already viewing the channel; unless its fetch is still
 		// running (below), the loaded buffer is as good as it gets,
@@ -139,13 +173,14 @@ func (a *App) applyLocation(loc Location, fromHistory bool) (tea.Cmd, bool) {
 		// thread-bearing location re-focuses the thread panel below,
 		// via openThreadForPermalink.
 		a.setView(ViewChannels)
-		if a.threadVisible {
+		if a.threadVisible && !p.keepsOpenThread(a) {
 			// ChannelSelectedMsg closes the thread panel on every
 			// channel switch, and the in-place path has to as well —
 			// otherwise a channel-level jump lands the selection in
 			// the messages pane while the thread the user was reading
 			// stays open beside it. A thread-bearing location reopens
 			// the correct thread below, via openThreadForPermalink.
+			// View in channel keeps the thread it was taken from.
 			a.CloseThread()
 		}
 		a.focusedPanel = PanelMessages
@@ -196,7 +231,10 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 		return nil
 	}
 	a.setView(ViewChannels)
+	// The channel view replaces either list, so neither sidebar row is
+	// the view on screen any more (as in reduceChannelSelected).
 	a.sidebar.SetThreadsActive(false)
+	a.sidebar.SetActivityActive(false)
 	a.lastOpenedChannelID = ""
 	a.lastOpenedThreadTS = ""
 	a.focusedPanel = PanelMessages

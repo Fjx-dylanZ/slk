@@ -77,13 +77,22 @@ func (seqHints) keyHints(a *App) (string, []keyhints.Row) {
 	return title, rows
 }
 
-// topHints is the first g of gg: the KeyMap's Top binding is what may
-// follow.
+// topHints is the first g of a g chord: the KeyMap's Top binding (gg),
+// then the chordTail rows of keyScopes that apply where focus is (gp in
+// the thread pane), as handleNormalMode's pendingTop arm takes them.
 type topHints struct{}
 
 func (topHints) keyHints(a *App) (string, []keyhints.Row) {
 	top := a.keys.Top
-	return top.Keys()[0], []keyhints.Row{{Keys: top.Keys(), Desc: top.Help().Desc}}
+	rows := []keyhints.Row{{Keys: top.Keys(), Desc: top.Help().Desc}}
+	ctx := a.hintContext()
+	for _, s := range keyScopes {
+		if s.kind == chordTail && s.applies(a, ctx) {
+			b := s.binding(&a.keys)
+			rows = append(rows, keyhints.Row{Keys: b.Keys(), Desc: b.Help().Desc})
+		}
+	}
+	return top.Keys()[0], rows
 }
 
 // markHints is m (set a mark) or, with jump, ' (jump to one; only

@@ -516,3 +516,27 @@ func TestNavWorkspaceSwitchRecordsDepartingPosition(t *testing.T) {
 		t.Fatalf("T1 current entry = %+v, want C1 at 1.0", got)
 	}
 }
+
+// A thread focused from the Activity (or Threads) view can be another
+// channel's. Leaving it must still record where the user was in the
+// active channel (the messages pane behind the list) instead of handing
+// UpdateCurrent the thread's channel, which it drops.
+func TestNavDepartureFromAnotherChannelsThreadRecordsTheChannelPane(t *testing.T) {
+	app := navFixtureApp(t, map[ids.ChannelID][]messages.MessageItem{
+		"C1": {{TS: "1.0", Text: "old"}, {TS: "2.0", Text: "new"}},
+		"C3": {{TS: "30.0", Text: "c3"}},
+	}, nil)
+	app.Update(ChannelSelectedMsg{ID: "C1", Name: "one", Type: "channel"})
+	app.messagepane.SelectByTS("1.0")
+	app.Update(ActivityViewActivatedMsg{})
+	app.Update(ActivitySelectedMsg{TeamID: "T1", Item: core.ActivityItem{Key: "k", ChannelID: "C2", TS: "R1", ThreadTS: "P1"}})
+	if app.focusedPanel != PanelThread || app.threadPanel.ChannelID() != "C2" || app.threadPanel.SelectedReply() == nil {
+		t.Fatalf("precondition: focus %v, thread of %q, selected %+v; want a row of C2's thread", app.focusedPanel, app.threadPanel.ChannelID(), app.threadPanel.SelectedReply())
+	}
+
+	app.Update(ChannelSelectedMsg{ID: "C3", Name: "three", Type: "channel"})
+
+	if got := app.navHistory.Stack("T1").entries[0]; got.ChannelID != "C1" || got.MessageTS != "1.0" {
+		t.Fatalf("C1's entry = %+v, want C1 at 1.0, where the user was behind the Activity view", got)
+	}
+}

@@ -7,7 +7,8 @@
 //     prompt), Ctrl-Y (theme switcher), ? (help),
 //     S (presence menu), R (reaction picker)
 //   - navigation: j/k (selection), Ctrl-D/U (half-page), C-f/b
-//     (page), G (bottom), Tab/h/l (focus next/prev), Ctrl-h/l
+//     (page), gg/G (top/bottom), gp (thread pane: view the thread in
+//     its channel), Tab/h/l (focus next/prev), Ctrl-h/l
 //     (nav back/forward through visited channels; Ctrl-k is an
 //     alias for forward)
 //   - layout toggles: s (sidebar), t (thread)
@@ -26,8 +27,8 @@
 //   - quit confirm: q (close thread if visible, else no-op),
 //     Q (quit confirm)
 //
-// Pending sub-states are intercepted FIRST (a key sequence, then gg,
-// m, '), after the page keys of a key-hints menu too long for the
+// Pending sub-states are intercepted FIRST (a key sequence, then g of
+// gg/gp, m, '), after the page keys of a key-hints menu too long for the
 // screen (keyhints.go). The reaction-nav sub-state comes next: while in
 // it, only a narrow set of keys (arrows / Enter / r / Esc) does
 // anything. Then a key may start a sequence; everything else is
@@ -40,6 +41,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/themeswitcher"
 )
 
@@ -58,7 +60,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	}
 
 	// `g` pending sub-state: a second `g` completes the vim `gg` chord
-	// (jump to top). Esc cancels silently; any other key cancels the
+	// (jump to top), and `p` completes `gp` (view the thread in its
+	// channel) where its keyScopes row applies, the row the menu after g
+	// lists it from. Esc cancels silently; any other key cancels the
 	// chord and is then handled as if it had been pressed on its own.
 	if a.pendingTop {
 		a.pendingTop = false
@@ -66,6 +70,8 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		switch {
 		case key.Matches(msg, a.keys.Top):
 			return a.handleGoToTop()
+		case key.Matches(msg, a.keys.ViewInChannel) && a.chordTailApplies(&a.keys.ViewInChannel):
+			return a.viewThreadInChannel()
 		case key.Matches(msg, a.keys.Escape):
 			return nil
 		}
@@ -498,4 +504,32 @@ func (a *App) closeThreadView() tea.Cmd {
 		a.CloseThread()
 	}
 	return nil
+}
+
+// viewThreadInChannel is Slack's "View in channel" for the open thread
+// (gp in the thread pane, the view_in_channel leader action, a click on
+// the thread header's channel name): the channel view of the
+// conversation the thread lives in, its parent selected in the channel
+// pane (loaded around it when not in the buffer) and focused, the
+// thread kept open beside it. One navigation through navigate, so it is
+// a channel visit for history and is refused like any jump.
+func (a *App) viewThreadInChannel() tea.Cmd {
+	if !a.threadVisible {
+		return toastWithClear(a, "No thread open", 2*time.Second)
+	}
+	// The thread's own channel, as currentLocation reads it: in the
+	// Threads and Activity views it need not be the active one.
+	channelID := a.threadPanel.ChannelID()
+	if channelID == "" {
+		channelID = a.activeChannelID
+	}
+	cmd, ok := a.navigate(&pendingLinkNav{besideThread: true, Location: Location{
+		TeamID:    ids.TeamID(a.activeTeamID),
+		ChannelID: ids.ChannelID(channelID),
+		MessageTS: ids.MessageTS(a.threadPanel.ThreadTS()),
+	}}, false)
+	if !ok {
+		return toastWithClear(a, "Channel for this thread is unavailable", 3*time.Second)
+	}
+	return cmd
 }

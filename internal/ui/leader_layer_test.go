@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/gammons/slk/internal/core"
+	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/ui/help"
 )
 
@@ -344,6 +345,17 @@ func TestLeaderMapExtraActions(t *testing.T) {
 			check: func(t *testing.T, a *App, _ []tea.Msg) {
 				if a.threadVisible {
 					t.Error("thread still open")
+				}
+			}},
+		// The open thread is the active channel's: in place, the thread
+		// kept beside the channel pane, which takes focus.
+		{action: "view_in_channel", setup: func(t *testing.T, a *App) {
+			a.setChannelLookupFuncForTest(func(ids.ChannelID) (string, string, bool) { return "general", "channel", true })
+			focusThreadPanel(t, a)
+		},
+			check: func(t *testing.T, a *App, _ []tea.Msg) {
+				if a.focusedPanel != PanelMessages || !a.threadVisible || a.threadPanel.ThreadTS() != "10.0" {
+					t.Errorf("focus %v, thread visible %v (%s); want the channel pane focused, the thread kept", a.focusedPanel, a.threadVisible, a.threadPanel.ThreadTS())
 				}
 			}},
 		{action: "quit", check: func(t *testing.T, a *App, _ []tea.Msg) {

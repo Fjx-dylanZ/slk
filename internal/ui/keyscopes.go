@@ -83,6 +83,11 @@ const (
 	// chordKey starts a chord handleNormalKey arms (the g of gg): a
 	// group in the menu.
 	chordKey
+	// chordTail is a second key of the g chord other than g itself (the
+	// p of gp). topHints lists it, under g, where it applies; the
+	// context menu never lists it at its top level, where the key typed
+	// alone does not do this.
+	chordTail
 )
 
 // keyScope is one Normal-mode KeyMap binding and where it acts: the
@@ -94,6 +99,25 @@ type keyScope struct {
 	when    func(*App) bool
 	kind    scopeKind
 	label   string
+}
+
+// applies reports whether s's binding acts in ctx, the context focus is
+// in, given a's state.
+func (s keyScope) applies(a *App, ctx hintContext) bool {
+	return s.where&ctx != 0 && (s.when == nil || s.when(a))
+}
+
+// chordTailApplies reports whether b (a field of a.keys) has a chordTail
+// row that applies where focus is: handleNormalMode's pendingTop arm
+// dispatches the key on it, and topHints lists the rows it holds for.
+func (a *App) chordTailApplies(b *key.Binding) bool {
+	ctx := a.hintContext()
+	for _, s := range keyScopes {
+		if s.kind == chordTail && s.binding(&a.keys) == b {
+			return s.applies(a, ctx)
+		}
+	}
+	return false
 }
 
 // State a few bindings need besides the context.
@@ -143,8 +167,10 @@ var keyScopes = []keyScope{
 	{binding: func(k *KeyMap) *key.Binding { return &k.ToggleThread }, where: everywhere, when: threadOpen},
 	{binding: func(k *KeyMap) *key.Binding { return &k.FuzzyFinder }, where: everywhere},
 	{binding: func(k *KeyMap) *key.Binding { return &k.FuzzyFinderAlt }, where: everywhere},
-	// handleGoToTop has no Activity branch.
-	{binding: func(k *KeyMap) *key.Binding { return &k.Top }, where: everywhere &^ inActivityList, kind: chordKey},
+	// handleGoToTop has no Activity branch. g leads to gg and the
+	// chordTail rows, hence the group's own label.
+	{binding: func(k *KeyMap) *key.Binding { return &k.Top }, where: everywhere &^ inActivityList, kind: chordKey, label: "go to"},
+	{binding: func(k *KeyMap) *key.Binding { return &k.ViewInChannel }, where: inThread, when: threadOpen, kind: chordTail},
 	{binding: func(k *KeyMap) *key.Binding { return &k.Bottom }, where: everywhere},
 	{binding: func(k *KeyMap) *key.Binding { return &k.PageUp }, where: everywhere},
 	{binding: func(k *KeyMap) *key.Binding { return &k.PageDown }, where: everywhere},
@@ -229,9 +255,8 @@ func (a *App) contextKeyMap() (*keyseq.Map, string) {
 			taken[k] = true
 		}
 	}
-	applies := func(s keyScope) bool { return s.where&ctx != 0 && (s.when == nil || s.when(a)) }
 	for _, s := range keyScopes {
-		if s.kind == prefixKey && applies(s) {
+		if s.kind == prefixKey && s.applies(a, ctx) {
 			add(*s.binding(&km), true, s.label)
 		}
 	}
@@ -241,7 +266,7 @@ func (a *App) contextKeyMap() (*keyseq.Map, string) {
 		}
 	}
 	for _, s := range keyScopes {
-		if s.kind != prefixKey && applies(s) {
+		if s.kind != prefixKey && s.kind != chordTail && s.applies(a, ctx) {
 			add(*s.binding(&km), s.kind != plainKey, s.label)
 		}
 	}

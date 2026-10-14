@@ -114,7 +114,11 @@ func (a *App) departurePosition() Location {
 // dropped. It is what history records for the active channel, so
 // outside the thread panel it reads the messages pane even from the
 // Threads and Activity views: that pane still holds the active
-// channel's position, which is where walking back should return.
+// channel's position, which is where walking back should return. So it
+// does with the thread panel focused on another channel's thread (one
+// opened from the Threads or Activity view can be any channel's): that
+// thread names no position in the active channel, and UpdateCurrent
+// would drop it.
 func (a *App) currentPosition() Location {
 	var (
 		loc Location
@@ -122,6 +126,9 @@ func (a *App) currentPosition() Location {
 	)
 	if a.focusedPanel == PanelThread {
 		loc, ok = a.currentLocation()
+		if ok && string(loc.ChannelID) != a.activeChannelID {
+			loc, ok = a.channelPaneLocation()
+		}
 	} else {
 		loc, ok = a.channelPaneLocation()
 	}

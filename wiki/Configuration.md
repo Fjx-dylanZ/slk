@@ -376,6 +376,7 @@ is f twice, and `"space"` is the space bar.
 | `key_hints` | `?` | the key-hints menu of the keys that act in the focused pane (see Key hints) |
 | `help` | — | show keybindings (`?`) |
 | `close_thread` | — | close the thread panel (`q`) |
+| `view_in_channel` | — | view the open thread in its channel, from any pane (`gp` in the thread pane) |
 | `nav_back` / `nav_forward` | — | back / forward through visited channels (`Ctrl+h` / `Ctrl+l`) |
 | `next_unread` / `prev_unread` | — | next / previous unread channel (`a` / `A`) |
 | `next_theme` / `prev_theme` | — | next / previous theme (`Alt+y` / `Alt+Shift+y`) |

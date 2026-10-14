@@ -35,6 +35,7 @@
 | `v` / `V` | Compose normal | Visual / visual-line selection; `d` `c` `y` `p` `~` `u` `U` `J` `r` `o` act on it, `Esc` ends it |
 | `Enter` | Compose normal | Send; with a half-typed command or a selection up, cancels that instead |
 | `gg` / `G` | Normal | Jump to top / bottom |
+| `gp` | Normal (thread) | View the thread in its channel: switches to the channel or DM the thread lives in with the parent message selected, and keeps the thread open beside it. Clicking the channel name in the thread header does the same. `Ctrl+h` then goes back to the channel you were in (the Activity and Threads views are not part of the history: `Ctrl+a` or the Threads row returns to them) |
 | `/` | Normal | Search whatever has focus (vim-style). Messages pane: the current channel's cached history. Thread pane: the open thread's loaded replies. Threads / Activity view: the list's cards. Sidebar: filter channels and DMs by name as you type. The status line names the scope (`/`, `thread /`, `threads /`, `activity /`, `channels /`) |
 | `Enter` / `Esc` | `/` prompt | Run the search (sidebar: keep the filter) / cancel (sidebar: restore the previous filter) |
 | `n` / `N` | Normal (searched pane focused) | Next older / newer search match (wraps) |
@@ -95,9 +96,10 @@ The default layer below has one rule: the leader stands in for `Ctrl`, so
 each entry is the letter of the chord it mirrors (`\ t` is `Ctrl+t`); `\ ?`,
 the menu of the keys for the focused pane, has no chord to mirror. You
 can change it in `[keys.leader_map]` — see [[Configuration]] → Leader map
-for the actions, which also include help, close thread, back/forward,
-next/previous unread, next/previous theme, the `:` command line and quit,
-and for a neovim-style setup (`space f f`, `space s g`, `space e`, …).
+for the actions, which also include help, close thread, view in channel,
+back/forward, next/previous unread, next/previous theme, the `:` command
+line and quit, and for a neovim-style setup (`space f f`, `space s g`,
+`space e`, …).
 Several keys after the leader make a group: the status bar shows `f +…`
 (or `f +find`, labelled in `[keys.leader_groups]`), then what can follow
 it.
@@ -141,11 +143,11 @@ open thread, as switching windows always has.
 ## Key hints menu
 
 When you pause after a key that waits for more — the leader, `Ctrl+w`,
-`g` (of `gg`), `m` (set a mark), and `'` when `show_jump_overlay = false`
-— a panel at the bottom right lists every key that can follow, with what
-it does (`m` and `'` list your marks and where they point). It appears
-after 300 ms, so a sequence you type fluently never shows it, and stays
-open as you go deeper.
+`g` (of `gg`, and `gp` in the thread pane), `m` (set a mark), and `'` when
+`show_jump_overlay = false` — a panel at the bottom right lists every key
+that can follow, with what it does (`m` and `'` list your marks and where
+they point). It appears after 300 ms, so a sequence you type fluently
+never shows it, and stays open as you go deeper.
 
 | Key | In the menu |
 |---|---|

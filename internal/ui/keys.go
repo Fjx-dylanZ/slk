@@ -25,6 +25,7 @@ type KeyMap struct {
 	FuzzyFinder         key.Binding
 	FuzzyFinderAlt      key.Binding
 	Top                 key.Binding
+	ViewInChannel       key.Binding
 	Bottom              key.Binding
 	PageUp              key.Binding
 	PageDown            key.Binding
@@ -124,6 +125,10 @@ func DefaultKeyMap() KeyMap {
 		FuzzyFinder:     key.NewBinding(key.WithKeys("ctrl+t"), key.WithHelp("ctrl+t", "switch channel")),
 		FuzzyFinderAlt:  key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "switch channel")),
 		Top:             key.NewBinding(key.WithKeys("g"), key.WithHelp("gg", "top")),
+		// The p of gp: the g chord's other second key, in the thread
+		// pane only (handleNormalMode's pendingTop arm), never a key of
+		// its own (chordTails).
+		ViewInChannel:   key.NewBinding(key.WithKeys("p"), key.WithHelp("gp", "view thread in channel")),
 		Bottom:          key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "bottom")),
 		PageUp:          key.NewBinding(key.WithKeys("pgup"), key.WithHelp("PgUp", "page up")),
 		PageDown:        key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("PgDn", "page down")),
