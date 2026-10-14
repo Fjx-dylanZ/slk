@@ -205,8 +205,14 @@ leader = "space"   # default: "\\" (TOML) — i.e. a backslash; '\' also works
 - Rejected at startup with an error naming the key (like the existing
   `[workspaces]` validation): anything else (`esc`, `tab`, `enter`, `f1`,
   words, `shift+…`), `1`–`9` (workspace switching; not bindings the leader
-  could hand back, see below), and `ctrl+c` (intercepted before Normal mode,
-  so it could never start a sequence).
+  could hand back, see below), `ctrl+c` (intercepted before Normal mode,
+  so it could never start a sequence), and keys a terminal without
+  keyboard enhancements sends as a different key, so the leader would
+  silently never fire: `ctrl+` with anything but a letter, `space` or one
+  of `\ ] ^ _` (`ctrl+[` is `esc`, `ctrl+@` is `ctrl+space`, `ctrl+,` has
+  no control code), `ctrl+i` (`tab`), `ctrl+m` (`enter`), and `alt+` with
+  an uppercase letter (reported as `alt+shift+y`, `alt+Y` or `alt+shift+Y`
+  depending on the terminal).
 - Unset or empty keeps the default. Delivery follows the other display
   settings: `cfg.Keys.Leader` → `uiSettings.Leader` → `App.SetLeader`, which
   rebinds `KeyMap.Leader` and rebuilds the tables. Demo mode passes nothing,
@@ -226,14 +232,21 @@ and the which-key hint and help list it under the displaced description. For
 click on a section header toggle it too, as today. The entry exists only when
 the key is a Normal-mode binding in `KeyMap` (`Leader`, the sequence
 prefixes and the insert-only `ctrl+o` / `ctrl+e` do not count), and it comes
-first in the leader layer. A leader of `ctrl+w` displaces the window prefix;
-window commands stay on `<leader>w`.
+first in the leader layer. A layer letter equal to the leader would be
+unreachable then, so it is left out of the layer (its ctrl chord still
+works). A leader of `ctrl+w` displaces the window prefix; window commands
+stay on `<leader>w`.
 
 ### 7. Help overlay and docs
 
 `?` lists `KeyMap` as today plus rows generated from the leader layer with
 the configured key: `\ t  switch channel`, `\ w h/j/k/l  focus pane in
-direction`, … (`help.FromKeyMap(km, extra...)` merges and sorts them).
+direction`, … (`help.FromKeyMap(km, extra...)` merges and sorts them). The
+`KeyMap` rows are first rewritten for the leader (`helpKeyMap`): a binding on
+the leader's key loses that key (`Y/C copy permalink` becomes `C` for a `Y`
+leader; a row with no key left is dropped), and keyless chord rows under the
+leader's key (`ctrl+w s / :sp` for a `ctrl+w` leader) are dropped. Insert-only
+rows are untouched.
 Because descriptions are the mirrored bindings', each leader row sorts next
 to its ctrl chord. `KeyMap` gains one real binding, `Leader`. The wiki
 Keybindings page gets the leader table and the `ctrl+w` rows it lacked;
@@ -284,8 +297,9 @@ leader is Normal-only).
 - **Sidebar hidden:** `h` from the leftmost pane is a no-op (the rail is not
   focusable). **No thread:** `l` from the rightmost window is a no-op.
 - **Leader equal to a layer letter** (`leader = "y"` displaces copy-message):
-  `y y` is the displaced action (that entry comes first); the shadowed layer
-  entry (`theme`) keeps its ctrl chord.
+  `y y` is the displaced action; the layer's own `y` (theme) could never be
+  reached, so it is left out of the table, the hint and the help, and keeps
+  its ctrl chord.
 - **Narrow status bar:** the hint keeps the lead and as many entries as fit,
   then `…`.
 
