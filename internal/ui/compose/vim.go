@@ -36,39 +36,54 @@ func (m *Model) SetVimMode(reg *vimedit.Register) {
 	m.dirty()
 }
 
-// VimMode reports the vim sub-mode; ok is false when vim mode is off.
+// activeVim is the vim engine when it has the keyboard: vim mode is on
+// and the composer is focused. A blurred composer takes no keys, with or
+// without vim mode, so it behaves as it does with vim mode off.
+func (m *Model) activeVim() *vimedit.Editor {
+	if m.vim == nil || !m.input.Focused() {
+		return nil
+	}
+	return m.vim
+}
+
+// VimMode reports the vim sub-mode of the focused composer; ok is false
+// when vim mode is off or the composer is not focused.
 func (m *Model) VimMode() (mode vimedit.Mode, ok bool) {
-	if m.vim == nil {
+	v := m.activeVim()
+	if v == nil {
 		return vimedit.Insert, false
 	}
-	return m.vim.Mode(), true
+	return v.Mode(), true
 }
 
 // VimNormal reports whether keys are vim commands rather than text:
-// vim mode is on and the composer is in NORMAL, VISUAL or V-LINE.
+// vim mode is on and the focused composer is in NORMAL, VISUAL or V-LINE.
 func (m *Model) VimNormal() bool {
-	return m.vim != nil && m.vim.Mode() != vimedit.Insert
+	v := m.activeVim()
+	return v != nil && v.Mode() != vimedit.Insert
 }
 
 // VimBusy reports whether a vim command is half typed or a selection is
 // up, so Enter should cancel that rather than send.
 func (m *Model) VimBusy() bool {
-	if m.vim == nil {
+	v := m.activeVim()
+	if v == nil {
 		return false
 	}
-	mode := m.vim.Mode()
-	return m.vim.Pending() || mode == vimedit.Visual || mode == vimedit.VisualLine
+	mode := v.Mode()
+	return v.Pending() || mode == vimedit.Visual || mode == vimedit.VisualLine
 }
 
 // VimEscape gives Esc to the vim engine and reports whether it took it:
 // INSERT goes to NORMAL, VISUAL ends, a half-typed command is dropped.
-// False (vim off, or idle NORMAL) means Esc should leave the composer.
-// The caller closes any open picker first.
+// False (vim off, not focused, or idle NORMAL) means Esc should leave
+// the composer. The caller closes any open picker first.
 func (m *Model) VimEscape() bool {
-	if m.vim == nil {
+	v := m.activeVim()
+	if v == nil {
 		return false
 	}
-	b, ok := m.vim.Handle(m.vimBuffer(), vimedit.Key{Name: vimedit.KeyEsc})
+	b, ok := v.Handle(m.vimBuffer(), vimedit.Key{Name: vimedit.KeyEsc})
 	if ok {
 		m.applyVim(b)
 		m.dirty()
@@ -98,7 +113,7 @@ func (m *Model) vimReset() {
 // textarea path should run instead. Every key is the engine's there, so
 // none reaches the textarea; a bracketed paste is one undoable step.
 func (m Model) vimUpdate(msg tea.Msg) (Model, tea.Cmd, bool) {
-	if m.vim == nil || m.vim.Mode() == vimedit.Insert {
+	if v := m.activeVim(); v == nil || v.Mode() == vimedit.Insert {
 		return m, nil, false
 	}
 	switch msg := msg.(type) {

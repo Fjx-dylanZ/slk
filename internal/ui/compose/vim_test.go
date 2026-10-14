@@ -207,6 +207,23 @@ func TestVimWriteBackOverTheCharLimit(t *testing.T) {
 	}
 }
 
+// A blurred composer takes no keys, with vim mode on as with it off.
+func TestVimBlurredComposerTakesNoKeys(t *testing.T) {
+	m := vimCompose(t, 40)
+	m = vimPress(m, "abc<esc>")
+	m.Blur()
+	m = vimPress(m, "xdd")
+	if got := m.Value(); got != "abc" {
+		t.Errorf("keys edited a blurred composer: %q", got)
+	}
+	if m.VimNormal() || m.VimBusy() || m.VimEscape() {
+		t.Error("a blurred composer reports vim key handling")
+	}
+	if _, ok := m.VimMode(); ok {
+		t.Error("VimMode must report ok=false while blurred")
+	}
+}
+
 // V-LINE paints an empty line as one cell, also when it is the last
 // line of the selection.
 func TestVimVisualLinePaintsAnEmptyLastLine(t *testing.T) {

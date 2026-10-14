@@ -243,7 +243,7 @@ func TestComposeVim_ThreadComposer(t *testing.T) {
 	if composeVimMode(t, &a.threadCompose) != vimedit.Normal || modeLabel(a) != "C-NORMAL" {
 		t.Fatalf("thread Esc: label %s", modeLabel(a))
 	}
-	if _, ok := a.compose.VimMode(); !ok || a.compose.Value() != "" {
+	if a.compose.Value() != "" {
 		t.Error("the channel composer was touched")
 	}
 	vimKeys(a, "0cwthe<esc><c-o>")
