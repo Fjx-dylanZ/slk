@@ -19,6 +19,9 @@ type uiSettings struct {
 	MouseWheelLines  int
 	ColoredUsernames bool
 	ThemeOverrides   core.Theme
+	// Leader is [keys] leader, already normalized by config.Load; ""
+	// keeps the App's default.
+	Leader string
 }
 
 // applyUISettings installs s on app. The timestamp formatter feeds the
@@ -36,4 +39,5 @@ func applyUISettings(app *ui.App, s uiSettings) {
 	app.SetColoredUsernames(s.ColoredUsernames)
 	app.SetThemeItems(styles.ThemeNames())
 	app.SetThemeOverrides(s.ThemeOverrides)
+	app.SetLeader(s.Leader)
 }

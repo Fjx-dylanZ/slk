@@ -5,7 +5,9 @@
 // focus movement, status-bar toasts, and the focused-window channel
 // contract. Phase 3: every window owns a live messages model (see
 // internal/ui/winmodels.go); focus changes are a pointer swap plus
-// an active-channel context retarget — no channel re-dispatch.
+// an active-channel context retarget — no channel re-dispatch. The
+// ctrl+w chord keys are dispatched from the window-command table
+// (keyseqs.go); h/j/k/l move across every pane (pane_focus.go).
 package ui
 
 import (
@@ -15,34 +17,6 @@ import (
 
 	"github.com/gammons/slk/internal/ui/wintree"
 )
-
-// handleWindowChord consumes the key following ctrl+w (vim window
-// commands, design §4). Unmapped keys — including Esc — cancel
-// silently, matching vim.
-func (a *App) handleWindowChord(msg tea.KeyMsg) tea.Cmd {
-	switch msg.String() {
-	case "s":
-		return a.splitWindow(wintree.SplitStacked)
-	case "v":
-		return a.splitWindow(wintree.SplitSideBySide)
-	case "h", "left":
-		return a.navigateWindow(wintree.NavLeft)
-	case "j", "down":
-		return a.navigateWindow(wintree.NavDown)
-	case "k", "up":
-		return a.navigateWindow(wintree.NavUp)
-	case "l", "right":
-		return a.navigateWindow(wintree.NavRight)
-	case "w", "ctrl+w":
-		return a.cycleWindow()
-	case "q", "c":
-		return a.closeWindow()
-	case "o":
-		a.onlyWindow()
-		return nil
-	}
-	return nil
-}
 
 // windowBounds returns the messages-region rectangle the window tree
 // subdivides. Windows are only drawn when the channel is in front, so
@@ -114,15 +88,6 @@ func (a *App) onlyWindow() {
 // cycleWindow focuses the next window in tree order (ctrl+w w).
 func (a *App) cycleWindow() tea.Cmd {
 	return a.focusWindow(a.wins.Cycle(a.focusedWin, 1))
-}
-
-// navigateWindow focuses the geometric neighbor (ctrl+w h/j/k/l).
-// No neighbor is a silent no-op, like vim.
-func (a *App) navigateWindow(nd wintree.NavDir) tea.Cmd {
-	if id, ok := a.wins.NavigateDir(a.focusedWin, nd, a.windowBounds()); ok {
-		return a.focusWindow(id)
-	}
-	return nil
 }
 
 // focusWindow moves window focus to id: a pointer swap plus an

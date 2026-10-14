@@ -578,6 +578,7 @@ func run() error {
 		MouseWheelLines:  cfg.Appearance.MouseWheelLines,
 		ColoredUsernames: cfg.Appearance.ColoredUsernames,
 		ThemeOverrides:   cfg.Theme,
+		Leader:           cfg.Keys.Leader,
 	})
 	app.SetEditorService(core.NewEditorService(editor.WriteDraft, editor.Edit, editor.TakeDraft))
 	if editor, ok := ui.ResolveEditor(cfg.Compose.Editor); ok {

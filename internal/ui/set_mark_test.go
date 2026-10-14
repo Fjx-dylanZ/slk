@@ -241,7 +241,7 @@ func TestSetMark_LowercaseWithoutPersistAllIsSilent(t *testing.T) {
 // Ctrl+C is intercepted in handleKey BEFORE mode dispatch, so it never
 // reaches handleMarkChord to be cancelled there. Left armed, the next
 // letter key in normal mode is swallowed as a mark name instead of
-// doing its own job — the same hazard the pendingWinCmd disarm in
+// doing its own job — the same hazard the key-sequence reset in
 // SetMode exists to prevent.
 func TestSetMark_ModeChangeDisarmsPendingChord(t *testing.T) {
 	app := setMarkTestApp(t)

@@ -68,6 +68,7 @@ type KeyMap struct {
 	RespondButtons      key.Binding
 	ListReactions       key.Binding
 	UserProfile         key.Binding
+	Leader              key.Binding
 	WindowPrefix        key.Binding
 	WinSplit            key.Binding
 	WinVSplit           key.Binding
@@ -156,14 +157,19 @@ func DefaultKeyMap() KeyMap {
 		RespondButtons: key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "respond to message buttons")),
 		ListReactions:  key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "list reactions")),
 		UserProfile:    key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "show author's profile")),
+		// The leader starts a leader sequence (keyseqs.go); SetLeader
+		// rebinds it from [keys] leader. Its layer's help rows are
+		// generated from the sequence table, not listed here.
+		Leader: key.NewBinding(key.WithKeys(defaultLeader), key.WithHelp(defaultLeader, leaderHelpDesc)),
 		// Window commands (design §4). WindowPrefix is the only real
 		// binding; the Win* entries are keyless help-only bindings
-		// (same trick as WorkspaceFinder above) — actual dispatch of
-		// the chord key happens in handleWindowChord.
+		// (same trick as WorkspaceFinder above) — the chord keys are
+		// dispatched from the window-command table in keyseqs.go,
+		// which also takes its descriptions from these entries.
 		WindowPrefix: key.NewBinding(key.WithKeys("ctrl+w"), key.WithHelp("ctrl+w", "window commands")),
 		WinSplit:     key.NewBinding(key.WithHelp("ctrl+w s / :sp", "split window")),
 		WinVSplit:    key.NewBinding(key.WithHelp("ctrl+w v / :vsp", "vertical split window")),
-		WinNavigate:  key.NewBinding(key.WithHelp("ctrl+w h/j/k/l", "focus window in direction")),
+		WinNavigate:  key.NewBinding(key.WithHelp("ctrl+w h/j/k/l", "focus pane in direction")),
 		WinCycle:     key.NewBinding(key.WithHelp("ctrl+w w", "cycle windows")),
 		WinClose:     key.NewBinding(key.WithHelp("ctrl+w q / :q", "close window")),
 		WinOnly:      key.NewBinding(key.WithHelp("ctrl+w o / :only", "close other windows")),
@@ -175,3 +181,10 @@ func DefaultKeyMap() KeyMap {
 		OpenInEditor: key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "edit message in $EDITOR")),
 	}
 }
+
+// defaultLeader is the leader key when [keys] leader is unset: vim's
+// own default, and unbound in slk, so it displaces nothing.
+const defaultLeader = `\`
+
+// leaderHelpDesc describes the Leader binding in the help overlay.
+const leaderHelpDesc = "leader key (the status bar lists what follows)"

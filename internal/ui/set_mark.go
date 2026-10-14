@@ -20,7 +20,7 @@ func isMarkLetter(b byte) bool {
 
 // handleMarkChord consumes the key following `m`. Only a-z/A-Z name a
 // mark; any other key — Esc included — cancels silently, matching vim
-// (see handleWindowChord, internal/ui/windows.go).
+// (and the ctrl+w / leader sequences, internal/ui/keyseqs.go).
 func (a *App) handleMarkChord(msg tea.KeyMsg) tea.Cmd {
 	keyStr := msg.String()
 	if len(keyStr) != 1 || !isMarkLetter(keyStr[0]) {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/gammons/slk/internal/core"
 	"github.com/gammons/slk/internal/ui/channelpicker"
-	"github.com/gammons/slk/internal/ui/help"
 	"github.com/gammons/slk/internal/ui/linkpicker"
 	"github.com/gammons/slk/internal/ui/marks"
 	"github.com/gammons/slk/internal/ui/mentionpicker"
@@ -137,7 +136,7 @@ func dialogGoldens() []dialogGolden {
 	linkShown := func(a *App) bool { return a.linkPicker.IsVisible() }
 
 	openHelp := func(t *testing.T, a *App) {
-		a.help.SetEntries(help.FromKeyMap(a.keys))
+		a.help.SetEntries(a.helpEntries())
 		a.help.SetFooter("slk golden")
 		a.help.Open()
 		repeat(25, func() { a.help.HandleKey("j") })
@@ -323,7 +322,7 @@ func dialogGoldens() []dialogGolden {
 		{
 			name: "dialog_help_search_no_match", want: "No matching keybindings", shown: helpShown,
 			open: func(t *testing.T, a *App) {
-				a.help.SetEntries(help.FromKeyMap(a.keys))
+				a.help.SetEntries(a.helpEntries())
 				a.help.Open()
 				a.help.HandleKey("/")
 				typeKeys(func(k string) struct{} { a.help.HandleKey(k); return struct{}{} }, "zqz")

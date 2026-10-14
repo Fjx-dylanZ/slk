@@ -22,6 +22,7 @@ type Config struct {
 	Sidebar       Sidebar               `toml:"sidebar"`
 	Compose       Compose               `toml:"compose"`
 	Marks         Marks                 `toml:"marks"`
+	Keys          Keys                  `toml:"keys"`
 	Sections      map[string]SectionDef `toml:"sections"`
 	Theme         Theme                 `toml:"theme"`
 	Workspaces    map[string]Workspace  `toml:"workspaces"`
@@ -274,6 +275,12 @@ func Load(path string) (Config, error) {
 		return cfg, err
 	}
 	cfg.Workspaces = resolved
+
+	leader, err := normalizeLeader(cfg.Keys.Leader)
+	if err != nil {
+		return cfg, fmt.Errorf("[keys] leader: %w", err)
+	}
+	cfg.Keys.Leader = leader
 
 	// Clamp MouseWheelLines: 0 (unset, after a user supplied a partial
 	// [appearance] block without this key) and negative values both fall

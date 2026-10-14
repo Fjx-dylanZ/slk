@@ -80,7 +80,7 @@ func TestRunKeyCases_Harness(t *testing.T) {
 			// one. Here ctrl+w arms the window-command chord
 			// (mode_normal.go:92), which handleNormalMode's first
 			// branch consumes and disarms (mode_normal.go:42) before
-			// delegating 'v' to handleWindowChord -> splitWindow.
+			// delegating 'v' to the window-command table -> splitWindow.
 			//
 			// The assertion is deliberately positive (two windows),
 			// not merely "the chord is no longer armed": the negative
@@ -94,7 +94,7 @@ func TestRunKeyCases_Harness(t *testing.T) {
 			opts: []testOpt{withSize(200, 50)},
 			setup: func(t *testing.T, a *App) {
 				_ = dispatchModeKey(a, keyMod('w', tea.ModCtrl))
-				if !a.pendingWinCmd {
+				if !a.pendingSeq.Pending() {
 					t.Fatal("precondition: ctrl+w did not arm the window chord")
 				}
 			},
@@ -104,8 +104,8 @@ func TestRunKeyCases_Harness(t *testing.T) {
 				if got := a.wins.Len(); got != 2 {
 					t.Errorf("window count = %d, want 2 (ctrl+w v should have split)", got)
 				}
-				if a.pendingWinCmd {
-					t.Error("pendingWinCmd still armed after dispatch")
+				if a.pendingSeq.Pending() {
+					t.Error("ctrl+w sequence still pending after dispatch")
 				}
 			},
 		},
@@ -305,7 +305,7 @@ type keyCase struct {
 // directly. The plan's brief prescribed the direct assignment, on the
 // theory that SetMode's side effects would contaminate the
 // precondition. On a freshly built App they do not: of SetMode's three
-// guarded branches (app.go:1640) the chord disarm needs pendingWinCmd
+// guarded branches (app.go:1640) the chord disarm needs a pending sequence
 // set, the cmdline clear needs the App to already be in ModeCommand,
 // and the ModeInsert branch calls clearSelections, which is a no-op
 // with no selection active. What SetMode does unconditionally is

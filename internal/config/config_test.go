@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -480,6 +481,74 @@ func TestConfig_MarksShowJumpOverlayFalseDistinguishableFromUnset(t *testing.T) 
 	}
 	if unset.EffectiveShowJumpOverlay() == off.EffectiveShowJumpOverlay() {
 		t.Fatal("unset and explicit false must resolve differently")
+	}
+}
+
+// [keys] leader: accepted spellings are normalized to the key string
+// the UI matches against; unset stays "" so the UI keeps its default.
+func TestConfig_KeysLeader(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"unset", "", ""},
+		{"empty", "[keys]\nleader = \"\"\n", ""},
+		{"backslash, basic string", "[keys]\nleader = \"\\\\\"\n", "\\"},
+		{"backslash, literal string", "[keys]\nleader = '\\'\n", "\\"},
+		{"comma", "[keys]\nleader = \",\"\n", ","},
+		{"space by name", "[keys]\nleader = \"space\"\n", "space"},
+		{"space by name, any case", "[keys]\nleader = \"Space\"\n", "space"},
+		{"a literal space", "[keys]\nleader = \" \"\n", "space"},
+		{"uppercase letter", "[keys]\nleader = \"Q\"\n", "Q"},
+		{"zero is not a workspace key", "[keys]\nleader = \"0\"\n", "0"},
+		{"ctrl chord", "[keys]\nleader = \"ctrl+space\"\n", "ctrl+space"},
+		{"modifiers any case, ctrl letter lower-cased", "[keys]\nleader = \"Ctrl+X\"\n", "ctrl+x"},
+		{"modifiers in bubbletea order", "[keys]\nleader = \"alt+ctrl+x\"\n", "ctrl+alt+x"},
+		{"alt keeps the letter's case", "[keys]\nleader = \"alt+Y\"\n", "alt+Y"},
+		{"plus key", "[keys]\nleader = \"ctrl++\"\n", "ctrl++"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := loadConfigString(t, tc.body).Keys.Leader; got != tc.want {
+				t.Fatalf("leader = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A leader slk cannot use is a startup error that names the section,
+// not a silent fallback: a typo'd leader would otherwise just never
+// work.
+func TestConfig_KeysLeaderRejected(t *testing.T) {
+	for _, value := range []string{
+		"esc",      // cancels a sequence
+		"tab",      // named keys are not offered
+		"leader",   // a word
+		"ab",       // two keys
+		"shift+a",  // write the shifted character
+		"meta+x",   // unsupported modifier
+		"ctrl+",    // modifier without a key
+		"ctrl+c",   // intercepted before normal mode
+		"CTRL+C",   // same, any spelling
+		"1",        // switches workspaces
+		"9",        // switches workspaces
+		"\t",       // not printable as a key
+		"ctrl+tab", // named key behind a modifier
+	} {
+		t.Run(value, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			body := "[keys]\nleader = '" + value + "'\n"
+			if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(path)
+			if err == nil {
+				t.Fatalf("leader %q loaded without error", value)
+			}
+			if !strings.Contains(err.Error(), "[keys] leader") {
+				t.Fatalf("error %q does not name the setting", err)
+			}
+		})
 	}
 }
 

@@ -323,7 +323,7 @@ func buildTestApp(opts ...testOpt) *App {
 	//
 	// The skip is NOT because those side effects would contaminate the
 	// precondition — they would not. On a freshly built App all three
-	// guarded branches are inert (pendingWinCmd is false, a.mode is not
+	// guarded branches are inert (no key sequence is pending, a.mode is not
 	// ModeCommand, and clearSelections is a no-op with no selection),
 	// and the unconditional a.statusbar.SetMode(mode) at app.go:1663 is
 	// the one thing production ALWAYS does after a.mode = mode at :1662

@@ -1,9 +1,10 @@
 // internal/ui/windows_chord_test.go
 //
 // ctrl+w window-command chord tests (window-management design §4).
-// The prefix arms a pending sub-state in normal mode; the next key is
-// dispatched through handleWindowChord. Unmapped keys and Esc cancel
-// silently; any mode change disarms (SetMode).
+// The prefix arms a pending key sequence in normal mode; the next key
+// is dispatched through the window-command table (keyseqs.go).
+// Unmapped keys and Esc cancel silently; any mode change disarms
+// (SetMode).
 package ui
 
 import (
@@ -27,11 +28,11 @@ func press(a *App, r rune) tea.Cmd {
 func TestChord_CtrlWThenVSplits(t *testing.T) {
 	a := newWideTestApp(t)
 	pressCtrlW(a)
-	if !a.pendingWinCmd {
+	if !a.pendingSeq.Pending() {
 		t.Fatal("ctrl+w should arm the pending window-command state")
 	}
 	_ = press(a, 'v')
-	if a.pendingWinCmd {
+	if a.pendingSeq.Pending() {
 		t.Fatal("chord key should disarm the pending state")
 	}
 	if a.wins.Len() != 2 {
@@ -87,7 +88,7 @@ func TestChord_UnmappedKeyCancelsSilently(t *testing.T) {
 	a := newWideTestApp(t)
 	pressCtrlW(a)
 	_ = press(a, 'z')
-	if a.pendingWinCmd {
+	if a.pendingSeq.Pending() {
 		t.Fatal("unmapped chord key should cancel the pending state")
 	}
 	if a.wins.Len() != 1 {
@@ -96,7 +97,7 @@ func TestChord_UnmappedKeyCancelsSilently(t *testing.T) {
 	// Esc cancels too:
 	pressCtrlW(a)
 	_ = handleNormalMode(a, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if a.pendingWinCmd {
+	if a.pendingSeq.Pending() {
 		t.Fatal("esc should cancel the pending state")
 	}
 	if a.wins.Len() != 1 {
@@ -115,7 +116,7 @@ func TestChord_EscMidChordDoesNotLeakToEscapeCase(t *testing.T) {
 	if !a.threadVisible {
 		t.Fatal("esc mid-chord must be swallowed, not close the thread panel")
 	}
-	if a.pendingWinCmd {
+	if a.pendingSeq.Pending() {
 		t.Fatal("esc should still cancel the pending state")
 	}
 }
@@ -166,7 +167,7 @@ func TestChord_CtrlWCtrlWCycles(t *testing.T) {
 	if a.focusedWin != a.wins.Leaves()[0] {
 		t.Fatalf("ctrl+w ctrl+w should cycle, focused %v", a.focusedWin)
 	}
-	if a.pendingWinCmd {
+	if a.pendingSeq.Pending() {
 		t.Fatal("pending state should be disarmed after the chord")
 	}
 }
@@ -175,7 +176,7 @@ func TestChord_ModeChangeDisarms(t *testing.T) {
 	a := newWideTestApp(t)
 	pressCtrlW(a)
 	a.SetMode(ModeConfirm) // e.g. global ctrl+c intercept fires mid-chord
-	if a.pendingWinCmd {
+	if a.pendingSeq.Pending() {
 		t.Fatal("any mode change must disarm the pending chord state")
 	}
 }

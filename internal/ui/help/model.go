@@ -58,35 +58,37 @@ func (m *Model) SetFooter(s string) {
 	m.footer = s
 }
 
-// FromKeyMap derives Entries from any struct whose fields are key.Binding.
-// Bindings without help metadata (empty Key and Desc) are skipped.
-// The returned slice is sorted alphabetically by description (case-insensitive)
-// for stable display order.
-func FromKeyMap(km any) []Entry {
+// FromKeyMap derives Entries from any struct whose fields are key.Binding,
+// plus extra rows that no binding carries (e.g. ones generated from a key
+// sequence table). Bindings without help metadata (empty Key and Desc) are
+// skipped. The returned slice is sorted alphabetically by description
+// (case-insensitive) for stable display order; on equal descriptions a
+// binding's row comes before the extra rows.
+func FromKeyMap(km any, extra ...Entry) []Entry {
 	var entries []Entry
 	v := reflect.ValueOf(km)
 	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
-	if v.Kind() != reflect.Struct {
-		return entries
+	if v.Kind() == reflect.Struct {
+		bindingType := reflect.TypeOf(key.Binding{})
+		for i := range v.NumField() {
+			f := v.Field(i)
+			if !f.Type().AssignableTo(bindingType) {
+				continue
+			}
+			b, ok := f.Interface().(key.Binding)
+			if !ok {
+				continue
+			}
+			h := b.Help()
+			if h.Key == "" && h.Desc == "" {
+				continue
+			}
+			entries = append(entries, Entry{Key: h.Key, Desc: h.Desc})
+		}
 	}
-	bindingType := reflect.TypeOf(key.Binding{})
-	for i := 0; i < v.NumField(); i++ {
-		f := v.Field(i)
-		if !f.Type().AssignableTo(bindingType) {
-			continue
-		}
-		b, ok := f.Interface().(key.Binding)
-		if !ok {
-			continue
-		}
-		h := b.Help()
-		if h.Key == "" && h.Desc == "" {
-			continue
-		}
-		entries = append(entries, Entry{Key: h.Key, Desc: h.Desc})
-	}
+	entries = append(entries, extra...)
 	sort.SliceStable(entries, func(i, j int) bool {
 		return strings.ToLower(entries[i].Desc) < strings.ToLower(entries[j].Desc)
 	})

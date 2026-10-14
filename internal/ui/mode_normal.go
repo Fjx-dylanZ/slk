@@ -18,16 +18,18 @@
 //     preview)
 //   - reaction nav sub-state: r enters; arrows + Enter select
 //     (delegated to handleReactionNav, for either content pane)
-//   - window commands: Ctrl-W prefix arms a pending sub-state; the
-//     next key is a window chord (s/v split, h/j/k/l focus, w cycle,
-//     q/c close, o only — delegated to handleWindowChord)
+//   - key sequences: Ctrl-W (window commands) and the leader key arm
+//     a pending sequence dispatched from the keyseq tables in
+//     keyseqs.go (s/v split, h/j/k/l focus a pane, w cycle, q/c
+//     close, o only; the leader layer mirrors the ctrl chords)
 //   - workspace switch: 1-9 number keys (handled in default arm)
 //   - quit confirm: q (close thread if visible, else no-op),
 //     Q (quit confirm)
 //
-// Reaction-nav sub-state is intercepted FIRST: while in it, only
-// a narrow set of keys (arrows / Enter / r / Esc) is handled,
-// everything else falls back to normal key handling.
+// Pending sub-states are intercepted FIRST (a key sequence, then gg,
+// m, '). The reaction-nav sub-state comes next: while in it, only a
+// narrow set of keys (arrows / Enter / r / Esc) does anything. Then a
+// key may start a sequence; everything else is handleNormalKey's.
 package ui
 
 import (
@@ -36,17 +38,15 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gammons/slk/internal/ui/help"
 	"github.com/gammons/slk/internal/ui/themeswitcher"
 )
 
 func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
-	// ctrl+w pending sub-state: the next key is a window command
-	// (intercepted FIRST, like the reaction-nav sub-states below).
-	if a.pendingWinCmd {
-		a.pendingWinCmd = false
-		a.statusbar.SetHelpHint(a.defaultHelpHint())
-		return a.handleWindowChord(msg)
+	// Pending key sequence (ctrl+w, the leader): the key continues it
+	// (intercepted FIRST, like the reaction-nav sub-state below).
+	if a.pendingSeq.Pending() {
+		cmd, _ := a.pressKeySeq(msg)
+		return cmd
 	}
 
 	// `g` pending sub-state: a second `g` completes the vim `gg` chord
@@ -64,7 +64,7 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	}
 
 	// m pending sub-state: the next key names the mark to set
-	// (intercepted FIRST, like ctrl+w above).
+	// (intercepted FIRST, like a key sequence above).
 	if a.pendingMark {
 		a.pendingMark = false
 		a.statusbar.SetHelpHint(a.defaultHelpHint())
@@ -83,6 +83,17 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		return a.handleReactionNav(p, channelID, msg)
 	}
 
+	// The leader or ctrl+w starts a key sequence; the leader wins over
+	// any binding on the same key (<leader><leader> hands it back).
+	if cmd, ok := a.pressKeySeq(msg); ok {
+		return cmd
+	}
+	return handleNormalKey(a, msg)
+}
+
+// handleNormalKey runs a Normal-mode key that is not part of a key
+// sequence: the ephemeral-selection guard, then the binding arms.
+func handleNormalKey(a *App, msg tea.KeyMsg) tea.Cmd {
 	if a.isMessageOpKey(msg) {
 		if cmd, blocked := a.ephemeralSelectionGuard(); blocked {
 			return cmd
@@ -129,11 +140,6 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			a.CloseThread()
 		}
 
-	case key.Matches(msg, a.keys.WindowPrefix):
-		a.pendingWinCmd = true
-		a.statusbar.SetHelpHint("ctrl+w …")
-		return nil
-
 	case key.Matches(msg, a.keys.SearchMode):
 		// Spec scopes `/` to the channel message pane in v1: no-op
 		// while the thread panel has focus.
@@ -154,26 +160,10 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		return a.searchStep(-1)
 
 	case key.Matches(msg, a.keys.WorkspaceSearch):
-		a.searchResults.Open()
-		a.SetMode(ModeWorkspaceSearch)
-		return nil
+		return a.openWorkspaceSearch()
 
 	case key.Matches(msg, a.keys.ActivityView):
-		// Global toggle for the Activity feed (the desktop client's
-		// Cmd+Shift+A). Pressing it in the Activity view returns to the
-		// channel view you came from; pressing it anywhere else opens
-		// Activity. Mirrors :activity and clicking the sidebar row.
-		if a.view == ViewActivity {
-			a.view = ViewChannels
-			a.sidebar.SetActivityActive(false)
-			if a.activeChannelID != "" {
-				a.sidebar.SelectByID(a.activeChannelID)
-			}
-			a.focusedPanel = PanelMessages
-			return nil
-		}
-		a.sidebar.SelectActivityRow()
-		return func() tea.Msg { return ActivityViewActivatedMsg{} }
+		return a.toggleActivityView()
 
 	case key.Matches(msg, a.keys.Tab):
 		a.FocusNext()
@@ -266,38 +256,27 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		return a.scrollFocusedPanel(a.halfPageSize())
 
 	case key.Matches(msg, a.keys.Help):
-		a.help.SetEntries(help.FromKeyMap(a.keys))
+		a.help.SetEntries(a.helpEntries())
 		a.help.Open()
 		a.SetMode(ModeHelp)
 
 	case key.Matches(msg, a.keys.ThemeSwitcher):
-		// Per-workspace scope. Header text shows the current
-		// workspace name.
-		header := "Theme for " + a.activeTeamName()
-		a.themeSwitcher.OpenWithScope(themeswitcher.ScopeWorkspace, header)
-		a.SetMode(ModeThemeSwitcher)
-		return nil
+		return a.openWorkspaceThemeSwitcher()
 	case key.Matches(msg, a.keys.ThemeSwitcherGlobal):
-		a.themeSwitcher.OpenWithScope(themeswitcher.ScopeGlobal, "Default theme for new workspaces")
-		a.SetMode(ModeThemeSwitcher)
-		return nil
+		return a.openGlobalThemeSwitcher()
 	case key.Matches(msg, a.keys.ThemeNext):
 		return a.cycleTheme(1)
 	case key.Matches(msg, a.keys.ThemePrev):
 		return a.cycleTheme(-1)
 
 	case key.Matches(msg, a.keys.PresenceMenu):
-		header := a.workspaceNameForActive()
-		pres, dndEnabled, dndEnd, _ := a.presence.Status(a.activeTeamID)
-		a.presenceMenu.OpenWith(header, pres, dndEnabled, dndEnd)
-		a.SetMode(ModePresenceMenu)
+		return a.openPresenceMenu()
 
 	case key.Matches(msg, a.keys.FuzzyFinder) || key.Matches(msg, a.keys.FuzzyFinderAlt):
-		a.channelFinder.Open()
-		a.SetMode(ModeChannelFinder)
+		return a.openChannelFinder()
 
 	case key.Matches(msg, a.keys.NewMessage):
-		return func() tea.Msg { return EnterNewMessageMsg{} }
+		return a.enterNewMessage()
 
 	case key.Matches(msg, a.keys.Reaction):
 		if p, channelID, ok := a.focusedContentPane(); ok {
@@ -433,4 +412,71 @@ func (a *App) jumpToUnread(dir int) tea.Cmd {
 	return func() tea.Msg {
 		return ChannelSelectedMsg{ID: id, Name: name, Type: chType}
 	}
+}
+
+// The actions below are shared by their Normal-mode bindings and the
+// leader layer (keyseqs.go).
+
+// openChannelFinder opens the channel switcher (ctrl+t / ctrl+p).
+func (a *App) openChannelFinder() tea.Cmd {
+	a.channelFinder.Open()
+	a.SetMode(ModeChannelFinder)
+	return nil
+}
+
+// openWorkspaceSearch opens server-side workspace search (ctrl+f).
+func (a *App) openWorkspaceSearch() tea.Cmd {
+	a.searchResults.Open()
+	a.SetMode(ModeWorkspaceSearch)
+	return nil
+}
+
+// toggleActivityView is the global Activity toggle (ctrl+a, the desktop
+// client's Cmd+Shift+A). Pressed in the Activity view it returns to the
+// channel view you came from; anywhere else it opens Activity. Mirrors
+// :activity and clicking the sidebar row.
+func (a *App) toggleActivityView() tea.Cmd {
+	if a.view == ViewActivity {
+		a.view = ViewChannels
+		a.sidebar.SetActivityActive(false)
+		if a.activeChannelID != "" {
+			a.sidebar.SelectByID(a.activeChannelID)
+		}
+		a.focusedPanel = PanelMessages
+		return nil
+	}
+	a.sidebar.SelectActivityRow()
+	return func() tea.Msg { return ActivityViewActivatedMsg{} }
+}
+
+// enterNewMessage opens the new-message picker (ctrl+n).
+func (a *App) enterNewMessage() tea.Cmd {
+	return func() tea.Msg { return EnterNewMessageMsg{} }
+}
+
+// openPresenceMenu opens the set-status menu for the active workspace
+// (ctrl+s).
+func (a *App) openPresenceMenu() tea.Cmd {
+	header := a.workspaceNameForActive()
+	pres, dndEnabled, dndEnd, _ := a.presence.Status(a.activeTeamID)
+	a.presenceMenu.OpenWith(header, pres, dndEnabled, dndEnd)
+	a.SetMode(ModePresenceMenu)
+	return nil
+}
+
+// openWorkspaceThemeSwitcher opens the theme switcher for the active
+// workspace (ctrl+y); the header names the workspace.
+func (a *App) openWorkspaceThemeSwitcher() tea.Cmd {
+	header := "Theme for " + a.activeTeamName()
+	a.themeSwitcher.OpenWithScope(themeswitcher.ScopeWorkspace, header)
+	a.SetMode(ModeThemeSwitcher)
+	return nil
+}
+
+// openGlobalThemeSwitcher opens the theme switcher for the default
+// theme of new workspaces (ctrl+shift+y).
+func (a *App) openGlobalThemeSwitcher() tea.Cmd {
+	a.themeSwitcher.OpenWithScope(themeswitcher.ScopeGlobal, "Default theme for new workspaces")
+	a.SetMode(ModeThemeSwitcher)
+	return nil
 }
